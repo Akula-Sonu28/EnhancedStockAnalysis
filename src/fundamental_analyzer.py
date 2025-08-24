@@ -6,15 +6,22 @@ from config import FUNDAMENTAL_WEIGHTS
 
 def safe_float(val):
     """Convert pandas Series or scalar to float"""
-    if isinstance(val, pd.Series):
-        return float(val.iloc[0]) if not val.empty else None
-    return float(val) if val is not None else None
+    try:
+        if isinstance(val, pd.Series):
+            return float(val.iloc[0]) if not val.empty else 0.0
+        return float(val) if val is not None else 0.0
+    except (ValueError, TypeError):
+        return 0.0
 
 def extract_fundamental_metrics(info):
     """
     Extracts fundamental metrics from yfinance info dict.
     Returns: dict of metrics (with None for missing values)
     """
+    if not info:
+        logging.error("No fundamental data available")
+        return {}
+        
     metrics = {}
     
     # Comprehensive metrics mapping
@@ -69,15 +76,16 @@ def extract_fundamental_metrics(info):
     
     # Extract and convert metrics
     for yf_key, our_key in key_metrics.items():
-        value = info.get(yf_key)
-        if value is not None:
-            try:
-                metrics[our_key] = safe_float(value)
-            except (ValueError, TypeError) as e:
-                logging.warning(f"Could not convert {yf_key}: {str(e)}")
-                metrics[our_key] = None
-        else:
-            metrics[our_key] = None
+        try:
+            value = info.get(yf_key)
+            metrics[our_key] = safe_float(value)
+        except Exception as e:
+            logging.warning(f"Could not process {yf_key}: {str(e)}")
+            metrics[our_key] = 0.0
+        
+        # Ensure we always have a valid numeric value
+        if metrics[our_key] is None:
+            metrics[our_key] = 0.0
     
     return metrics
 

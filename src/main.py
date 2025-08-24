@@ -61,18 +61,30 @@ def main():
                 # Combine all data
                 row = {
                     "symbol": symbol,
-                    **fund_metrics,
-                    **tech_ind,
                     "FundamentalScore": fund_score_value,
                     "TechnicalScore": tech_score,
                     "OverallScore": overall_score,
                     "FundamentalRating": fund_score.get('rating', 'N/A') if isinstance(fund_score, dict) else 'N/A',
                     "TechnicalAnalysis": tech_analysis
                 }
+                # Add any available fundamental metrics
+                if fund_metrics:
+                    row.update(fund_metrics)
+                # Add any available technical indicators
+                if tech_ind:
+                    row.update(tech_ind)
                 results.append(row)
             except Exception as e:
                 logging.error(f"Error processing {symbol}: {str(e)}")
-                continue
+                # Add the stock with basic information even if there's an error
+                results.append({
+                    "symbol": symbol,
+                    "FundamentalScore": 0,
+                    "TechnicalScore": 0,
+                    "OverallScore": 0,
+                    "FundamentalRating": "Error",
+                    "TechnicalAnalysis": f"Error: {str(e)}"
+                })
         
         if results:
             df = pd.DataFrame(results)

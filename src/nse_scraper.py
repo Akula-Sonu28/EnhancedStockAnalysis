@@ -115,12 +115,21 @@ def get_top_150_stock_data():
     """
     logging.info("Starting to fetch stock data...")
     
-    # Fetch data in parallel
-    results = fetch_stock_data_parallel(NIFTY_STOCKS)
+    results = []
+    batch_size = 10  # Process stocks in smaller batches
+    
+    for i in range(0, len(NIFTY_STOCKS), batch_size):
+        batch = NIFTY_STOCKS[i:i+batch_size]
+        batch_results = fetch_stock_data_parallel(batch)
+        results.extend(batch_results)
+        time.sleep(2)  # Add delay between batches
     
     # Log summary
     total_fetched = len(results)
     logging.info(f"Successfully fetched data for {total_fetched} stocks")
+    
+    if total_fetched < len(NIFTY_STOCKS):
+        logging.warning(f"Missing data for {len(NIFTY_STOCKS) - total_fetched} stocks")
     
     return results
 
