@@ -6,6 +6,7 @@ from nse_scraper import get_top_150_stock_data
 from fundamental_analyzer import extract_fundamental_metrics, compute_fundamental_score
 from technical_analyzer import get_ohlcv, calculate_indicators, compute_technical_score
 from data_exporter import export_data
+from json_export import export_to_json
 
 def main():
     # Configure logging with a context manager for proper cleanup
@@ -89,12 +90,25 @@ def main():
                 })
         
         if results:
+            # Create DataFrame and export to Excel
             df = pd.DataFrame(results)
             logging.info("\nTop 10 stocks by overall score:")
             top_10 = df[['symbol', 'OverallScore']].sort_values('OverallScore', ascending=False).head(10)
             for _, row in top_10.iterrows():
                 logging.info(f"{row['symbol']}: {row['OverallScore']}")
+            
+            # Export to Excel
             export_data(df)
+            print("\nExcel export completed successfully!")
+            
+            # Export to JSON with column names
+            try:
+                json_file = export_to_json(results)
+                print(f"\nJSON export completed successfully! File: {json_file}")
+                logging.info(f"JSON export completed successfully to {json_file}")
+            except Exception as e:
+                print(f"\nError during JSON export: {str(e)}")
+                logging.error(f"Error during JSON export: {str(e)}")
         else:
             logging.error("No results to process")
             
