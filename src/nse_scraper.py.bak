@@ -1,0 +1,427 @@
+# NSE Scraper: Fetch top 150 stocks with fallback and error handling
+import requests
+import time
+import logging
+import pandas as pd
+import yfinance as yf
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from bs4 import BeautifulSoup
+import json
+import random
+from src.config import (
+    NSE_STOCK_LIST_API, FALLBACK_STOCKS, REQUESTS_PER_MIN, RETRY_LIMIT, RETRY_BACKOFF, LOG_FILE
+)
+
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
+
+# Enhanced headers that mimic a real browser
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0"
+}
+
+class NSESession:
+    """Manages NSE API session with proper cookie handling and retries"""
+    def __init__(self):
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        self.session.headers.update(HEADERS)
+        
+    def get_cookies(self):
+        """Get cookies from NSE homepage"""
+        try:
+            self.session.get("https://www.nseindia.com/", timeout=10)
+            return True
+        except Exception as e:
+            logging.error(f"Failed to get NSE cookies: {e}")
+            return False
+            
+    def get_data(self, url, params=None):
+        """Make request with proper error handling"""
+        if not self.get_cookies():
+            return None
+            
+        try:
+            time.sleep(random.uniform(1, 2))  # Random delay between requests
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logging.error(f"NSE API request failed: {e}")
+            return None
+
+def get_top_150_stock_data():
+    """
+    Fetch top 150 stocks by market cap from NSE with enhanced reliability.
+    Returns: List of tuples (symbol, basic_info).
+    """
+    nse = NSESession()
+    results = []
+    
+    # Try multiple data sources in order of preference
+    sources = [
+        ("NIFTY 500", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20500"),
+        ("NIFTY 200", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20200"),
+        ("NIFTY 100", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20100"),
+        ("NIFTY 50", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050")
+    ]
+    
+    for index_name, url in sources:
+        logging.info(f"Attempting to fetch {index_name} stocks...")
+        data = nse.get_data(url)
+        
+        if data and 'data' in data:
+            df = pd.DataFrame(data['data'])
+            if not df.empty:
+                df = df[df['marketCap'].notnull()]
+                df = df.sort_values(by='marketCap', ascending=False)
+                
+                # Get detailed info for each stock
+                for _, row in df.iterrows():
+                    symbol = row['symbol']
+                    time.sleep(random.uniform(0.5, 1))  # Rate limiting
+                    stock_info = fetch_stock_data(symbol)
+                    if stock_info:
+                        results.append((symbol, stock_info))
+                    
+                    if len(results) >= 150:
+                        logging.info(f"Successfully fetched {len(results)} stocks with detailed info")
+                        return results
+                        
+                logging.info(f"Fetched {len(results)} stocks from {index_name}")
+                if results:  # If we got any results, stop trying other sources
+                    break
+    
+    if not results:
+        logging.warning("NSE API attempts exhausted, using alternative data source...")
+        
+    # If we still don't have enough stocks, use Yahoo Finance API as backup
+    if len(results) < 150:
+        for symbol in FALLBACK_STOCKS:
+            if symbol not in [r[0] for r in results]:
+                stock_info = fetch_stock_data(symbol)
+                if stock_info:
+                    results.append((symbol, stock_info))
+                
+                if len(results) >= 150:
+                    break
+                    
+                time.sleep(0.5)  # Rate limiting for Yahoo Finance API
+    
+    logging.info(f"Final count of stocks fetched: {len(results)}")
+    return results
+
+def fetch_stock_data(symbol, retry=0):
+    """
+    Fetch comprehensive stock data using multiple sources.
+    Returns: Combined data dictionary or None.
+    """
+    nse = NSESession()
+    data = {}
+    
+    try:
+        # 1. Get NSE detailed quote
+        quote_url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+        nse_data = nse.get_data(quote_url)
+        
+        if nse_data:
+            data.update({
+                'symbol': symbol,
+                'companyName': nse_data.get('companyName'),
+                'industry': nse_data.get('industry'),
+                'marketCap': nse_data.get('marketCap'),
+                'lastPrice': nse_data.get('lastPrice'),
+                'dayHigh': nse_data.get('dayHigh'),
+                'dayLow': nse_data.get('dayLow'),
+                'high52': nse_data.get('high52'),
+                'low52': nse_data.get('low52'),
+                'priceToBook': nse_data.get('priceToBook'),
+                'eps': nse_data.get('eps'),
+                'pe': nse_data.get('pe')
+            })
+            
+            # 2. Get trading statistics
+            trade_info_url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}&section=trade_info"
+            trade_data = nse.get_data(trade_info_url)
+            if trade_data:
+                data.update({
+                    'totalTradedVolume': trade_data.get('totalTradedVolume'),
+                    'deliveryToTradedQuantity': trade_data.get('deliveryToTradedQuantity'),
+                    'totalBuyQuantity': trade_data.get('totalBuyQuantity'),
+                    'totalSellQuantity': trade_data.get('totalSellQuantity')
+                })
+        
+        # 3. Fallback/Additional data from Yahoo Finance
+        ticker = yf.Ticker(f"{symbol}.NS")
+        yf_info = ticker.info
+        
+        if yf_info:
+            data.update({
+                'trailingPE': yf_info.get('trailingPE'),
+                'forwardPE': yf_info.get('forwardPE'),
+                'profitMargins': yf_info.get('profitMargins'),
+                'returnOnEquity': yf_info.get('returnOnEquity'),
+                'currentRatio': yf_info.get('currentRatio'),
+                'debtToEquity': yf_info.get('debtToEquity'),
+                'beta': yf_info.get('beta'),
+                'dividendYield': yf_info.get('dividendYield'),
+                'averageVolume': yf_info.get('averageVolume'),
+                'recommendationMean': yf_info.get('recommendationMean')
+            })
+            
+        if not data:
+            raise ValueError("No data available from any source")
+            
+        logging.info(f"Successfully fetched comprehensive data for {symbol}")
+        return data
+        
+    except Exception as e:
+        if retry < RETRY_LIMIT:
+            time.sleep(RETRY_BACKOFF * (retry + 1))
+            return fetch_stock_data(symbol, retry + 1)
+        logging.error(f"Failed to fetch data for {symbol}: {e}")
+        return None
+import requests
+import time
+import loggidef fetch_stock_data(symbol, retry=0):
+    """
+    Fetch comprehensive stock data using multiple sources.
+    Returns: Combined data dictionary or None.
+    """
+    nse = NSESession()
+    data = {}
+    
+    try:
+        # 1. Get NSE detailed quote
+        quote_url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+        nse_data = nse.get_data(quote_url)
+        
+        if nse_data:
+            data.update({
+                'symbol': symbol,
+                'companyName': nse_data.get('companyName'),
+                'industry': nse_data.get('industry'),
+                'marketCap': nse_data.get('marketCap'),
+                'lastPrice': nse_data.get('lastPrice'),
+                'dayHigh': nse_data.get('dayHigh'),
+                'dayLow': nse_data.get('dayLow'),
+                'high52': nse_data.get('high52'),
+                'low52': nse_data.get('low52'),
+                'priceToBook': nse_data.get('priceToBook'),
+                'eps': nse_data.get('eps'),
+                'pe': nse_data.get('pe')
+            })
+            
+            # 2. Get trading statistics
+            trade_info_url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}&section=trade_info"
+            trade_data = nse.get_data(trade_info_url)
+            if trade_data:
+                data.update({
+                    'totalTradedVolume': trade_data.get('totalTradedVolume'),
+                    'deliveryToTradedQuantity': trade_data.get('deliveryToTradedQuantity'),
+                    'totalBuyQuantity': trade_data.get('totalBuyQuantity'),
+                    'totalSellQuantity': trade_data.get('totalSellQuantity')
+                })
+        
+        # 3. Fallback/Additional data from Yahoo Finance
+        ticker = yf.Ticker(f"{symbol}.NS")
+        yf_info = ticker.info
+        
+        if yf_info:
+            data.update({
+                'trailingPE': yf_info.get('trailingPE'),
+                'forwardPE': yf_info.get('forwardPE'),
+                'profitMargins': yf_info.get('profitMargins'),
+                'returnOnEquity': yf_info.get('returnOnEquity'),
+                'currentRatio': yf_info.get('currentRatio'),
+                'debtToEquity': yf_info.get('debtToEquity'),
+                'beta': yf_info.get('beta'),
+                'dividendYield': yf_info.get('dividendYield'),
+                'averageVolume': yf_info.get('averageVolume'),
+                'recommendationMean': yf_info.get('recommendationMean')
+            })
+            
+        if not data:
+            raise ValueError("No data available from any source")
+            
+        logging.info(f"Successfully fetched comprehensive data for {symbol}")
+        return data
+        
+    except Exception as e:
+        if retry < RETRY_LIMIT:
+            time.sleep(RETRY_BACKOFF * (retry + 1))
+            return fetch_stock_data(symbol, retry + 1)
+        logging.error(f"Failed to fetch data for {symbol}: {e}")
+        return None as pd
+import yfinance as yf
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from bs4 import BeautifulSoup
+import json
+import random
+from src.config import (
+    NSE_STOCK_LIST_API, FALLBACK_STOCKS, REQUESTS_PER_MIN, RETRY_LIMIT, RETRY_BACKOFF, LOG_FILE
+)
+
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
+
+# Enhanced headers that mimic a real browser
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "Cache-Control": "max-age=0"
+}
+
+class NSESession:
+    """Manages NSE API session with proper cookie handling and retries"""
+    def __init__(self):
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=5,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        self.session.headers.update(HEADERS)
+        
+    def get_cookies(self):
+        """Get cookies from NSE homepage"""
+        try:
+            self.session.get("https://www.nseindia.com/", timeout=10)
+            return True
+        except Exception as e:
+            logging.error(f"Failed to get NSE cookies: {e}")
+            return False
+            
+    def get_data(self, url, params=None):
+        """Make request with proper error handling"""
+        if not self.get_cookies():
+            return None
+            
+        try:
+            time.sleep(random.uniform(1, 2))  # Random delay between requests
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logging.error(f"NSE API request failed: {e}")
+            return None
+
+def fetch_nse_top_stocks():
+    """
+    Fetch top 150 stocks by market cap from NSE with enhanced reliability.
+    Returns: List of tuples (symbol, basic_info).
+    """
+    nse = NSESession()
+    results = []
+    
+    # Try multiple data sources in order of preference
+    sources = [
+        ("NIFTY 500", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20500"),
+        ("NIFTY 200", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20200"),
+        ("NIFTY 100", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20100"),
+        ("NIFTY 50", "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%2050")
+    ]
+    
+    for index_name, url in sources:
+        logging.info(f"Attempting to fetch {index_name} stocks...")
+        data = nse.get_data(url)
+        
+        if data and 'data' in data:
+            df = pd.DataFrame(data['data'])
+            if not df.empty:
+                df = df[df['marketCap'].notnull()]
+                df = df.sort_values(by='marketCap', ascending=False)
+                
+                # Get detailed info for each stock
+                for _, row in df.iterrows():
+                    symbol = row['symbol']
+                    time.sleep(random.uniform(0.5, 1))  # Rate limiting
+                    
+                    # Get company info
+                    company_url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+                    company_data = nse.get_data(company_url)
+                    
+                    if company_data:
+                        results.append((symbol, {
+                            'marketCap': row.get('marketCap'),
+                            'lastPrice': row.get('lastPrice'),
+                            'change': row.get('change'),
+                            'percentChange': row.get('pChange'),
+                            'volume': row.get('totalTradedVolume'),
+                            'sector': company_data.get('industry', ''),
+                            'companyName': company_data.get('companyName', ''),
+                            'high52': company_data.get('high52', None),
+                            'low52': company_data.get('low52', None)
+                        }))
+                    
+                    if len(results) >= 150:
+                        logging.info(f"Successfully fetched {len(results)} stocks with detailed info")
+                        return results
+                        
+                logging.info(f"Fetched {len(results)} stocks from {index_name}")
+                if results:  # If we got any results, stop trying other sources
+                    break
+    
+    if not results:
+        logging.warning("NSE API attempts exhausted, using alternative data source...")
+
+def fetch_stock_data(symbol, retry=0):
+	"""
+	Fetch stock data using yfinance as fallback.
+	Returns: yfinance.Ticker.info dict or None.
+	"""
+	try:
+		ticker = yf.Ticker(f"{symbol}.NS")
+		info = ticker.info
+		if not info or 'regularMarketPrice' not in info:
+			raise ValueError(f"No data for {symbol}")
+		return info
+	except Exception as e:
+		if retry < RETRY_LIMIT:
+			time.sleep(RETRY_BACKOFF)
+			return fetch_stock_data(symbol, retry+1)
+		logging.error(f"Failed to fetch data for {symbol}: {e}")
+		return None
+
+def get_top_150_stock_data():
+	"""
+	Main function to get top 150 stock symbols and their yfinance data.
+	Returns: List of (symbol, info_dict)
+	"""
+	symbols = fetch_nse_top_stocks()
+	results = []
+	for i, symbol in enumerate(symbols):
+		info = fetch_stock_data(symbol)
+		if info:
+			results.append((symbol, info))
+		if (i+1) % REQUESTS_PER_MIN == 0:
+			time.sleep(60)  # Rate limiting
+	return results

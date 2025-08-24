@@ -1,0 +1,14 @@
+requests
+pandas
+numpy
+yfinance
+beautifulsoup4
+lxml
+openpyxl
+matplotlib
+seaborn
+plotly
+alpha-vantage
+nsepy
+selenium
+webdriver-manager

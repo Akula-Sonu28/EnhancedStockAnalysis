@@ -1,0 +1,136 @@
+# Technical Analyzer: Calculate indicators and compute score
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import logging
+from config import TECHNICAL_WEIGHTS
+
+def safe_float(val):
+    """Convert pandas Series or scalar to float"""
+    if isinstance(val, pd.Series):
+        return float(val.iloc[0]) if not val.empty else None
+    return float(val) if val is not None else None
+
+def calculate_indicators(df):
+    """
+    Calculate technical indicators for a stock DataFrame (OHLCV).
+    Returns: dict of indicators
+    """
+    try:
+        indicators = {}
+        # SMA/EMA
+        indicators['Close'] = df['Close'].iloc[-1]
+        indicators['sma20'] = df['Close'].rolling(window=20).mean().iloc[-1]
+        indicators['sma50'] = df['Close'].rolling(window=50).mean().iloc[-1]
+        indicators['sma200'] = df['Close'].rolling(window=200).mean().iloc[-1]
+        indicators['ema12'] = df['Close'].ewm(span=12, adjust=False).mean().iloc[-1]
+        indicators['ema26'] = df['Close'].ewm(span=26, adjust=False).mean().iloc[-1]
+        
+        # RSI
+        delta = df['Close'].diff()
+        up = delta.clip(lower=0)
+        down = -1 * delta.clip(upper=0)
+        roll_up = up.rolling(14).mean()
+        roll_down = down.rolling(14).mean()
+        
+        last_roll_down = safe_float(roll_down.iloc[-1])
+        if last_roll_down and last_roll_down != 0:
+            last_rs = safe_float(roll_up.iloc[-1]) / last_roll_down
+            indicators['rsi14'] = 100 - (100 / (1 + last_rs))
+        else:
+            indicators['rsi14'] = 50
+        
+        # MACD
+        ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+        indicators['macd'] = safe_float(ema12.iloc[-1] - ema26.iloc[-1])
+        
+        # Bollinger Bands
+        sma20 = df['Close'].rolling(window=20).mean()
+        std20 = df['Close'].rolling(window=20).std()
+        upper_band = sma20 + (std20 * 2)
+        lower_band = sma20 - (std20 * 2)
+        
+        current_price = safe_float(df['Close'].iloc[-1])
+        if current_price:
+            bb_range = safe_float(upper_band.iloc[-1] - lower_band.iloc[-1])
+            if bb_range:
+                indicators['volatility'] = bb_range / current_price
+            
+        return {k: safe_float(v) for k, v in indicators.items()}
+    except Exception as e:
+        logging.error(f"Error calculating indicators: {str(e)}")
+        return None
+
+def compute_technical_score(indicators):
+    """
+    Compute a 0-100 technical score based on weighted indicators.
+    """
+    if not indicators:
+        return 0
+        
+    score = 0
+    total_weight = sum(TECHNICAL_WEIGHTS.values())
+    
+    # Moving Average Trend (ma_trend)
+    ma_keys = ['sma20', 'sma50', 'sma200', 'Close']
+    if all(k in indicators for k in ma_keys):
+        ma_signals = [
+            indicators['Close'] > indicators['sma20'],  # Short-term trend
+            indicators['sma20'] > indicators['sma50'],  # Medium-term trend
+            indicators['sma50'] > indicators['sma200']  # Long-term trend
+        ]
+        ma_score = sum(ma_signals) / len(ma_signals)
+        score += ma_score * TECHNICAL_WEIGHTS['ma_trend']
+    
+    # RSI (rsi)
+    rsi = indicators.get('rsi14')
+    if rsi is not None:
+        if rsi < 30:  # Oversold
+            rsi_score = 0.8
+        elif rsi > 70:  # Overbought
+            rsi_score = 0.2
+        else:  # Neutral
+            rsi_score = 0.5
+        score += rsi_score * TECHNICAL_WEIGHTS['rsi']
+    
+    # MACD Trend
+    macd = indicators.get('macd')
+    if macd is not None:
+        if macd > 0:  # Bullish
+            macd_score = 0.8
+        else:  # Bearish
+            macd_score = 0.2
+        score += macd_score * TECHNICAL_WEIGHTS['macd']
+    
+    # Price Trend
+    ema_keys = ['ema12', 'ema26']
+    if all(k in indicators for k in ema_keys):
+        if indicators['ema12'] > indicators['ema26']:  # Uptrend
+            trend_score = 0.8
+        else:  # Downtrend
+            trend_score = 0.2
+        score += trend_score * TECHNICAL_WEIGHTS['trend']
+    
+    # Volatility (lower is better)
+    vol = indicators.get('volatility')
+    if vol is not None:
+        vol_score = max(0, 1 - vol)  # Normalize between 0 and 1
+        score += vol_score * TECHNICAL_WEIGHTS['volatility']
+    
+    return round(score / total_weight * 100, 2)
+
+def get_ohlcv(symbol, period="1y"):
+    """
+    Get historical OHLCV data for a stock
+    Returns: DataFrame with OHLCV data
+    """
+    try:
+        stock = yf.Ticker(f"{symbol}.NS")
+        df = stock.history(period=period)
+        if not df.empty:
+            return df
+        logging.warning(f"No historical data available for {symbol}")
+    except Exception as e:
+        logging.error(f"Error fetching historical data for {symbol}: {str(e)}")
+    return None

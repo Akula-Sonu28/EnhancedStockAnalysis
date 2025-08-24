@@ -1,0 +1,85 @@
+# Fundamental Analyzer: Extract metrics and compute score
+import numpy as np
+import pandas as pd
+import logging
+from config import FUNDAMENTAL_WEIGHTS
+
+def safe_float(val):
+    """Convert pandas Series or scalar to float"""
+    if isinstance(val, pd.Series):
+        return float(val.iloc[0]) if not val.empty else None
+    return float(val) if val is not None else None
+
+def extract_fundamental_metrics(info):
+    """
+    Extracts fundamental metrics from yfinance info dict.
+    Returns: dict of metrics (with None for missing values)
+    """
+    metrics = {}
+    
+    # Key metrics to extract
+    key_metrics = {
+        'returnOnEquity': 'roe',
+        'trailingPE': 'pe',
+        'debtToEquity': 'de',
+        'operatingMargins': 'profit_margin',
+        'currentRatio': 'current_ratio',
+        'priceToBook': 'pb',
+        'revenueGrowth': 'revenue_growth',
+        'dividendYield': 'dividend_yield'
+    }
+    
+    # Extract and convert metrics
+    for yf_key, our_key in key_metrics.items():
+        value = info.get(yf_key)
+        if value is not None:
+            try:
+                metrics[our_key] = safe_float(value)
+            except (ValueError, TypeError) as e:
+                logging.warning(f"Could not convert {yf_key}: {str(e)}")
+                metrics[our_key] = None
+        else:
+            metrics[our_key] = None
+    
+    return metrics
+
+def compute_fundamental_score(metrics):
+    """
+    Compute a 0-100 fundamental score based on weighted metrics.
+    """
+    score = 0
+    total_weight = sum(FUNDAMENTAL_WEIGHTS.values())
+    
+    # Return on Equity (higher is better)
+    if metrics['roe'] is not None:
+        score += min(max(metrics['roe'], 0), 30) / 30 * FUNDAMENTAL_WEIGHTS['roe']
+    
+    # PE Ratio (lower is better)
+    if metrics['pe'] is not None and metrics['pe'] > 0:
+        score += min(40/metrics['pe'], 1) * FUNDAMENTAL_WEIGHTS['pe']
+    
+    # Debt/Equity (lower is better)
+    if metrics['de'] is not None and metrics['de'] > 0:
+        score += min(1/metrics['de'], 1) * FUNDAMENTAL_WEIGHTS['de']
+    
+    # Profit Margin (higher is better)
+    if metrics['profit_margin'] is not None:
+        score += min(max(metrics['profit_margin'], 0), 0.5) / 0.5 * FUNDAMENTAL_WEIGHTS['profit_margin']
+    
+    # Current Ratio (higher is better, but not too high)
+    if metrics['current_ratio'] is not None:
+        score += min(max(metrics['current_ratio'], 1), 3) / 3 * FUNDAMENTAL_WEIGHTS['current_ratio']
+    
+    # Price/Book (lower is better)
+    if metrics['pb'] is not None and metrics['pb'] > 0:
+        score += min(10/metrics['pb'], 1) * FUNDAMENTAL_WEIGHTS['pb']
+    
+    # Revenue Growth (higher is better)
+    if metrics['revenue_growth'] is not None:
+        score += min(max(metrics['revenue_growth'], 0), 0.3) / 0.3 * FUNDAMENTAL_WEIGHTS['revenue_growth']
+    
+    # Dividend Yield (higher is better, but not too high)
+    if metrics['dividend_yield'] is not None:
+        score += min(max(metrics['dividend_yield'], 0), 0.1) / 0.1 * FUNDAMENTAL_WEIGHTS['dividend_yield']
+    
+    return round(score / total_weight * 100, 2)

@@ -1,0 +1,97 @@
+# Stock Data Fetcher: Using Yahoo Finance as primary source
+import logging
+import pandas as pd
+import yfinance as yf
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from config import LOG_FILE
+
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
+
+# List of top NSE stocks (NIFTY 50 + other major companies)
+NIFTY_STOCKS = [
+    # NIFTY 50 components (top market cap)
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
+    "HINDUNILVR.NS", "HDFC.NS", "ITC.NS", "SBIN.NS", "BHARTIARTL.NS",
+    "KOTAKBANK.NS", "LT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "ASIANPAINT.NS",
+    "MARUTI.NS", "HCLTECH.NS", "ULTRACEMCO.NS", "SUNPHARMA.NS", "WIPRO.NS",
+    "TITAN.NS", "NESTLEIND.NS", "TECHM.NS", "BAJAJFINSV.NS", "POWERGRID.NS",
+    "M&M.NS", "NTPC.NS", "HDFCLIFE.NS", "DIVISLAB.NS", "TATACONSUM.NS",
+    # Additional large & mid cap stocks
+    "ZOMATO.NS", "PAYTM.NS", "NYKAA.NS", "PNB.NS", "IDEA.NS",
+    "YESBANK.NS", "SUZLON.NS", "TATASTEEL.NS", "POLICYBZR.NS", "IRCTC.NS"
+]
+
+def get_stock_info(symbol):
+    """
+    Fetch comprehensive stock information from Yahoo Finance
+    Returns: Tuple of (symbol, info_dict) or None if failed
+    """
+    try:
+        stock = yf.Ticker(symbol)
+        info = stock.info
+        if info and len(info) > 0:
+            # Clean up the symbol name by removing .NS
+            clean_symbol = symbol.replace(".NS", "")
+            logging.info(f"Successfully fetched data for {clean_symbol}")
+            return (clean_symbol, info)
+        else:
+            logging.warning(f"No data available for {symbol}")
+            return None
+    except Exception as e:
+        logging.error(f"Error fetching data for {symbol}: {str(e)}")
+        return None
+
+def fetch_stock_data_parallel(symbols, max_workers=5):
+    """
+    Fetch stock data in parallel using ThreadPoolExecutor
+    Returns: List of tuples (symbol, info_dict)
+    """
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_symbol = {executor.submit(get_stock_info, symbol): symbol 
+                          for symbol in symbols}
+        
+        # Process completed tasks
+        for future in as_completed(future_to_symbol):
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+            except Exception as e:
+                symbol = future_to_symbol[future]
+                logging.error(f"Task failed for {symbol}: {str(e)}")
+    
+    return results
+
+def get_top_150_stock_data():
+    """
+    Main function to get data for top stocks
+    Returns: List of tuples (symbol, data)
+    """
+    logging.info("Starting to fetch stock data...")
+    
+    # Fetch data in parallel
+    results = fetch_stock_data_parallel(NIFTY_STOCKS)
+    
+    # Log summary
+    total_fetched = len(results)
+    logging.info(f"Successfully fetched data for {total_fetched} stocks")
+    
+    return results
+
+def get_ohlcv(symbol, period="1y"):
+    """
+    Get historical OHLCV data for a stock
+    Returns: DataFrame with OHLCV data
+    """
+    try:
+        stock = yf.Ticker(f"{symbol}.NS")
+        df = stock.history(period=period)
+        if not df.empty:
+            return df
+        logging.warning(f"No historical data available for {symbol}")
+    except Exception as e:
+        logging.error(f"Error fetching historical data for {symbol}: {str(e)}")
+    return None
