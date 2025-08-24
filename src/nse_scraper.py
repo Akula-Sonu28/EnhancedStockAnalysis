@@ -3,16 +3,30 @@ import logging
 import pandas as pd
 import yfinance as yf
 import time
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import LOG_FILE
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
-# List of top 150 NSE stocks
+# Ticker corrections mapping
+TICKER_CORRECTIONS = {
+    "HDFC.NS": "HDFCBANK.NS",  # HDFC merged with HDFC Bank
+    "MCDOWELL-N.NS": "MCDHOLDING.NS",  # Updated name
+    "L&TI.NS": "LTIM.NS",  # L&T Infotech is now LTIM
+    "MINDTREE.NS": "LTIM.NS",  # Mindtree merged with L&T Infotech to form LTIM
+    "ZOMATO.NS": "ETERNAL.NS",  # Updated ticker
+    "IDFC.NS": "IDFCFIRSTB.NS",  # Correct ticker for IDFC First Bank
+    "ADANITRANS.NS": "ADANIENT.NS",  # Updated ticker
+    "LAXMIMACH.NS": "LXMACHIN.NS",  # Correct ticker for Lakshmi Machine Works
+    "CENTURYPLY.NS": "CENTURYPLY.NS"  # Correct ticker for Century Plyboards
+}
+
+# List of top 250 NSE stocks
 NIFTY_STOCKS = [
     # NIFTY 50 components (top market cap)
     "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "ICICIBANK.NS", "INFY.NS",
-    "HINDUNILVR.NS", "HDFC.NS", "ITC.NS", "SBIN.NS", "BHARTIARTL.NS",
+    "HINDUNILVR.NS", "ITC.NS", "SBIN.NS", "BHARTIARTL.NS",
     "KOTAKBANK.NS", "LT.NS", "AXISBANK.NS", "BAJFINANCE.NS", "ASIANPAINT.NS",
     "MARUTI.NS", "HCLTECH.NS", "ULTRACEMCO.NS", "SUNPHARMA.NS", "WIPRO.NS",
     "TITAN.NS", "NESTLEIND.NS", "TECHM.NS", "BAJAJFINSV.NS", "POWERGRID.NS",
@@ -37,8 +51,8 @@ NIFTY_STOCKS = [
     "UNIONBANK.NS", "RBLBANK.NS", "PFC.NS", "RECLTD.NS", "MFSL.NS",
     
     # IT and Technology
-    "LTTS.NS", "MINDTREE.NS", "MPHASIS.NS", "OFSS.NS", "PERSISTENT.NS",
-    "COFORGE.NS", "L&TI.NS", "CYIENT.NS", "SONATSOFTW.NS", "RAMCOCEM.NS",
+    "LTTS.NS", "LTIM.NS", "MPHASIS.NS", "OFSS.NS", "PERSISTENT.NS",
+    "COFORGE.NS", "CYIENT.NS", "SONATSOFTW.NS", "RAMCOCEM.NS",
     
     # Pharma and Healthcare
     "ALKEM.NS", "ABBOTINDIA.NS", "DIVISLAB.NS", "TORNTPHARM.NS", "GLAXO.NS",
@@ -57,9 +71,90 @@ NIFTY_STOCKS = [
     "POWERGRID.NS", "RECLTD.NS", "SJVN.NS", "TATAPOWER.NS", "THERMAX.NS",
     
     # New Age Companies
-    "ZOMATO.NS", "PAYTM.NS", "NYKAA.NS", "POLICYBZR.NS", "IRCTC.NS",
-    "CARTRADE.NS", "NAZARA.NS", "EASEMYTRIP.NS", "JUSTDIAL.NS", "INDIAMART.NS"
+    "ETERNAL.NS", "PAYTM.NS", "NYKAA.NS", "POLICYBZR.NS", "IRCTC.NS",
+    "CARTRADE.NS", "NAZARA.NS", "EASEMYTRIP.NS", "JUSTDIAL.NS", "INDIAMART.NS",
+    
+    # Additional Large and Mid Cap Companies
+    "3MINDIA.NS", "AIAENG.NS", "ASTRAL.NS", "ATUL.NS", "BAYERCROP.NS",
+    "BHARATFORG.NS", "CGPOWER.NS", "CROMPTON.NS", "DEEPAKNTR.NS", "DIXON.NS",
+    "ENDURANCE.NS", "FLUOROCHEM.NS", "GRINDWELL.NS", "HAPPSTMNDS.NS", "HATSUN.NS",
+    "HINDCOPPER.NS", "IDFC.NS", "JBCHEPHARM.NS", "JKCEMENT.NS", "KAJARIACER.NS",
+    "LAURUSLABS.NS", "LAXMIMACH.NS", "LODHA.NS", "MANAPPURAM.NS", "MOTILALOFS.NS",
+    
+    # Additional Financial Services
+    "MUTHOOTFIN.NS", "NAM-INDIA.NS", "NAVINFLUOR.NS", "OBEROIRLTY.NS", "PHOENIXLTD.NS",
+    "POLYCAB.NS", "RADICO.NS", "RAJESHEXPO.NS", "RELAXO.NS", "SCHAEFFLER.NS",
+    "SKFINDIA.NS", "STARHEALTH.NS", "SUNDARMFIN.NS", "SUPREMEIND.NS", "SYMPHONY.NS",
+    
+    # Additional Manufacturing and Industrial
+    "TATAINVEST.NS", "TIMKEN.NS", "TRITURBINE.NS", "TTKPRESTIG.NS", "VGUARD.NS",
+    "VINATIORGA.NS", "VOLTAS.NS", "WHIRLPOOL.NS", "ZFCVINDIA.NS", "ZYDUSLIFE.NS",
+    
+    # Additional Technology and Services
+    "ACCELYA.NS", "BLUEDART.NS", "CAMS.NS", "CARERATING.NS", "CLEDUCATE.NS",
+    "HONAUT.NS", "ICRA.NS", "INDIGOPNTS.NS", "KPITTECH.NS", "MAPMYINDIA.NS",
+    "METROPOLIS.NS", "PAGEIND.NS", "PSPPROJECT.NS", "ROUTE.NS", "SOLARINDS.NS",
+    
+    # Additional Consumer and Retail
+    "APLLTD.NS", "BLUEDART.NS", "CENTURYTEX.NS", "CHOLAHLDNG.NS", "GLAXO.NS",
+    "GODREJIND.NS", "GSPL.NS", "INDHOTEL.NS", "KRBL.NS", "MARICO.NS",
+    "MAXHEALTH.NS", "NLCINDIA.NS", "PHOENIXLTD.NS", "PNBHOUSING.NS", "PRAJIND.NS",
+    
+    # Additional Healthcare and Pharma
+    "AJANTPHARM.NS", "CAPLIPOINT.NS", "GRANULES.NS", "GUJGASLTD.NS", "FORTIS.NS",
+    "LAURUSLABS.NS", "NATCOPHARM.NS", "REDINGTON.NS", "SYNGENE.NS", "TORNTPOWER.NS",
+    
+    # Additional Energy and Infrastructure
+    "ATGL.NS", "CDSL.NS", "CONCOR.NS", "EXIDEIND.NS", "FACT.NS",
+    "GMMPFAUDLR.NS", "GRAPHITE.NS", "HINDPETRO.NS", "IRCON.NS", "KALYANKJIL.NS"
 ]
+
+def get_correct_ticker(symbol):
+    """
+    Get the correct ticker symbol using the TICKER_CORRECTIONS mapping
+    Returns: Corrected ticker symbol
+    """
+    return TICKER_CORRECTIONS.get(symbol, symbol)
+
+def verify_ticker(symbol):
+    """
+    Verify if a ticker exists and is valid
+    Returns: (Boolean indicating if the ticker is valid, Corrected ticker if any, Company Name if found)
+    """
+    try:
+        # Check if there's a corrected ticker
+        corrected_symbol = get_correct_ticker(symbol)
+        if corrected_symbol != symbol:
+            logging.info(f"Ticker correction: {symbol} → {corrected_symbol}")
+            symbol = corrected_symbol
+        
+        stock = yf.Ticker(symbol)
+        info = stock.info
+        if info and isinstance(info, dict) and len(info) > 0:
+            company_name = info.get('longName', 'Unknown')
+            return True, symbol, company_name
+        return False, symbol, None
+    except Exception as e:
+        logging.error(f"Error verifying {symbol}: {str(e)}")
+        return False, symbol, None
+
+def assess_data_quality(info):
+    """
+    Assess the quality of fetched stock data
+    Returns: Score between 0 and 1
+    """
+    key_metrics = [
+        'longName', 'symbol', 'sector', 'industry',
+        'marketCap', 'currentPrice', 'volume',
+        'fiftyTwoWeekHigh', 'fiftyTwoWeekLow',
+        'trailingPE', 'forwardPE', 'dividendYield'
+    ]
+    
+    if not info:
+        return 0.0
+        
+    available_metrics = sum(1 for metric in key_metrics if metric in info and info[metric] is not None)
+    return available_metrics / len(key_metrics)
 
 def get_stock_info(symbol):
     """
@@ -67,17 +162,29 @@ def get_stock_info(symbol):
     Returns: Tuple of (symbol, info_dict) or None if failed
     """
     try:
-        print(f"Fetching data for {symbol}...")
+        sys.stdout.write(f"Fetching data for {symbol}...\n")
+        sys.stdout.flush()
+        
+        # Check for corrected ticker
+        corrected_symbol = get_correct_ticker(symbol)
+        if corrected_symbol != symbol:
+            symbol = corrected_symbol
+            sys.stdout.write(f"Using corrected ticker: {symbol}\n")
+            sys.stdout.flush()
+            
         stock = yf.Ticker(symbol)
+        time.sleep(1)  # Add a small delay to avoid rate limiting
         info = stock.info
-        if info and len(info) > 0:
+        if info and isinstance(info, dict) and len(info) > 0:
             # Clean up the symbol name by removing .NS
             clean_symbol = symbol.replace(".NS", "")
-            print(f"✓ Successfully fetched data for {clean_symbol}")
+            sys.stdout.write(f"✓ Successfully fetched data for {clean_symbol}\n")
+            sys.stdout.flush()
             logging.info(f"Successfully fetched data for {clean_symbol}")
             return (clean_symbol, info)
         else:
-            print(f"✗ No data available for {symbol}")
+            sys.stdout.write(f"✗ No data available for {symbol}\n")
+            sys.stdout.flush()
             logging.warning(f"No data available for {symbol}")
             return None
     except Exception as e:
@@ -108,18 +215,91 @@ def fetch_stock_data_parallel(symbols, max_workers=10):
     
     return results
 
-def get_top_150_stock_data():
+def get_top_150_stock_data(validate_tickers=False):
     """
     Main function to get data for top stocks
     Returns: List of tuples (symbol, data)
     """
     logging.info("Starting to fetch stock data...")
+    results = []
+    processed_symbols = set()  # Track processed symbols to avoid duplicates
+    
+    # Metrics tracking
+    total_stocks = len(NIFTY_STOCKS)
+    successful_fetches = 0
+    data_quality_scores = []
+    
+    # Process stocks in smaller batches
+    batch_size = 10
+    stocks_to_process = []
+    
+    # Add all stocks to process, applying corrections
+    duplicates_removed = 0
+    for symbol in NIFTY_STOCKS:
+        corrected_symbol = get_correct_ticker(symbol)
+        if corrected_symbol not in processed_symbols:
+            stocks_to_process.append(corrected_symbol)
+            processed_symbols.add(corrected_symbol)
+        else:
+            duplicates_removed += 1
+    
+    print("\nInitial Analysis:")
+    print(f"Total stocks in list: {total_stocks}")
+    print(f"Unique stocks after removing duplicates: {len(stocks_to_process)}")
+    print(f"Duplicates removed: {duplicates_removed}")
+    print(f"\nProcessing {len(stocks_to_process)} unique stocks...")
+    
+    # Process in batches
+    total_batches = (len(stocks_to_process) - 1) // batch_size + 1
+    for i in range(0, len(stocks_to_process), batch_size):
+        batch = stocks_to_process[i:i+batch_size]
+        current_batch = i // batch_size + 1
+        print(f"\nProcessing batch {current_batch} of {total_batches}")
+        batch_results = fetch_stock_data_parallel(batch)
+        
+        if batch_results:
+            valid_results = [r for r in batch_results if r is not None]
+            results.extend(valid_results)
+            successful_fetches += len(valid_results)
+            
+            # Calculate data quality for successful fetches
+            for _, info in valid_results:
+                quality_score = assess_data_quality(info)
+                data_quality_scores.append(quality_score)
+                
+        time.sleep(2)  # Add delay between batches
+    
+    # Calculate accuracy metrics
+    fetch_success_rate = (successful_fetches / len(stocks_to_process)) * 100
+    avg_data_quality = sum(data_quality_scores) / len(data_quality_scores) * 100 if data_quality_scores else 0
+    
+    # Print detailed summary
+    print("\nAccuracy Analysis:")
+    print("-" * 50)
+    print(f"Total unique stocks attempted: {len(stocks_to_process)}")
+    print(f"Successfully fetched stocks: {successful_fetches}")
+    print(f"Fetch success rate: {fetch_success_rate:.2f}%")
+    print(f"Average data completeness: {avg_data_quality:.2f}%")
+    print("\nData Quality Breakdown:")
+    print(f"Excellent (>90%): {sum(1 for s in data_quality_scores if s > 0.9)}")
+    print(f"Good (70-90%): {sum(1 for s in data_quality_scores if 0.7 <= s <= 0.9)}")
+    print(f"Fair (50-70%): {sum(1 for s in data_quality_scores if 0.5 <= s < 0.7)}")
+    print(f"Poor (<50%): {sum(1 for s in data_quality_scores if s < 0.5)}")
+    
+    return results
+    
+    # Print stock processing summary
+    print("\nStock Processing Summary:")
+    print(f"Total unique stocks to process: {len(stocks_to_process)}")
+    print("Processing stocks in batches...")
+    print("-" * 80)
     
     results = []
     batch_size = 10  # Process stocks in smaller batches
     
-    for i in range(0, len(NIFTY_STOCKS), batch_size):
-        batch = NIFTY_STOCKS[i:i+batch_size]
+    print("\nFetching data for valid tickers...")
+    for i in range(0, len(valid_tickers), batch_size):
+        batch = valid_tickers[i:i+batch_size]
         batch_results = fetch_stock_data_parallel(batch)
         results.extend(batch_results)
         time.sleep(2)  # Add delay between batches

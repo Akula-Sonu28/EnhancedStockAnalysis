@@ -26,8 +26,8 @@ def export_data(df):
         
         # Export to Excel with formatting
         print(f"Exporting to Excel: {EXCEL_OUTPUT}")
-        writer = pd.ExcelWriter(EXCEL_OUTPUT, engine='xlsxwriter')
-        df.to_excel(writer, index=False, sheet_name='Stock Analysis')
+        with pd.ExcelWriter(EXCEL_OUTPUT, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Stock Analysis')
         
         # Get the xlsxwriter workbook and worksheet objects
         workbook = writer.book

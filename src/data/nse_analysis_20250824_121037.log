@@ -1,0 +1,23 @@
+2025-08-24 12:10:37,804 INFO:Starting analysis of NSE stocks...
+2025-08-24 12:10:37,804 INFO:Starting to fetch stock data...
+2025-08-24 12:10:39,660 INFO:Successfully fetched data for TCS
+2025-08-24 12:10:39,660 INFO:Successfully fetched data for ICICIBANK
+2025-08-24 12:10:39,763 INFO:Successfully fetched data for HINDUNILVR
+2025-08-24 12:10:39,763 INFO:Successfully fetched data for INFY
+2025-08-24 12:10:39,783 INFO:Successfully fetched data for SBIN
+2025-08-24 12:10:39,783 INFO:Successfully fetched data for HDFCBANK
+2025-08-24 12:10:39,788 INFO:Successfully fetched data for RELIANCE
+2025-08-24 12:10:39,883 INFO:Successfully fetched data for BHARTIARTL
+2025-08-24 12:10:39,903 INFO:Successfully fetched data for ITC
+2025-08-24 12:10:40,626 INFO:Successfully fetched data for HDFC
+2025-08-24 12:10:44,024 INFO:Successfully fetched data for ASIANPAINT
+2025-08-24 12:10:44,039 INFO:Successfully fetched data for SUNPHARMA
+2025-08-24 12:10:44,039 INFO:Successfully fetched data for BAJFINANCE
+2025-08-24 12:10:44,046 INFO:Successfully fetched data for LT
+2025-08-24 12:10:44,127 INFO:Successfully fetched data for MARUTI
+2025-08-24 12:10:44,127 INFO:Successfully fetched data for HCLTECH
+2025-08-24 12:10:44,143 INFO:Successfully fetched data for KOTAKBANK
+2025-08-24 12:10:44,143 INFO:Successfully fetched data for WIPRO
+2025-08-24 12:10:44,143 INFO:Successfully fetched data for AXISBANK
+2025-08-24 12:10:44,146 INFO:Successfully fetched data for ULTRACEMCO
+2025-08-24 12:10:44,147 INFO:Cleaning up...

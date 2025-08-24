@@ -21,8 +21,10 @@ def main():
     
     try:
         logging.info("Starting analysis of NSE stocks...")
+        print("Fetching stock data...")
         stock_data = get_top_150_stock_data()
         total_stocks = len(stock_data)
+        print(f"Found {total_stocks} stocks to analyze")
         logging.info(f"Found {total_stocks} stocks to analyze")
         
         results = []

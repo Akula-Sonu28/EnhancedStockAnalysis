@@ -1,0 +1,182 @@
+2025-08-24 12:09:08,628 INFO:Starting analysis of NSE stocks...
+2025-08-24 12:09:08,628 INFO:Starting to fetch stock data...
+2025-08-24 12:09:09,476 INFO:Successfully fetched data for RELIANCE
+2025-08-24 12:09:09,580 INFO:Successfully fetched data for HINDUNILVR
+2025-08-24 12:09:09,607 INFO:Successfully fetched data for HDFCBANK
+2025-08-24 12:09:09,626 INFO:Successfully fetched data for TCS
+2025-08-24 12:09:09,626 INFO:Successfully fetched data for INFY
+2025-08-24 12:09:09,673 INFO:Successfully fetched data for SBIN
+2025-08-24 12:09:09,673 INFO:Successfully fetched data for ICICIBANK
+2025-08-24 12:09:09,673 INFO:Successfully fetched data for ITC
+2025-08-24 12:09:09,677 INFO:Successfully fetched data for HDFC
+2025-08-24 12:09:09,677 INFO:Successfully fetched data for BHARTIARTL
+2025-08-24 12:09:12,091 INFO:Successfully fetched data for BAJFINANCE
+2025-08-24 12:09:12,091 INFO:Successfully fetched data for AXISBANK
+2025-08-24 12:09:12,147 INFO:Successfully fetched data for SUNPHARMA
+2025-08-24 12:09:12,191 INFO:Successfully fetched data for KOTAKBANK
+2025-08-24 12:09:12,191 INFO:Successfully fetched data for LT
+2025-08-24 12:09:12,202 INFO:Successfully fetched data for HCLTECH
+2025-08-24 12:09:12,204 INFO:Successfully fetched data for ULTRACEMCO
+2025-08-24 12:09:12,242 INFO:Successfully fetched data for ASIANPAINT
+2025-08-24 12:09:12,259 INFO:Successfully fetched data for WIPRO
+2025-08-24 12:09:12,391 INFO:Successfully fetched data for MARUTI
+2025-08-24 12:09:14,815 INFO:Successfully fetched data for BAJAJFINSV
+2025-08-24 12:09:14,815 INFO:Successfully fetched data for NESTLEIND
+2025-08-24 12:09:14,861 INFO:Successfully fetched data for M&M
+2025-08-24 12:09:14,867 INFO:Successfully fetched data for DIVISLAB
+2025-08-24 12:09:14,895 INFO:Successfully fetched data for TATACONSUM
+2025-08-24 12:09:14,915 INFO:Successfully fetched data for TITAN
+2025-08-24 12:09:14,947 INFO:Successfully fetched data for POWERGRID
+2025-08-24 12:09:14,957 INFO:Successfully fetched data for TECHM
+2025-08-24 12:09:14,957 INFO:Successfully fetched data for NTPC
+2025-08-24 12:09:15,142 INFO:Successfully fetched data for HDFCLIFE
+2025-08-24 12:09:17,604 INFO:Successfully fetched data for BANDHANBNK
+2025-08-24 12:09:17,606 INFO:Successfully fetched data for APOLLOHOSP
+2025-08-24 12:09:17,606 INFO:Successfully fetched data for BANKBARODA
+2025-08-24 12:09:17,646 INFO:Successfully fetched data for ADANIPORTS
+2025-08-24 12:09:17,646 INFO:Successfully fetched data for ADANITRANS
+2025-08-24 12:09:17,662 INFO:Successfully fetched data for ADANIGREEN
+2025-08-24 12:09:17,670 INFO:Successfully fetched data for AMBUJACEM
+2025-08-24 12:09:17,710 INFO:Successfully fetched data for ADANIENT
+2025-08-24 12:09:17,710 INFO:Successfully fetched data for AUROPHARMA
+2025-08-24 12:09:18,807 INFO:Successfully fetched data for BAJAJ-AUTO
+2025-08-24 12:09:21,227 INFO:Successfully fetched data for BRITANNIA
+2025-08-24 12:09:21,227 INFO:Successfully fetched data for BIOCON
+2025-08-24 12:09:21,265 INFO:Successfully fetched data for BPCL
+2025-08-24 12:09:21,297 INFO:Successfully fetched data for BOSCHLTD
+2025-08-24 12:09:21,309 INFO:Successfully fetched data for BERGEPAINT
+2025-08-24 12:09:21,376 INFO:Successfully fetched data for COALINDIA
+2025-08-24 12:09:21,392 INFO:Successfully fetched data for CIPLA
+2025-08-24 12:09:21,408 INFO:Successfully fetched data for CHOLAFIN
+2025-08-24 12:09:21,490 INFO:Successfully fetched data for COLPAL
+2025-08-24 12:09:21,592 INFO:Successfully fetched data for DLF
+2025-08-24 12:09:23,986 INFO:Successfully fetched data for DMART
+2025-08-24 12:09:23,993 INFO:Successfully fetched data for GAIL
+2025-08-24 12:09:24,098 INFO:Successfully fetched data for DABUR
+2025-08-24 12:09:24,098 INFO:Successfully fetched data for HAVELLS
+2025-08-24 12:09:24,115 INFO:Successfully fetched data for EICHERMOT
+2025-08-24 12:09:24,117 INFO:Successfully fetched data for DRREDDY
+2025-08-24 12:09:24,130 INFO:Successfully fetched data for HDFCAMC
+2025-08-24 12:09:24,152 INFO:Successfully fetched data for GLAND
+2025-08-24 12:09:24,255 INFO:Successfully fetched data for GRASIM
+2025-08-24 12:09:24,278 INFO:Successfully fetched data for GODREJCP
+2025-08-24 12:09:26,635 INFO:Successfully fetched data for JUBLFOOD
+2025-08-24 12:09:26,681 INFO:Successfully fetched data for LUPIN
+2025-08-24 12:09:26,681 INFO:Successfully fetched data for LICI
+2025-08-24 12:09:26,709 INFO:Successfully fetched data for MUTHOOTFIN
+2025-08-24 12:09:26,743 INFO:Successfully fetched data for INDIGO
+2025-08-24 12:09:26,760 INFO:Successfully fetched data for JINDALSTEL
+2025-08-24 12:09:26,760 INFO:Successfully fetched data for HAL
+2025-08-24 12:09:26,793 INFO:Successfully fetched data for NMDC
+2025-08-24 12:09:26,820 INFO:Successfully fetched data for MCDOWELL-N
+2025-08-24 12:09:26,918 INFO:Successfully fetched data for NAUKRI
+2025-08-24 12:09:29,294 INFO:Successfully fetched data for TATAPOWER
+2025-08-24 12:09:29,308 INFO:Successfully fetched data for SBICARD
+2025-08-24 12:09:29,308 INFO:Successfully fetched data for ONGC
+2025-08-24 12:09:29,310 INFO:Successfully fetched data for SAIL
+2025-08-24 12:09:29,389 INFO:Successfully fetched data for UPL
+2025-08-24 12:09:29,592 INFO:Successfully fetched data for SIEMENS
+2025-08-24 12:09:29,594 INFO:Successfully fetched data for TATACHEM
+2025-08-24 12:09:29,596 INFO:Successfully fetched data for SBILIFE
+2025-08-24 12:09:29,598 INFO:Successfully fetched data for TORNTPHARM
+2025-08-24 12:09:29,911 INFO:Successfully fetched data for PIDILITIND
+2025-08-24 12:09:32,253 INFO:Successfully fetched data for IDFCFIRSTB
+2025-08-24 12:09:32,338 INFO:Successfully fetched data for INDUSINDBK
+2025-08-24 12:09:32,477 INFO:Successfully fetched data for RECLTD
+2025-08-24 12:09:32,844 INFO:Successfully fetched data for INDIANB
+2025-08-24 12:09:32,977 INFO:Successfully fetched data for UNIONBANK
+2025-08-24 12:09:33,229 INFO:Successfully fetched data for RBLBANK
+2025-08-24 12:09:33,437 INFO:Successfully fetched data for PFC
+2025-08-24 12:09:33,486 INFO:Successfully fetched data for MFSL
+2025-08-24 12:09:33,550 INFO:Successfully fetched data for FEDERALBNK
+2025-08-24 12:09:33,576 INFO:Successfully fetched data for CANBK
+2025-08-24 12:09:36,141 INFO:Successfully fetched data for OFSS
+2025-08-24 12:09:36,163 INFO:Successfully fetched data for LTTS
+2025-08-24 12:09:36,200 ERROR:HTTP Error 404: 
+2025-08-24 12:09:36,230 INFO:Successfully fetched data for SONATSOFTW
+2025-08-24 12:09:36,317 INFO:Successfully fetched data for MINDTREE
+2025-08-24 12:09:36,327 INFO:Successfully fetched data for CYIENT
+2025-08-24 12:09:36,364 INFO:Successfully fetched data for L&TI
+2025-08-24 12:09:36,448 INFO:Successfully fetched data for PERSISTENT
+2025-08-24 12:09:36,448 INFO:Successfully fetched data for COFORGE
+2025-08-24 12:09:36,450 INFO:Successfully fetched data for MPHASIS
+2025-08-24 12:09:36,676 INFO:Successfully fetched data for RAMCOCEM
+2025-08-24 12:09:39,024 INFO:Successfully fetched data for DIVISLAB
+2025-08-24 12:09:39,039 INFO:Successfully fetched data for TORNTPHARM
+2025-08-24 12:09:39,090 INFO:Successfully fetched data for PFIZER
+2025-08-24 12:09:39,125 INFO:Successfully fetched data for ASTRAZEN
+2025-08-24 12:09:39,175 INFO:Successfully fetched data for ABBOTINDIA
+2025-08-24 12:09:39,231 INFO:Successfully fetched data for GLAXO
+2025-08-24 12:09:39,275 INFO:Successfully fetched data for SANOFI
+2025-08-24 12:09:39,292 INFO:Successfully fetched data for ALKEM
+2025-08-24 12:09:39,391 INFO:Successfully fetched data for NATCOPHARM
+2025-08-24 12:09:39,391 INFO:Successfully fetched data for IPCALAB
+2025-08-24 12:09:41,697 INFO:Successfully fetched data for BATAINDIA
+2025-08-24 12:09:41,740 INFO:Successfully fetched data for ABB
+2025-08-24 12:09:41,761 INFO:Successfully fetched data for CUMMINSIND
+2025-08-24 12:09:41,787 INFO:Successfully fetched data for ABFRL
+2025-08-24 12:09:41,810 INFO:Successfully fetched data for AUBANK
+2025-08-24 12:09:41,858 INFO:Successfully fetched data for ADANIPOWER
+2025-08-24 12:09:41,858 INFO:Successfully fetched data for BHEL
+2025-08-24 12:09:41,939 INFO:Successfully fetched data for BALKRISIND
+2025-08-24 12:09:41,950 INFO:Successfully fetched data for ASHOKLEY
+2025-08-24 12:09:42,219 INFO:Successfully fetched data for ESCORTS
+2025-08-24 12:09:44,557 INFO:Successfully fetched data for MFSL
+2025-08-24 12:09:44,613 INFO:Successfully fetched data for IPCALAB
+2025-08-24 12:09:44,660 INFO:Successfully fetched data for JINDALSTEL
+2025-08-24 12:09:44,709 INFO:Successfully fetched data for LICHSGFIN
+2025-08-24 12:09:44,758 INFO:Successfully fetched data for MRF
+2025-08-24 12:09:44,819 INFO:Successfully fetched data for EMAMILTD
+2025-08-24 12:09:44,820 INFO:Successfully fetched data for HINDALCO
+2025-08-24 12:09:44,820 INFO:Successfully fetched data for GODREJPROP
+2025-08-24 12:09:44,821 INFO:Successfully fetched data for JSWSTEEL
+2025-08-24 12:09:44,860 INFO:Successfully fetched data for FORTIS
+2025-08-24 12:09:47,225 INFO:Successfully fetched data for TATAPOWER
+2025-08-24 12:09:47,238 INFO:Successfully fetched data for NMDC
+2025-08-24 12:09:47,241 INFO:Successfully fetched data for POWERGRID
+2025-08-24 12:09:47,274 INFO:Successfully fetched data for ONGC
+2025-08-24 12:09:47,316 INFO:Successfully fetched data for RECLTD
+2025-08-24 12:09:47,316 INFO:Successfully fetched data for PETRONET
+2025-08-24 12:09:47,380 INFO:Successfully fetched data for NHPC
+2025-08-24 12:09:47,397 INFO:Successfully fetched data for NLCINDIA
+2025-08-24 12:09:47,416 INFO:Successfully fetched data for SJVN
+2025-08-24 12:09:47,582 INFO:Successfully fetched data for THERMAX
+2025-08-24 12:09:50,344 ERROR:HTTP Error 404: 
+2025-08-24 12:09:50,449 INFO:Successfully fetched data for INDIAMART
+2025-08-24 12:09:50,453 INFO:Successfully fetched data for POLICYBZR
+2025-08-24 12:09:50,456 INFO:Successfully fetched data for EASEMYTRIP
+2025-08-24 12:09:50,546 INFO:Successfully fetched data for IRCTC
+2025-08-24 12:09:50,550 INFO:Successfully fetched data for NAZARA
+2025-08-24 12:09:50,657 INFO:Successfully fetched data for JUSTDIAL
+2025-08-24 12:09:50,657 INFO:Successfully fetched data for NYKAA
+2025-08-24 12:09:50,657 INFO:Successfully fetched data for ZOMATO
+2025-08-24 12:09:50,671 INFO:Successfully fetched data for PAYTM
+2025-08-24 12:09:50,832 INFO:Successfully fetched data for CARTRADE
+2025-08-24 12:09:52,835 INFO:Successfully fetched data for 150 stocks
+2025-08-24 12:09:52,835 INFO:Found 150 stocks to analyze
+2025-08-24 12:09:56,401 ERROR:$HDFC.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-24 12:09:56,401 WARNING:No historical data available for HDFC
+2025-08-24 12:10:03,927 ERROR:$ADANITRANS.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-24 12:10:03,933 WARNING:No historical data available for ADANITRANS
+2025-08-24 12:10:11,744 ERROR:$MCDOWELL-N.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-24 12:10:11,744 WARNING:No historical data available for MCDOWELL-N
+2025-08-24 12:10:18,198 ERROR:$MINDTREE.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-24 12:10:18,199 WARNING:No historical data available for MINDTREE
+2025-08-24 12:10:19,223 ERROR:$L&TI.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-24 12:10:19,223 WARNING:No historical data available for L&TI
+2025-08-24 12:10:29,607 ERROR:$ZOMATO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-24 12:10:29,607 WARNING:No historical data available for ZOMATO
+2025-08-24 12:10:29,823 INFO:
+Top 10 stocks by overall score:
+2025-08-24 12:10:29,823 INFO:MUTHOOTFIN: 94.66
+2025-08-24 12:10:29,823 INFO:INDIAMART: 92.22
+2025-08-24 12:10:29,823 INFO:HINDALCO: 85.65
+2025-08-24 12:10:29,823 INFO:BHARTIARTL: 82.59
+2025-08-24 12:10:29,823 INFO:SBIN: 80.36
+2025-08-24 12:10:29,823 INFO:HDFCAMC: 78.63
+2025-08-24 12:10:29,823 INFO:ESCORTS: 76.91
+2025-08-24 12:10:29,823 INFO:ULTRACEMCO: 75.15
+2025-08-24 12:10:29,823 INFO:JSWSTEEL: 75.03
+2025-08-24 12:10:29,823 INFO:CANBK: 74.93
+2025-08-24 12:10:35,373 ERROR:Error exporting data: 'Workbook' object has no attribute 'add_format'
+2025-08-24 12:10:35,374 INFO:Cleaning up...
