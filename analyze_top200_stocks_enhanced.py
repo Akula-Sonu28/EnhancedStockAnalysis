@@ -775,15 +775,38 @@ class EnhancedTop200StockAnalyzer:
                         risk_penalty = min(volatility / 20, 2)  # Penalty for high volatility
                         risk_adjusted_score = overall_score - risk_penalty
                         
-                        # Risk category
-                        if volatility <= 15:
-                            risk_category = "LOW"
-                        elif volatility <= 25:
-                            risk_category = "MODERATE"
-                        elif volatility <= 35:
-                            risk_category = "HIGH"
-                        else:
-                            risk_category = "VERY HIGH"
+                        # Risk category based on user profile and volatility
+                        # Adjust thresholds based on user's risk profile
+                        if self.risk_profile == "conservative":
+                            # Conservative: Lower volatility tolerance
+                            if volatility <= 10:
+                                risk_category = "LOW"
+                            elif volatility <= 18:
+                                risk_category = "MODERATE" 
+                            elif volatility <= 28:
+                                risk_category = "HIGH"
+                            else:
+                                risk_category = "VERY HIGH"
+                        elif self.risk_profile == "aggressive":
+                            # Aggressive: Higher volatility tolerance
+                            if volatility <= 20:
+                                risk_category = "LOW"
+                            elif volatility <= 35:
+                                risk_category = "MODERATE"
+                            elif volatility <= 50:
+                                risk_category = "HIGH" 
+                            else:
+                                risk_category = "VERY HIGH"
+                        else:  # moderate (default)
+                            # Moderate: Standard volatility tolerance
+                            if volatility <= 15:
+                                risk_category = "LOW"
+                            elif volatility <= 25:
+                                risk_category = "MODERATE"
+                            elif volatility <= 35:
+                                risk_category = "HIGH"
+                            else:
+                                risk_category = "VERY HIGH"
                         
                         # Update results
                         results_df.at[idx, 'volatility_6m'] = round(volatility, 2)
