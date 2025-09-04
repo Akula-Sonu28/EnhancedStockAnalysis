@@ -1,0 +1,5 @@
+2025-09-03 18:59:13,530 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-09-03 18:59:13,542 - INFO - Using default stock list from stock_list_template.csv
+2025-09-03 18:59:13,542 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-03 18:59:13,555 - INFO - Loaded 200 stocks with company names
+2025-09-03 18:59:13,559 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL

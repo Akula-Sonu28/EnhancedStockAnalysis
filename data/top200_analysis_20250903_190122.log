@@ -1,0 +1,52 @@
+2025-09-03 19:01:22,049 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-09-03 19:01:22,053 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=True, Momentum=False, MinVol=0.0
+2025-09-03 19:01:22,053 - INFO - Using default stock list from stock_list_template.csv
+2025-09-03 19:01:22,053 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-03 19:01:22,059 - INFO - Loaded 200 stocks with company names
+2025-09-03 19:01:22,059 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-03 19:01:22,069 - INFO - Starting batch analysis of 10 stocks
+2025-09-03 19:01:23,205 - INFO - Comprehensive data extracted for ACC
+2025-09-03 19:01:23,231 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-03 19:01:23,234 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-03 19:01:23,235 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-03 19:01:23,344 - INFO - Comprehensive data extracted for ABB
+2025-09-03 19:01:23,344 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-03 19:01:23,478 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-03 19:01:23,527 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-03 19:01:23,621 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-03 19:01:23,709 - INFO - Completed analysis for ACC: Score=68.3, Recommendation=BUY (VALUE)
+2025-09-03 19:01:23,714 - INFO - Completed analysis for APLAPOLLO: Score=30.5, Recommendation=SELL
+2025-09-03 19:01:23,760 - INFO - Completed analysis for ABB: Score=56.6, Recommendation=HOLD
+2025-09-03 19:01:24,163 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-09-03 19:01:24,188 - INFO - Fundamental analysis completed for ADANIENSOL: 58 fields
+2025-09-03 19:01:24,193 - INFO - Comprehensive data extracted for AUBANK
+2025-09-03 19:01:24,193 - INFO - Fundamental analysis completed for AUBANK: 58 fields
+2025-09-03 19:01:24,440 - INFO - Enhanced technical analysis completed for ADANIENSOL: 52 fields
+2025-09-03 19:01:24,440 - INFO - Enhanced technical analysis completed for AUBANK: 52 fields
+2025-09-03 19:01:24,568 - INFO - Completed analysis for ADANIENSOL: Score=28.4, Recommendation=SELL
+2025-09-03 19:01:24,584 - INFO - Completed analysis for AUBANK: Score=64.7, Recommendation=BUY
+2025-09-03 19:01:30,264 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-09-03 19:01:30,266 - INFO - Fundamental analysis completed for ADANIGREEN: 58 fields
+2025-09-03 19:01:30,392 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-09-03 19:01:30,392 - INFO - Fundamental analysis completed for ADANIPORTS: 58 fields
+2025-09-03 19:01:30,532 - INFO - Enhanced technical analysis completed for ADANIGREEN: 52 fields
+2025-09-03 19:01:30,594 - INFO - Enhanced technical analysis completed for ADANIPORTS: 52 fields
+2025-09-03 19:01:30,631 - INFO - Completed analysis for ADANIGREEN: Score=42.2, Recommendation=WEAK SELL
+2025-09-03 19:01:30,662 - INFO - Comprehensive data extracted for ADANIENT
+2025-09-03 19:01:30,696 - INFO - Fundamental analysis completed for ADANIENT: 58 fields
+2025-09-03 19:01:30,713 - INFO - Completed analysis for ADANIPORTS: Score=47.8, Recommendation=WEAK SELL
+2025-09-03 19:01:30,963 - INFO - Enhanced technical analysis completed for ADANIENT: 52 fields
+2025-09-03 19:01:31,026 - INFO - Completed analysis for ADANIENT: Score=29.8, Recommendation=SELL
+2025-09-03 19:01:31,228 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-09-03 19:01:31,228 - INFO - Fundamental analysis completed for ADANIPOWER: 58 fields
+2025-09-03 19:01:31,332 - INFO - Comprehensive data extracted for ATGL
+2025-09-03 19:01:31,335 - INFO - Fundamental analysis completed for ATGL: 58 fields
+2025-09-03 19:01:31,405 - INFO - Enhanced technical analysis completed for ADANIPOWER: 52 fields
+2025-09-03 19:01:31,470 - INFO - Completed analysis for ADANIPOWER: Score=40.6, Recommendation=WEAK SELL
+2025-09-03 19:01:31,532 - INFO - Enhanced technical analysis completed for ATGL: 52 fields
+2025-09-03 19:01:31,599 - INFO - Completed analysis for ATGL: Score=33.7, Recommendation=SELL
+2025-09-03 19:01:31,604 - INFO - Batch analysis completed: 10 results, 0 failures
+2025-09-03 19:01:31,645 - INFO - Calculated sector rankings for 5 sectors
+2025-09-03 19:01:33,211 - INFO - Completed risk-return analysis
+2025-09-03 19:01:33,218 - INFO - Generated portfolio allocation for 1 stocks
+2025-09-03 19:01:34,207 - INFO - Enhanced Excel report generated: reports/Enhanced_Stock_Report_20250903_190133.xlsx, Size: 29658 bytes

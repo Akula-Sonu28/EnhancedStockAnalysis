@@ -1,0 +1,175 @@
+2025-08-31 18:56:27,041 - INFO - Comprehensive data extracted for ABB
+2025-08-31 18:56:27,326 - ERROR - Analysis failed for ABB: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:27,761 - INFO - Comprehensive data extracted for ACC
+2025-08-31 18:56:27,990 - ERROR - Analysis failed for ACC: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:28,507 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-08-31 18:56:28,832 - ERROR - Analysis failed for APLAPOLLO: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:29,457 - INFO - Comprehensive data extracted for AUBANK
+2025-08-31 18:56:29,676 - ERROR - Analysis failed for AUBANK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:30,091 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-08-31 18:56:30,280 - ERROR - Analysis failed for ADANIENSOL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:30,724 - INFO - Comprehensive data extracted for ADANIENT
+2025-08-31 18:56:30,959 - ERROR - Analysis failed for ADANIENT: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:31,357 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-08-31 18:56:31,559 - ERROR - Analysis failed for ADANIGREEN: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:32,001 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-08-31 18:56:32,245 - ERROR - Analysis failed for ADANIPORTS: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:32,639 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-08-31 18:56:32,837 - ERROR - Analysis failed for ADANIPOWER: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:33,357 - INFO - Comprehensive data extracted for ATGL
+2025-08-31 18:56:33,580 - ERROR - Analysis failed for ATGL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:33,974 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-08-31 18:56:34,177 - ERROR - Analysis failed for ABCAPITAL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:34,599 - INFO - Comprehensive data extracted for ABFRL
+2025-08-31 18:56:34,793 - ERROR - Analysis failed for ABFRL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:35,307 - INFO - Comprehensive data extracted for ALKEM
+2025-08-31 18:56:35,551 - ERROR - Analysis failed for ALKEM: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:36,092 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-08-31 18:56:36,474 - ERROR - Analysis failed for AMBUJACEM: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:37,007 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-08-31 18:56:37,297 - ERROR - Analysis failed for APOLLOHOSP: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:37,807 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-08-31 18:56:38,043 - ERROR - Analysis failed for APOLLOTYRE: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:38,574 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-08-31 18:56:38,823 - ERROR - Analysis failed for ASHOKLEY: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:39,257 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-08-31 18:56:39,493 - ERROR - Analysis failed for ASIANPAINT: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:39,942 - INFO - Comprehensive data extracted for ASTRAL
+2025-08-31 18:56:40,284 - ERROR - Analysis failed for ASTRAL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:40,723 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-08-31 18:56:40,959 - ERROR - Analysis failed for AUROPHARMA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:41,357 - INFO - Comprehensive data extracted for DMART
+2025-08-31 18:56:41,552 - ERROR - Analysis failed for DMART: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:41,990 - INFO - Comprehensive data extracted for AXISBANK
+2025-08-31 18:56:42,232 - ERROR - Analysis failed for AXISBANK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:42,648 - INFO - Comprehensive data extracted for BSE
+2025-08-31 18:56:42,960 - ERROR - Analysis failed for BSE: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:43,407 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-08-31 18:56:43,639 - ERROR - Analysis failed for BAJAJ-AUTO: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:44,080 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-08-31 18:56:44,310 - ERROR - Analysis failed for BAJFINANCE: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:44,758 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-08-31 18:56:44,993 - ERROR - Analysis failed for BAJAJFINSV: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:45,425 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-08-31 18:56:45,676 - ERROR - Analysis failed for BAJAJHLDNG: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:46,080 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-08-31 18:56:46,275 - ERROR - Analysis failed for BAJAJHFL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:46,692 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-08-31 18:56:46,909 - ERROR - Analysis failed for BANDHANBNK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:47,341 - INFO - Comprehensive data extracted for BANKBARODA
+2025-08-31 18:56:47,592 - ERROR - Analysis failed for BANKBARODA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:48,024 - INFO - Comprehensive data extracted for BANKINDIA
+2025-08-31 18:56:48,260 - ERROR - Analysis failed for BANKINDIA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:48,707 - INFO - Comprehensive data extracted for MAHABANK
+2025-08-31 18:56:48,942 - ERROR - Analysis failed for MAHABANK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:49,357 - INFO - Comprehensive data extracted for BDL
+2025-08-31 18:56:49,570 - ERROR - Analysis failed for BDL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:50,013 - INFO - Comprehensive data extracted for BEL
+2025-08-31 18:56:50,243 - ERROR - Analysis failed for BEL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:50,659 - INFO - Comprehensive data extracted for BHARATFORG
+2025-08-31 18:56:50,893 - ERROR - Analysis failed for BHARATFORG: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:51,458 - INFO - Comprehensive data extracted for BHEL
+2025-08-31 18:56:51,685 - ERROR - Analysis failed for BHEL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:52,122 - INFO - Comprehensive data extracted for BPCL
+2025-08-31 18:56:52,364 - ERROR - Analysis failed for BPCL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:52,775 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-08-31 18:56:53,014 - ERROR - Analysis failed for BHARTIARTL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:53,442 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-08-31 18:56:53,641 - ERROR - Analysis failed for BHARTIHEXA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:54,209 - INFO - Comprehensive data extracted for BIOCON
+2025-08-31 18:56:54,443 - ERROR - Analysis failed for BIOCON: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:54,991 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-08-31 18:56:55,257 - ERROR - Analysis failed for BOSCHLTD: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:55,710 - INFO - Comprehensive data extracted for BRITANNIA
+2025-08-31 18:56:55,956 - ERROR - Analysis failed for BRITANNIA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:56,392 - INFO - Comprehensive data extracted for CGPOWER
+2025-08-31 18:56:56,660 - ERROR - Analysis failed for CGPOWER: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:57,214 - INFO - Comprehensive data extracted for CANBK
+2025-08-31 18:56:57,443 - ERROR - Analysis failed for CANBK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:57,897 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-08-31 18:56:58,121 - ERROR - Analysis failed for CHOLAFIN: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:58,558 - INFO - Comprehensive data extracted for CIPLA
+2025-08-31 18:56:58,800 - ERROR - Analysis failed for CIPLA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:59,241 - INFO - Comprehensive data extracted for COALINDIA
+2025-08-31 18:56:59,476 - ERROR - Analysis failed for COALINDIA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:56:59,907 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-08-31 18:57:00,110 - ERROR - Analysis failed for COCHINSHIP: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:00,541 - INFO - Comprehensive data extracted for COFORGE
+2025-08-31 18:57:00,792 - ERROR - Analysis failed for COFORGE: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:01,245 - INFO - Comprehensive data extracted for COLPAL
+2025-08-31 18:57:01,471 - ERROR - Analysis failed for COLPAL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:01,927 - INFO - Comprehensive data extracted for CONCOR
+2025-08-31 18:57:02,159 - ERROR - Analysis failed for CONCOR: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:02,607 - INFO - Comprehensive data extracted for CUMMINSIND
+2025-08-31 18:57:02,843 - ERROR - Analysis failed for CUMMINSIND: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:03,309 - INFO - Comprehensive data extracted for DLF
+2025-08-31 18:57:03,541 - ERROR - Analysis failed for DLF: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:03,992 - INFO - Comprehensive data extracted for DABUR
+2025-08-31 18:57:04,233 - ERROR - Analysis failed for DABUR: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:04,666 - INFO - Comprehensive data extracted for DIVISLAB
+2025-08-31 18:57:04,888 - ERROR - Analysis failed for DIVISLAB: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:05,291 - INFO - Comprehensive data extracted for DIXON
+2025-08-31 18:57:05,515 - ERROR - Analysis failed for DIXON: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:05,958 - INFO - Comprehensive data extracted for DRREDDY
+2025-08-31 18:57:06,308 - ERROR - Analysis failed for DRREDDY: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:06,757 - INFO - Comprehensive data extracted for EICHERMOT
+2025-08-31 18:57:06,997 - ERROR - Analysis failed for EICHERMOT: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:07,454 - INFO - Comprehensive data extracted for ESCORTS
+2025-08-31 18:57:07,685 - ERROR - Analysis failed for ESCORTS: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:08,098 - INFO - Comprehensive data extracted for ETERNAL
+2025-08-31 18:57:08,294 - ERROR - Analysis failed for ETERNAL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:08,730 - INFO - Comprehensive data extracted for EXIDEIND
+2025-08-31 18:57:09,075 - ERROR - Analysis failed for EXIDEIND: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:09,479 - INFO - Comprehensive data extracted for NYKAA
+2025-08-31 18:57:09,677 - ERROR - Analysis failed for NYKAA: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:10,124 - INFO - Comprehensive data extracted for FEDERALBNK
+2025-08-31 18:57:10,375 - ERROR - Analysis failed for FEDERALBNK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:10,909 - INFO - Comprehensive data extracted for GAIL
+2025-08-31 18:57:11,160 - ERROR - Analysis failed for GAIL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:11,551 - INFO - Comprehensive data extracted for GMRAIRPORT
+2025-08-31 18:57:11,760 - ERROR - Analysis failed for GMRAIRPORT: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:12,191 - INFO - Comprehensive data extracted for GLENMARK
+2025-08-31 18:57:12,429 - ERROR - Analysis failed for GLENMARK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:12,977 - INFO - Comprehensive data extracted for GODREJCP
+2025-08-31 18:57:13,209 - ERROR - Analysis failed for GODREJCP: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:13,825 - INFO - Comprehensive data extracted for GODREJPROP
+2025-08-31 18:57:14,043 - ERROR - Analysis failed for GODREJPROP: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:14,474 - INFO - Comprehensive data extracted for GRASIM
+2025-08-31 18:57:14,730 - ERROR - Analysis failed for GRASIM: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:15,158 - INFO - Comprehensive data extracted for HCLTECH
+2025-08-31 18:57:15,391 - ERROR - Analysis failed for HCLTECH: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:15,819 - INFO - Comprehensive data extracted for HDFCAMC
+2025-08-31 18:57:16,009 - ERROR - Analysis failed for HDFCAMC: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:16,451 - INFO - Comprehensive data extracted for HDFCBANK
+2025-08-31 18:57:16,693 - ERROR - Analysis failed for HDFCBANK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:17,124 - INFO - Comprehensive data extracted for HDFCLIFE
+2025-08-31 18:57:17,340 - ERROR - Analysis failed for HDFCLIFE: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:17,876 - INFO - Comprehensive data extracted for HAVELLS
+2025-08-31 18:57:18,110 - ERROR - Analysis failed for HAVELLS: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:18,523 - INFO - Comprehensive data extracted for HEROMOTOCO
+2025-08-31 18:57:18,792 - ERROR - Analysis failed for HEROMOTOCO: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:19,229 - INFO - Comprehensive data extracted for HINDALCO
+2025-08-31 18:57:19,576 - ERROR - Analysis failed for HINDALCO: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:20,010 - ERROR - $HAL.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 18:57:20,010 - INFO - Comprehensive data extracted for HAL
+2025-08-31 18:57:20,214 - ERROR - Analysis failed for HAL: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:20,777 - INFO - Comprehensive data extracted for HINDPETRO
+2025-08-31 18:57:21,123 - ERROR - Analysis failed for HINDPETRO: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:21,549 - INFO - Comprehensive data extracted for HINDUNILVR
+2025-08-31 18:57:21,798 - ERROR - Analysis failed for HINDUNILVR: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:22,218 - INFO - Comprehensive data extracted for HINDZINC
+2025-08-31 18:57:22,440 - ERROR - Analysis failed for HINDZINC: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:22,848 - INFO - Comprehensive data extracted for HUDCO
+2025-08-31 18:57:23,059 - ERROR - Analysis failed for HUDCO: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:23,162 - ERROR - Error getting comprehensive data for HYUNDAI: Failed to perform, curl: (23) Failure writing output to destination, passed 13 returned 0. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2025-08-31 18:57:23,432 - ERROR - Analysis failed for HYUNDAI: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:23,864 - INFO - Comprehensive data extracted for ICICIBANK
+2025-08-31 18:57:24,092 - ERROR - Analysis failed for ICICIBANK: can't multiply sequence by non-int of type 'float'
+2025-08-31 18:57:24,505 - INFO - Comprehensive data extracted for ICICIGI
+2025-08-31 18:57:24,608 - ERROR - $ICICIGI.NS: possibly delisted; no price data found  (period=6mo)
+2025-08-31 18:57:24,659 - ERROR - Analysis failed for ICICIGI: 'NoneType' object has no attribute 'get'
+2025-08-31 18:57:24,775 - ERROR - Error getting comprehensive data for ICICIPRULI: Failed to perform, curl: (23) Failure writing output to destination, passed 13 returned 0. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2025-08-31 18:57:25,041 - ERROR - $ICICIPRULI.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 18:57:25,041 - WARNING - No historical data available for ICICIPRULI
+2025-08-31 18:57:25,041 - ERROR - Error calculating indicators: 'NoneType' object is not subscriptable
+2025-08-31 18:57:25,048 - INFO - Analysis complete for ICICIPRULI: Score 25.0, SELL

@@ -1,0 +1,10 @@
+2025-08-31 18:01:58,707 - INFO - Initializing analyzers...
+2025-08-31 18:01:58,709 - INFO - Starting analysis for pwd; echo "RELIANCE.NS" | python single_stock_analysis.py.NS
+2025-08-31 18:02:05,076 - ERROR - $PWD; ECHO "RELIANCE" | PYTHON SINGLE_STOCK_ANALYSIS.PY.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 18:02:05,079 - INFO - Comprehensive data extracted for pwd; echo "RELIANCE" | python single_stock_analysis.py
+2025-08-31 18:02:05,079 - INFO - Fundamental analysis completed for pwd; echo "RELIANCE.NS" | python single_stock_analysis.py.NS with 53 data points
+2025-08-31 18:02:05,296 - ERROR - $PWD; ECHO "RELIANCE.NS" | PYTHON SINGLE_STOCK_ANALYSIS.PY.NS: possibly delisted; no price data found  (period=6mo)
+2025-08-31 18:02:05,296 - WARNING - Technical analysis failed for pwd; echo "RELIANCE.NS" | python single_stock_analysis.py.NS
+2025-08-31 18:02:05,314 - ERROR - Excel generation failed: 'ExcelReportGenerator' object has no attribute 'create_comprehensive_report'
+2025-08-31 18:02:05,353 - ERROR - Analysis failed for pwd; echo "RELIANCE.NS" | python single_stock_analysis.py.NS: [Errno 22] Invalid argument: 'data/single_stock_analysis_pwd; echo "RELIANCE" | python single_stock_analysis.py_20250831_180205.csv'
+2025-08-31 18:02:05,353 - INFO - Analysis completed

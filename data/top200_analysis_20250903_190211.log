@@ -1,0 +1,8 @@
+2025-09-03 19:02:11,179 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-09-03 19:02:11,179 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=True, Momentum=True, MinVol=15.0
+2025-09-03 19:02:11,179 - INFO - Using default stock list from stock_list_template.csv
+2025-09-03 19:02:11,179 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-03 19:02:11,192 - INFO - Loaded 200 stocks with company names
+2025-09-03 19:02:11,192 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-03 19:02:12,972 - ERROR - HTTP Error 404: 
+2025-09-03 19:02:13,637 - ERROR - $100.0.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")

@@ -4,13 +4,63 @@
 		{
 			"label": "Run main.py",
 			"type": "shell",
-			"command": "C:/Users/Sanji/Extract/.venv/Scripts/python.exe",
+			"command": "C:/Users/A KAVYA SHREE/OneDrive/Documents/Sanji/Stock Analyis/Stock_Analysis/.venv/Scripts/python.exe",
 			"args": [
 				"src/main.py"
 			],
 			"group": {
 				"kind": "build",
 				"isDefault": true
+			}
+		},
+		{
+			"label": "Run Stock Analysis (Top 200)",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"analyze_top200_stocks.py"
+			],
+			"group": {
+				"kind": "test",
+				"isDefault": false
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Analyze Single Stock (HINDALCO)",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"analyze_top200_stocks.py",
+				"-s",
+				"HINDALCO"
+			],
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Analyze Small Batch (10 stocks)",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"analyze_top200_stocks.py",
+				"-n",
+				"10",
+				"-b",
+				"5",
+				"-w",
+				"2"
+			],
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
 			}
 		}
 	]

@@ -1,0 +1,107 @@
+2025-08-31 14:13:11,236 - INFO - Initializing analysis components...
+2025-08-31 14:13:11,341 - INFO - Database initialized successfully
+2025-08-31 14:13:12,387 - INFO - Found 49 stocks to analyze
+2025-08-31 14:13:12,432 - ERROR - No fundamental data available
+2025-08-31 14:13:26,354 - INFO - Completed analysis for RELIANCE: 39.32 (SELL)
+2025-08-31 14:13:26,395 - ERROR - No fundamental data available
+2025-08-31 14:13:31,060 - INFO - Completed analysis for TCS: 40.21 (HOLD)
+2025-08-31 14:13:31,106 - ERROR - No fundamental data available
+2025-08-31 14:13:35,645 - INFO - Completed analysis for HDFCBANK: 40.3 (HOLD)
+2025-08-31 14:13:35,755 - ERROR - No fundamental data available
+2025-08-31 14:13:40,360 - INFO - Completed analysis for HINDUNILVR: 52.3 (HOLD)
+2025-08-31 14:13:40,426 - ERROR - No fundamental data available
+2025-08-31 14:13:45,492 - INFO - Completed analysis for INFY: 40.83 (HOLD)
+2025-08-31 14:13:45,543 - ERROR - No fundamental data available
+2025-08-31 14:13:47,059 - ERROR - $HDFC.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 14:13:47,067 - WARNING - No historical data available for HDFC
+2025-08-31 14:13:51,328 - INFO - Completed analysis for HDFC: 19.67 (SELL)
+2025-08-31 14:13:51,395 - ERROR - No fundamental data available
+2025-08-31 14:13:55,995 - INFO - Completed analysis for ICICIBANK: 40.36 (HOLD)
+2025-08-31 14:13:56,227 - ERROR - No fundamental data available
+2025-08-31 14:14:00,710 - INFO - Completed analysis for KOTAKBANK: 39.93 (SELL)
+2025-08-31 14:14:00,943 - ERROR - No fundamental data available
+2025-08-31 14:14:05,646 - INFO - Completed analysis for BHARTIARTL: 37.97 (SELL)
+2025-08-31 14:14:05,725 - ERROR - No fundamental data available
+2025-08-31 14:14:10,055 - INFO - Completed analysis for ITC: 35.88 (SELL)
+2025-08-31 14:14:10,130 - ERROR - No fundamental data available
+2025-08-31 14:14:15,306 - INFO - Completed analysis for SBIN: 40.05 (HOLD)
+2025-08-31 14:14:15,372 - ERROR - No fundamental data available
+2025-08-31 14:14:19,224 - INFO - Completed analysis for BAJFINANCE: 40.95 (HOLD)
+2025-08-31 14:14:19,345 - ERROR - No fundamental data available
+2025-08-31 14:14:23,695 - INFO - Completed analysis for LT: 41.09 (HOLD)
+2025-08-31 14:14:23,804 - ERROR - No fundamental data available
+2025-08-31 14:14:27,671 - INFO - Completed analysis for ASIANPAINT: 49.43 (HOLD)
+2025-08-31 14:14:27,713 - ERROR - No fundamental data available
+2025-08-31 14:14:32,533 - INFO - Completed analysis for AXISBANK: 39.94 (SELL)
+2025-08-31 14:14:32,568 - ERROR - No fundamental data available
+2025-08-31 14:14:36,966 - INFO - Completed analysis for MARUTI: 47.79 (HOLD)
+2025-08-31 14:14:37,115 - ERROR - No fundamental data available
+2025-08-31 14:14:41,016 - INFO - Completed analysis for NESTLEIND: 48.15 (HOLD)
+2025-08-31 14:14:41,098 - ERROR - No fundamental data available
+2025-08-31 14:14:48,023 - INFO - Completed analysis for HCLTECH: 36.85 (SELL)
+2025-08-31 14:14:48,095 - ERROR - No fundamental data available
+2025-08-31 14:14:53,263 - INFO - Completed analysis for WIPRO: 48.26 (HOLD)
+2025-08-31 14:14:53,316 - ERROR - No fundamental data available
+2025-08-31 14:14:57,144 - INFO - Completed analysis for ULTRACEMCO: 48.08 (HOLD)
+2025-08-31 14:14:57,197 - ERROR - No fundamental data available
+2025-08-31 14:15:02,158 - INFO - Completed analysis for SUNPHARMA: 35.15 (SELL)
+2025-08-31 14:15:02,228 - ERROR - No fundamental data available
+2025-08-31 14:15:07,513 - INFO - Completed analysis for TITAN: 47.96 (HOLD)
+2025-08-31 14:15:07,562 - ERROR - No fundamental data available
+2025-08-31 14:15:11,250 - INFO - Completed analysis for BAJAJFINSV: 35.9 (SELL)
+2025-08-31 14:15:11,295 - ERROR - No fundamental data available
+2025-08-31 14:15:16,321 - INFO - Completed analysis for TECHM: 38.89 (SELL)
+2025-08-31 14:15:16,383 - ERROR - No fundamental data available
+2025-08-31 14:15:22,610 - INFO - Completed analysis for POWERGRID: 38.22 (SELL)
+2025-08-31 14:15:22,667 - ERROR - No fundamental data available
+2025-08-31 14:15:27,322 - INFO - Completed analysis for NTPC: 35.92 (SELL)
+2025-08-31 14:15:27,385 - ERROR - No fundamental data available
+2025-08-31 14:15:32,364 - INFO - Completed analysis for TATASTEEL: 38.94 (SELL)
+2025-08-31 14:15:32,458 - ERROR - No fundamental data available
+2025-08-31 14:15:37,378 - INFO - Completed analysis for COALINDIA: 41.89 (HOLD)
+2025-08-31 14:15:37,424 - ERROR - No fundamental data available
+2025-08-31 14:15:41,868 - INFO - Completed analysis for HDFCLIFE: 47.26 (HOLD)
+2025-08-31 14:15:41,921 - ERROR - No fundamental data available
+2025-08-31 14:15:46,351 - INFO - Completed analysis for SBILIFE: 47.1 (HOLD)
+2025-08-31 14:15:46,416 - ERROR - No fundamental data available
+2025-08-31 14:15:50,137 - INFO - Completed analysis for INDUSINDBK: 39.71 (SELL)
+2025-08-31 14:15:50,189 - ERROR - No fundamental data available
+2025-08-31 14:15:54,416 - INFO - Completed analysis for ADANIPORTS: 37.92 (SELL)
+2025-08-31 14:15:54,481 - ERROR - No fundamental data available
+2025-08-31 14:15:58,744 - INFO - Completed analysis for UPL: 52.38 (HOLD)
+2025-08-31 14:15:58,801 - ERROR - No fundamental data available
+2025-08-31 14:16:03,528 - INFO - Completed analysis for GRASIM: 46.01 (HOLD)
+2025-08-31 14:16:03,598 - ERROR - No fundamental data available
+2025-08-31 14:16:08,201 - INFO - Completed analysis for BRITANNIA: 50.2 (HOLD)
+2025-08-31 14:16:08,279 - ERROR - No fundamental data available
+2025-08-31 14:16:12,623 - INFO - Completed analysis for DRREDDY: 50.3 (HOLD)
+2025-08-31 14:16:12,677 - ERROR - No fundamental data available
+2025-08-31 14:16:17,539 - INFO - Completed analysis for EICHERMOT: 48.23 (HOLD)
+2025-08-31 14:16:17,601 - ERROR - No fundamental data available
+2025-08-31 14:16:22,151 - INFO - Completed analysis for BPCL: 38.98 (SELL)
+2025-08-31 14:16:22,216 - ERROR - No fundamental data available
+2025-08-31 14:16:26,881 - INFO - Completed analysis for CIPLA: 46.99 (HOLD)
+2025-08-31 14:16:26,939 - ERROR - No fundamental data available
+2025-08-31 14:16:31,436 - INFO - Completed analysis for JSWSTEEL: 47.05 (HOLD)
+2025-08-31 14:16:31,498 - ERROR - No fundamental data available
+2025-08-31 14:16:36,414 - INFO - Completed analysis for TATAMOTORS: 44.73 (HOLD)
+2025-08-31 14:16:36,480 - ERROR - No fundamental data available
+2025-08-31 14:16:40,979 - INFO - Completed analysis for HINDALCO: 52.36 (HOLD)
+2025-08-31 14:16:41,024 - ERROR - No fundamental data available
+2025-08-31 14:16:45,608 - INFO - Completed analysis for IOC: 38.01 (SELL)
+2025-08-31 14:16:45,677 - ERROR - No fundamental data available
+2025-08-31 14:16:49,629 - INFO - Completed analysis for DIVISLAB: 40.85 (HOLD)
+2025-08-31 14:16:49,684 - ERROR - No fundamental data available
+2025-08-31 14:16:53,486 - INFO - Completed analysis for HEROMOTOCO: 46.63 (HOLD)
+2025-08-31 14:16:53,550 - ERROR - No fundamental data available
+2025-08-31 14:17:02,280 - INFO - Completed analysis for BAJAJ-AUTO: 48.84 (HOLD)
+2025-08-31 14:17:02,333 - ERROR - No fundamental data available
+2025-08-31 14:17:08,254 - INFO - Completed analysis for SHREECEM: 40.29 (HOLD)
+2025-08-31 14:17:08,303 - ERROR - No fundamental data available
+2025-08-31 14:17:12,158 - INFO - Completed analysis for VEDL: 46.2 (HOLD)
+2025-08-31 14:17:12,328 - ERROR - No fundamental data available
+2025-08-31 14:17:16,116 - INFO - Completed analysis for GODREJCP: 50.28 (HOLD)
+2025-08-31 14:17:16,251 - ERROR - Error generating Excel report: 'MergedCell' object has no attribute 'column_letter'
+2025-08-31 14:17:16,546 - ERROR - Error exporting data: 'Workbook' object has no attribute 'add_format'
+2025-08-31 14:17:16,605 - INFO - JSON export completed: C:\Users\A KAVYA SHREE\OneDrive\Documents\Sanji\Stock Analyis\Stock_Analysis\data\nse_analysis_20250831_141716.json
+2025-08-31 14:17:16,607 - INFO - Analysis session completed

@@ -1,0 +1,660 @@
+2025-08-31 19:03:39,614 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-08-31 19:03:39,614 - INFO - Starting batch analysis of 200 stocks
+2025-08-31 19:03:40,496 - INFO - Comprehensive data extracted for HDFCBANK
+2025-08-31 19:03:40,520 - INFO - Comprehensive data extracted for RELIANCE
+2025-08-31 19:03:40,520 - INFO - Fundamental analysis completed for HDFCBANK: 58 fields
+2025-08-31 19:03:40,520 - INFO - Fundamental analysis completed for RELIANCE: 58 fields
+2025-08-31 19:03:40,553 - INFO - Comprehensive data extracted for TCS
+2025-08-31 19:03:40,554 - INFO - Fundamental analysis completed for TCS: 58 fields
+2025-08-31 19:03:40,799 - INFO - Enhanced technical analysis completed for TCS: 52 fields
+2025-08-31 19:03:40,849 - INFO - Enhanced technical analysis completed for RELIANCE: 52 fields
+2025-08-31 19:03:40,849 - INFO - Enhanced technical analysis completed for HDFCBANK: 52 fields
+2025-08-31 19:03:41,440 - INFO - Comprehensive data extracted for INFY
+2025-08-31 19:03:41,442 - INFO - Fundamental analysis completed for INFY: 58 fields
+2025-08-31 19:03:41,630 - INFO - Comprehensive data extracted for ICICIBANK
+2025-08-31 19:03:41,632 - INFO - Fundamental analysis completed for ICICIBANK: 58 fields
+2025-08-31 19:03:41,649 - INFO - Enhanced technical analysis completed for INFY: 52 fields
+2025-08-31 19:03:41,834 - INFO - Enhanced technical analysis completed for ICICIBANK: 52 fields
+2025-08-31 19:03:47,348 - INFO - Comprehensive data extracted for SBIN
+2025-08-31 19:03:47,349 - INFO - Fundamental analysis completed for SBIN: 58 fields
+2025-08-31 19:03:47,485 - INFO - Comprehensive data extracted for HINDUNILVR
+2025-08-31 19:03:47,491 - INFO - Fundamental analysis completed for HINDUNILVR: 58 fields
+2025-08-31 19:03:47,547 - INFO - Enhanced technical analysis completed for SBIN: 52 fields
+2025-08-31 19:03:47,783 - INFO - Enhanced technical analysis completed for HINDUNILVR: 52 fields
+2025-08-31 19:03:47,804 - INFO - Comprehensive data extracted for ITC
+2025-08-31 19:03:47,804 - INFO - Fundamental analysis completed for ITC: 58 fields
+2025-08-31 19:03:47,990 - INFO - Enhanced technical analysis completed for ITC: 52 fields
+2025-08-31 19:03:48,019 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-08-31 19:03:48,020 - INFO - Fundamental analysis completed for BHARTIARTL: 58 fields
+2025-08-31 19:03:48,305 - INFO - Enhanced technical analysis completed for BHARTIARTL: 52 fields
+2025-08-31 19:03:48,388 - INFO - Comprehensive data extracted for KOTAKBANK
+2025-08-31 19:03:48,388 - INFO - Fundamental analysis completed for KOTAKBANK: 58 fields
+2025-08-31 19:03:48,581 - INFO - Enhanced technical analysis completed for KOTAKBANK: 52 fields
+2025-08-31 19:03:55,182 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-08-31 19:03:55,182 - INFO - Fundamental analysis completed for BAJFINANCE: 58 fields
+2025-08-31 19:03:55,206 - INFO - Comprehensive data extracted for AXISBANK
+2025-08-31 19:03:55,206 - INFO - Fundamental analysis completed for AXISBANK: 58 fields
+2025-08-31 19:03:55,417 - INFO - Enhanced technical analysis completed for AXISBANK: 52 fields
+2025-08-31 19:03:55,472 - INFO - Comprehensive data extracted for LT
+2025-08-31 19:03:55,475 - INFO - Enhanced technical analysis completed for BAJFINANCE: 52 fields
+2025-08-31 19:03:55,475 - INFO - Fundamental analysis completed for LT: 58 fields
+2025-08-31 19:03:55,655 - INFO - Enhanced technical analysis completed for LT: 52 fields
+2025-08-31 19:03:55,917 - INFO - Comprehensive data extracted for MARUTI
+2025-08-31 19:03:55,917 - INFO - Fundamental analysis completed for MARUTI: 58 fields
+2025-08-31 19:03:56,089 - INFO - Enhanced technical analysis completed for MARUTI: 52 fields
+2025-08-31 19:03:56,170 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-08-31 19:03:56,176 - INFO - Fundamental analysis completed for ASIANPAINT: 58 fields
+2025-08-31 19:03:56,351 - INFO - Enhanced technical analysis completed for ASIANPAINT: 52 fields
+2025-08-31 19:04:01,931 - INFO - Comprehensive data extracted for ULTRACEMCO
+2025-08-31 19:04:01,931 - INFO - Fundamental analysis completed for ULTRACEMCO: 58 fields
+2025-08-31 19:04:02,065 - INFO - Comprehensive data extracted for HCLTECH
+2025-08-31 19:04:02,067 - INFO - Fundamental analysis completed for HCLTECH: 58 fields
+2025-08-31 19:04:02,122 - INFO - Enhanced technical analysis completed for ULTRACEMCO: 52 fields
+2025-08-31 19:04:02,200 - INFO - Comprehensive data extracted for SUNPHARMA
+2025-08-31 19:04:02,200 - INFO - Fundamental analysis completed for SUNPHARMA: 58 fields
+2025-08-31 19:04:02,263 - INFO - Enhanced technical analysis completed for HCLTECH: 52 fields
+2025-08-31 19:04:02,395 - INFO - Enhanced technical analysis completed for SUNPHARMA: 52 fields
+2025-08-31 19:04:02,764 - INFO - Comprehensive data extracted for WIPRO
+2025-08-31 19:04:02,764 - INFO - Fundamental analysis completed for WIPRO: 58 fields
+2025-08-31 19:04:02,787 - INFO - Comprehensive data extracted for TITAN
+2025-08-31 19:04:02,787 - INFO - Fundamental analysis completed for TITAN: 58 fields
+2025-08-31 19:04:03,005 - INFO - Enhanced technical analysis completed for TITAN: 52 fields
+2025-08-31 19:04:03,014 - INFO - Enhanced technical analysis completed for WIPRO: 52 fields
+2025-08-31 19:04:08,531 - INFO - Comprehensive data extracted for NESTLEIND
+2025-08-31 19:04:08,531 - INFO - Fundamental analysis completed for NESTLEIND: 58 fields
+2025-08-31 19:04:08,722 - INFO - Enhanced technical analysis completed for NESTLEIND: 52 fields
+2025-08-31 19:04:09,028 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-08-31 19:04:09,028 - INFO - Fundamental analysis completed for BAJAJFINSV: 58 fields
+2025-08-31 19:04:09,059 - INFO - Comprehensive data extracted for TECHM
+2025-08-31 19:04:09,059 - INFO - Fundamental analysis completed for TECHM: 58 fields
+2025-08-31 19:04:09,198 - INFO - Enhanced technical analysis completed for BAJAJFINSV: 52 fields
+2025-08-31 19:04:09,250 - INFO - Enhanced technical analysis completed for TECHM: 52 fields
+2025-08-31 19:04:09,415 - INFO - Comprehensive data extracted for POWERGRID
+2025-08-31 19:04:09,415 - INFO - Fundamental analysis completed for POWERGRID: 58 fields
+2025-08-31 19:04:09,605 - INFO - Enhanced technical analysis completed for POWERGRID: 52 fields
+2025-08-31 19:04:09,796 - INFO - Comprehensive data extracted for NTPC
+2025-08-31 19:04:09,796 - INFO - Fundamental analysis completed for NTPC: 58 fields
+2025-08-31 19:04:09,967 - INFO - Enhanced technical analysis completed for NTPC: 52 fields
+2025-08-31 19:04:15,565 - INFO - Comprehensive data extracted for HDFCLIFE
+2025-08-31 19:04:15,565 - INFO - Fundamental analysis completed for HDFCLIFE: 58 fields
+2025-08-31 19:04:15,682 - INFO - Comprehensive data extracted for DIVISLAB
+2025-08-31 19:04:15,694 - INFO - Fundamental analysis completed for DIVISLAB: 58 fields
+2025-08-31 19:04:15,800 - INFO - Comprehensive data extracted for TATACONSUM
+2025-08-31 19:04:15,800 - INFO - Enhanced technical analysis completed for HDFCLIFE: 52 fields
+2025-08-31 19:04:15,800 - INFO - Fundamental analysis completed for TATACONSUM: 58 fields
+2025-08-31 19:04:16,039 - INFO - Enhanced technical analysis completed for TATACONSUM: 52 fields
+2025-08-31 19:04:16,056 - INFO - Enhanced technical analysis completed for DIVISLAB: 52 fields
+2025-08-31 19:04:16,546 - INFO - Comprehensive data extracted for TATAMOTORS
+2025-08-31 19:04:16,547 - INFO - Fundamental analysis completed for TATAMOTORS: 58 fields
+2025-08-31 19:04:16,573 - INFO - Comprehensive data extracted for COALINDIA
+2025-08-31 19:04:16,573 - INFO - Fundamental analysis completed for COALINDIA: 58 fields
+2025-08-31 19:04:16,791 - INFO - Enhanced technical analysis completed for TATAMOTORS: 52 fields
+2025-08-31 19:04:16,817 - INFO - Enhanced technical analysis completed for COALINDIA: 52 fields
+2025-08-31 19:04:22,311 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-08-31 19:04:22,311 - INFO - Fundamental analysis completed for ADANIGREEN: 58 fields
+2025-08-31 19:04:22,452 - INFO - Enhanced technical analysis completed for ADANIGREEN: 52 fields
+2025-08-31 19:04:22,530 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-08-31 19:04:22,530 - INFO - Fundamental analysis completed for ADANIPORTS: 58 fields
+2025-08-31 19:04:22,707 - INFO - Enhanced technical analysis completed for ADANIPORTS: 52 fields
+2025-08-31 19:04:23,012 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-08-31 19:04:23,012 - INFO - Fundamental analysis completed for AMBUJACEM: 58 fields
+2025-08-31 19:04:23,036 - INFO - Comprehensive data extracted for ADANIENT
+2025-08-31 19:04:23,037 - INFO - Fundamental analysis completed for ADANIENT: 58 fields
+2025-08-31 19:04:23,263 - INFO - Enhanced technical analysis completed for AMBUJACEM: 52 fields
+2025-08-31 19:04:23,265 - INFO - Enhanced technical analysis completed for ADANIENT: 52 fields
+2025-08-31 19:04:23,288 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-08-31 19:04:23,289 - INFO - Fundamental analysis completed for APOLLOHOSP: 58 fields
+2025-08-31 19:04:23,567 - INFO - Enhanced technical analysis completed for APOLLOHOSP: 52 fields
+2025-08-31 19:04:29,079 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-08-31 19:04:29,080 - INFO - Fundamental analysis completed for AUROPHARMA: 58 fields
+2025-08-31 19:04:29,254 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-08-31 19:04:29,273 - INFO - Fundamental analysis completed for BAJAJ-AUTO: 58 fields
+2025-08-31 19:04:29,279 - INFO - Enhanced technical analysis completed for AUROPHARMA: 52 fields
+2025-08-31 19:04:29,303 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-08-31 19:04:29,305 - INFO - Fundamental analysis completed for BANDHANBNK: 58 fields
+2025-08-31 19:04:29,499 - INFO - Enhanced technical analysis completed for BANDHANBNK: 52 fields
+2025-08-31 19:04:29,516 - INFO - Enhanced technical analysis completed for BAJAJ-AUTO: 52 fields
+2025-08-31 19:04:29,921 - INFO - Comprehensive data extracted for BANKBARODA
+2025-08-31 19:04:29,921 - INFO - Fundamental analysis completed for BANKBARODA: 58 fields
+2025-08-31 19:04:29,966 - INFO - Comprehensive data extracted for BERGEPAINT
+2025-08-31 19:04:29,966 - INFO - Fundamental analysis completed for BERGEPAINT: 58 fields
+2025-08-31 19:04:30,107 - INFO - Enhanced technical analysis completed for BANKBARODA: 52 fields
+2025-08-31 19:04:30,154 - INFO - Enhanced technical analysis completed for BERGEPAINT: 52 fields
+2025-08-31 19:04:35,667 - INFO - Comprehensive data extracted for BIOCON
+2025-08-31 19:04:35,677 - INFO - Fundamental analysis completed for BIOCON: 58 fields
+2025-08-31 19:04:35,684 - INFO - Comprehensive data extracted for BPCL
+2025-08-31 19:04:35,691 - INFO - Fundamental analysis completed for BPCL: 58 fields
+2025-08-31 19:04:35,830 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-08-31 19:04:35,830 - INFO - Fundamental analysis completed for BOSCHLTD: 58 fields
+2025-08-31 19:04:35,932 - INFO - Enhanced technical analysis completed for BPCL: 52 fields
+2025-08-31 19:04:35,936 - INFO - Enhanced technical analysis completed for BIOCON: 52 fields
+2025-08-31 19:04:36,081 - INFO - Enhanced technical analysis completed for BOSCHLTD: 52 fields
+2025-08-31 19:04:36,809 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-08-31 19:04:36,809 - INFO - Fundamental analysis completed for CHOLAFIN: 58 fields
+2025-08-31 19:04:36,829 - INFO - Comprehensive data extracted for BRITANNIA
+2025-08-31 19:04:36,829 - INFO - Fundamental analysis completed for BRITANNIA: 58 fields
+2025-08-31 19:04:36,991 - INFO - Enhanced technical analysis completed for CHOLAFIN: 52 fields
+2025-08-31 19:04:37,120 - INFO - Enhanced technical analysis completed for BRITANNIA: 52 fields
+2025-08-31 19:04:42,714 - INFO - Comprehensive data extracted for COLPAL
+2025-08-31 19:04:42,715 - INFO - Fundamental analysis completed for COLPAL: 58 fields
+2025-08-31 19:04:42,784 - INFO - Comprehensive data extracted for DLF
+2025-08-31 19:04:42,797 - INFO - Fundamental analysis completed for DLF: 58 fields
+2025-08-31 19:04:42,819 - INFO - Comprehensive data extracted for CIPLA
+2025-08-31 19:04:42,820 - INFO - Fundamental analysis completed for CIPLA: 58 fields
+2025-08-31 19:04:42,882 - INFO - Enhanced technical analysis completed for COLPAL: 52 fields
+2025-08-31 19:04:43,017 - INFO - Enhanced technical analysis completed for CIPLA: 52 fields
+2025-08-31 19:04:43,056 - INFO - Enhanced technical analysis completed for DLF: 52 fields
+2025-08-31 19:04:43,427 - INFO - Comprehensive data extracted for DABUR
+2025-08-31 19:04:43,428 - INFO - Fundamental analysis completed for DABUR: 58 fields
+2025-08-31 19:04:43,599 - INFO - Enhanced technical analysis completed for DABUR: 52 fields
+2025-08-31 19:04:43,671 - INFO - Comprehensive data extracted for DMART
+2025-08-31 19:04:43,671 - INFO - Fundamental analysis completed for DMART: 58 fields
+2025-08-31 19:04:43,838 - INFO - Enhanced technical analysis completed for DMART: 52 fields
+2025-08-31 19:04:49,524 - INFO - Comprehensive data extracted for EICHERMOT
+2025-08-31 19:04:49,524 - INFO - Fundamental analysis completed for EICHERMOT: 58 fields
+2025-08-31 19:04:49,548 - INFO - Comprehensive data extracted for GAIL
+2025-08-31 19:04:49,549 - INFO - Fundamental analysis completed for GAIL: 58 fields
+2025-08-31 19:04:49,615 - INFO - Comprehensive data extracted for DRREDDY
+2025-08-31 19:04:49,617 - INFO - Fundamental analysis completed for DRREDDY: 58 fields
+2025-08-31 19:04:49,703 - INFO - Enhanced technical analysis completed for EICHERMOT: 52 fields
+2025-08-31 19:04:49,815 - INFO - Enhanced technical analysis completed for DRREDDY: 52 fields
+2025-08-31 19:04:49,872 - INFO - Enhanced technical analysis completed for GAIL: 52 fields
+2025-08-31 19:04:50,160 - INFO - Comprehensive data extracted for GLAND
+2025-08-31 19:04:50,160 - INFO - Fundamental analysis completed for GLAND: 58 fields
+2025-08-31 19:04:50,305 - INFO - Enhanced technical analysis completed for GLAND: 52 fields
+2025-08-31 19:04:50,336 - INFO - Comprehensive data extracted for GODREJCP
+2025-08-31 19:04:50,337 - INFO - Fundamental analysis completed for GODREJCP: 58 fields
+2025-08-31 19:04:50,502 - INFO - Enhanced technical analysis completed for GODREJCP: 52 fields
+2025-08-31 19:04:56,019 - INFO - Comprehensive data extracted for GRASIM
+2025-08-31 19:04:56,019 - INFO - Fundamental analysis completed for GRASIM: 58 fields
+2025-08-31 19:04:56,066 - INFO - Comprehensive data extracted for HAVELLS
+2025-08-31 19:04:56,066 - INFO - Fundamental analysis completed for HAVELLS: 58 fields
+2025-08-31 19:04:56,199 - INFO - Enhanced technical analysis completed for GRASIM: 52 fields
+2025-08-31 19:04:56,239 - INFO - Comprehensive data extracted for HDFCAMC
+2025-08-31 19:04:56,239 - INFO - Fundamental analysis completed for HDFCAMC: 58 fields
+2025-08-31 19:04:56,276 - INFO - Enhanced technical analysis completed for HAVELLS: 52 fields
+2025-08-31 19:04:56,455 - INFO - Enhanced technical analysis completed for HDFCAMC: 52 fields
+2025-08-31 19:04:57,000 - INFO - Comprehensive data extracted for INDIGO
+2025-08-31 19:04:57,002 - INFO - Fundamental analysis completed for INDIGO: 58 fields
+2025-08-31 19:04:57,019 - INFO - Comprehensive data extracted for HAL
+2025-08-31 19:04:57,021 - INFO - Fundamental analysis completed for HAL: 58 fields
+2025-08-31 19:04:57,210 - INFO - Enhanced technical analysis completed for HAL: 52 fields
+2025-08-31 19:04:57,210 - INFO - Enhanced technical analysis completed for INDIGO: 52 fields
+2025-08-31 19:05:02,851 - INFO - Comprehensive data extracted for JINDALSTEL
+2025-08-31 19:05:02,853 - INFO - Fundamental analysis completed for JINDALSTEL: 58 fields
+2025-08-31 19:05:02,887 - INFO - Comprehensive data extracted for JUBLFOOD
+2025-08-31 19:05:02,887 - INFO - Fundamental analysis completed for JUBLFOOD: 58 fields
+2025-08-31 19:05:03,100 - INFO - Enhanced technical analysis completed for JUBLFOOD: 52 fields
+2025-08-31 19:05:03,109 - INFO - Enhanced technical analysis completed for JINDALSTEL: 52 fields
+2025-08-31 19:05:03,117 - INFO - Comprehensive data extracted for LICI
+2025-08-31 19:05:03,117 - INFO - Fundamental analysis completed for LICI: 58 fields
+2025-08-31 19:05:03,273 - INFO - Enhanced technical analysis completed for LICI: 52 fields
+2025-08-31 19:05:03,571 - INFO - Comprehensive data extracted for MUTHOOTFIN
+2025-08-31 19:05:03,572 - INFO - Fundamental analysis completed for MUTHOOTFIN: 58 fields
+2025-08-31 19:05:03,719 - INFO - Enhanced technical analysis completed for MUTHOOTFIN: 52 fields
+2025-08-31 19:05:03,895 - INFO - Comprehensive data extracted for LUPIN
+2025-08-31 19:05:03,895 - INFO - Fundamental analysis completed for LUPIN: 58 fields
+2025-08-31 19:05:04,070 - INFO - Enhanced technical analysis completed for LUPIN: 52 fields
+2025-08-31 19:05:09,552 - INFO - Comprehensive data extracted for NAUKRI
+2025-08-31 19:05:09,552 - INFO - Fundamental analysis completed for NAUKRI: 58 fields
+2025-08-31 19:05:09,587 - INFO - Comprehensive data extracted for NMDC
+2025-08-31 19:05:09,587 - INFO - Fundamental analysis completed for NMDC: 58 fields
+2025-08-31 19:05:09,755 - INFO - Enhanced technical analysis completed for NAUKRI: 52 fields
+2025-08-31 19:05:09,789 - INFO - Enhanced technical analysis completed for NMDC: 52 fields
+2025-08-31 19:05:09,897 - INFO - Comprehensive data extracted for ONGC
+2025-08-31 19:05:09,904 - INFO - Fundamental analysis completed for ONGC: 58 fields
+2025-08-31 19:05:10,087 - INFO - Enhanced technical analysis completed for ONGC: 52 fields
+2025-08-31 19:05:10,483 - INFO - Comprehensive data extracted for PIDILITIND
+2025-08-31 19:05:10,483 - INFO - Fundamental analysis completed for PIDILITIND: 58 fields
+2025-08-31 19:05:10,586 - INFO - Comprehensive data extracted for SAIL
+2025-08-31 19:05:10,586 - INFO - Fundamental analysis completed for SAIL: 58 fields
+2025-08-31 19:05:10,669 - INFO - Enhanced technical analysis completed for PIDILITIND: 52 fields
+2025-08-31 19:05:10,782 - INFO - Enhanced technical analysis completed for SAIL: 52 fields
+2025-08-31 19:05:16,259 - INFO - Comprehensive data extracted for SBILIFE
+2025-08-31 19:05:16,259 - INFO - Fundamental analysis completed for SBILIFE: 58 fields
+2025-08-31 19:05:16,282 - INFO - Comprehensive data extracted for SBICARD
+2025-08-31 19:05:16,282 - INFO - Fundamental analysis completed for SBICARD: 58 fields
+2025-08-31 19:05:16,316 - INFO - Comprehensive data extracted for SIEMENS
+2025-08-31 19:05:16,316 - INFO - Fundamental analysis completed for SIEMENS: 58 fields
+2025-08-31 19:05:16,405 - INFO - Enhanced technical analysis completed for SBILIFE: 52 fields
+2025-08-31 19:05:16,485 - INFO - Enhanced technical analysis completed for SBICARD: 52 fields
+2025-08-31 19:05:16,627 - INFO - Enhanced technical analysis completed for SIEMENS: 52 fields
+2025-08-31 19:05:17,009 - INFO - Comprehensive data extracted for TATACHEM
+2025-08-31 19:05:17,009 - INFO - Fundamental analysis completed for TATACHEM: 58 fields
+2025-08-31 19:05:17,053 - INFO - Comprehensive data extracted for TATAPOWER
+2025-08-31 19:05:17,054 - INFO - Fundamental analysis completed for TATAPOWER: 58 fields
+2025-08-31 19:05:17,223 - INFO - Enhanced technical analysis completed for TATACHEM: 52 fields
+2025-08-31 19:05:17,251 - INFO - Enhanced technical analysis completed for TATAPOWER: 52 fields
+2025-08-31 19:09:06,571 - INFO - Comprehensive data extracted for FEDERALBNK
+2025-08-31 19:09:06,571 - INFO - Fundamental analysis completed for FEDERALBNK: 58 fields
+2025-08-31 19:09:06,787 - INFO - Enhanced technical analysis completed for FEDERALBNK: 52 fields
+2025-08-31 19:09:06,839 - INFO - Comprehensive data extracted for UPL
+2025-08-31 19:09:06,839 - INFO - Fundamental analysis completed for UPL: 58 fields
+2025-08-31 19:09:07,004 - INFO - Enhanced technical analysis completed for UPL: 52 fields
+2025-08-31 19:09:07,016 - INFO - Comprehensive data extracted for TORNTPHARM
+2025-08-31 19:09:07,016 - INFO - Fundamental analysis completed for TORNTPHARM: 58 fields
+2025-08-31 19:09:07,228 - INFO - Enhanced technical analysis completed for TORNTPHARM: 52 fields
+2025-08-31 19:09:07,386 - INFO - Comprehensive data extracted for IDFCFIRSTB
+2025-08-31 19:09:07,386 - INFO - Fundamental analysis completed for IDFCFIRSTB: 58 fields
+2025-08-31 19:09:07,460 - INFO - Enhanced technical analysis completed for IDFCFIRSTB: 52 fields
+2025-08-31 19:09:07,589 - INFO - Comprehensive data extracted for INDUSINDBK
+2025-08-31 19:09:07,589 - INFO - Fundamental analysis completed for INDUSINDBK: 58 fields
+2025-08-31 19:09:07,810 - INFO - Enhanced technical analysis completed for INDUSINDBK: 52 fields
+2025-08-31 19:09:13,502 - INFO - Comprehensive data extracted for INDIANB
+2025-08-31 19:09:13,502 - INFO - Fundamental analysis completed for INDIANB: 58 fields
+2025-08-31 19:09:13,571 - INFO - Comprehensive data extracted for CANBK
+2025-08-31 19:09:13,574 - INFO - Fundamental analysis completed for CANBK: 58 fields
+2025-08-31 19:09:13,785 - INFO - Enhanced technical analysis completed for INDIANB: 52 fields
+2025-08-31 19:09:13,867 - INFO - Enhanced technical analysis completed for CANBK: 52 fields
+2025-08-31 19:09:13,932 - INFO - Comprehensive data extracted for PNB
+2025-08-31 19:09:13,935 - INFO - Fundamental analysis completed for PNB: 58 fields
+2025-08-31 19:09:14,329 - INFO - Enhanced technical analysis completed for PNB: 52 fields
+2025-08-31 19:09:14,466 - INFO - Comprehensive data extracted for JSWSTEEL
+2025-08-31 19:09:14,466 - INFO - Fundamental analysis completed for JSWSTEEL: 58 fields
+2025-08-31 19:09:14,669 - INFO - Enhanced technical analysis completed for JSWSTEEL: 52 fields
+2025-08-31 19:09:14,792 - INFO - Comprehensive data extracted for UNIONBANK
+2025-08-31 19:09:14,794 - INFO - Fundamental analysis completed for UNIONBANK: 58 fields
+2025-08-31 19:09:14,977 - INFO - Enhanced technical analysis completed for UNIONBANK: 52 fields
+2025-08-31 19:09:20,640 - INFO - Comprehensive data extracted for VEDL
+2025-08-31 19:09:20,640 - INFO - Fundamental analysis completed for VEDL: 58 fields
+2025-08-31 19:09:20,756 - INFO - Comprehensive data extracted for HEROMOTOCO
+2025-08-31 19:09:20,757 - INFO - Fundamental analysis completed for HEROMOTOCO: 58 fields
+2025-08-31 19:09:20,799 - INFO - Comprehensive data extracted for HINDALCO
+2025-08-31 19:09:20,800 - INFO - Fundamental analysis completed for HINDALCO: 58 fields
+2025-08-31 19:09:20,992 - INFO - Enhanced technical analysis completed for VEDL: 52 fields
+2025-08-31 19:09:21,177 - INFO - Enhanced technical analysis completed for HINDALCO: 52 fields
+2025-08-31 19:09:21,182 - INFO - Enhanced technical analysis completed for HEROMOTOCO: 52 fields
+2025-08-31 19:09:21,910 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-08-31 19:09:21,910 - INFO - Fundamental analysis completed for BAJAJHLDNG: 58 fields
+2025-08-31 19:09:22,082 - INFO - Comprehensive data extracted for SHREECEM
+2025-08-31 19:09:22,084 - INFO - Fundamental analysis completed for SHREECEM: 58 fields
+2025-08-31 19:09:22,201 - INFO - Enhanced technical analysis completed for BAJAJHLDNG: 52 fields
+2025-08-31 19:09:22,318 - INFO - Enhanced technical analysis completed for SHREECEM: 52 fields
+2025-08-31 19:09:27,928 - INFO - Comprehensive data extracted for GODREJPROP
+2025-08-31 19:09:27,928 - INFO - Fundamental analysis completed for GODREJPROP: 58 fields
+2025-08-31 19:09:28,097 - INFO - Enhanced technical analysis completed for GODREJPROP: 52 fields
+2025-08-31 19:09:28,147 - INFO - Comprehensive data extracted for OBEROIRLTY
+2025-08-31 19:09:28,147 - INFO - Fundamental analysis completed for OBEROIRLTY: 58 fields
+2025-08-31 19:09:28,248 - INFO - Comprehensive data extracted for PRESTIGE
+2025-08-31 19:09:28,251 - INFO - Fundamental analysis completed for PRESTIGE: 58 fields
+2025-08-31 19:09:28,371 - INFO - Enhanced technical analysis completed for OBEROIRLTY: 52 fields
+2025-08-31 19:09:28,483 - INFO - Enhanced technical analysis completed for PRESTIGE: 52 fields
+2025-08-31 19:09:29,201 - INFO - Comprehensive data extracted for SOBHA
+2025-08-31 19:09:29,201 - INFO - Fundamental analysis completed for SOBHA: 58 fields
+2025-08-31 19:09:29,288 - INFO - Comprehensive data extracted for BRIGADE
+2025-08-31 19:09:29,289 - INFO - Fundamental analysis completed for BRIGADE: 58 fields
+2025-08-31 19:09:29,463 - INFO - Enhanced technical analysis completed for BRIGADE: 52 fields
+2025-08-31 19:09:29,578 - INFO - Enhanced technical analysis completed for SOBHA: 52 fields
+2025-08-31 19:09:35,291 - INFO - Comprehensive data extracted for LTIM
+2025-08-31 19:09:35,291 - INFO - Fundamental analysis completed for LTIM: 58 fields
+2025-08-31 19:09:35,345 - INFO - Comprehensive data extracted for MPHASIS
+2025-08-31 19:09:35,345 - INFO - Fundamental analysis completed for MPHASIS: 58 fields
+2025-08-31 19:09:35,630 - INFO - Enhanced technical analysis completed for MPHASIS: 52 fields
+2025-08-31 19:09:35,642 - INFO - Enhanced technical analysis completed for LTIM: 52 fields
+2025-08-31 19:09:36,533 - INFO - Comprehensive data extracted for PERSISTENT
+2025-08-31 19:09:36,533 - INFO - Fundamental analysis completed for PERSISTENT: 58 fields
+2025-08-31 19:09:36,755 - INFO - Enhanced technical analysis completed for PERSISTENT: 52 fields
+2025-08-31 19:09:36,761 - ERROR - $MINDTREE.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:09:36,764 - INFO - Comprehensive data extracted for MINDTREE
+2025-08-31 19:09:36,764 - INFO - Fundamental analysis completed for MINDTREE: 53 fields
+2025-08-31 19:09:37,304 - INFO - Comprehensive data extracted for COFORGE
+2025-08-31 19:09:37,305 - INFO - Fundamental analysis completed for COFORGE: 58 fields
+2025-08-31 19:09:37,515 - INFO - Enhanced technical analysis completed for COFORGE: 52 fields
+2025-08-31 19:09:38,116 - ERROR - $MINDTREE.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:09:38,116 - WARNING - Enhanced technical analysis failed for MINDTREE
+2025-08-31 19:09:38,488 - ERROR - $MINDTREE.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:09:43,892 - INFO - Comprehensive data extracted for OFSS
+2025-08-31 19:09:43,914 - INFO - Fundamental analysis completed for OFSS: 58 fields
+2025-08-31 19:09:43,919 - INFO - Comprehensive data extracted for FSL
+2025-08-31 19:09:43,921 - INFO - Fundamental analysis completed for FSL: 58 fields
+2025-08-31 19:09:44,176 - INFO - Enhanced technical analysis completed for OFSS: 52 fields
+2025-08-31 19:09:44,180 - INFO - Enhanced technical analysis completed for FSL: 52 fields
+2025-08-31 19:09:44,228 - INFO - Comprehensive data extracted for IRCTC
+2025-08-31 19:09:44,230 - INFO - Fundamental analysis completed for IRCTC: 58 fields
+2025-08-31 19:09:44,497 - INFO - Enhanced technical analysis completed for IRCTC: 52 fields
+2025-08-31 19:09:44,721 - ERROR - HTTP Error 404: 
+2025-08-31 19:09:44,955 - INFO - Comprehensive data extracted for PAYTM
+2025-08-31 19:09:44,955 - INFO - Fundamental analysis completed for PAYTM: 58 fields
+2025-08-31 19:09:45,567 - INFO - Enhanced technical analysis completed for PAYTM: 52 fields
+2025-08-31 19:09:45,627 - ERROR - $ZOMATO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:09:45,631 - INFO - Comprehensive data extracted for ZOMATO
+2025-08-31 19:09:45,632 - INFO - Fundamental analysis completed for ZOMATO: 53 fields
+2025-08-31 19:09:46,033 - ERROR - $ZOMATO.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:09:46,042 - WARNING - Enhanced technical analysis failed for ZOMATO
+2025-08-31 19:09:46,474 - ERROR - $ZOMATO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:09:52,037 - INFO - Comprehensive data extracted for CARTRADE
+2025-08-31 19:09:52,039 - INFO - Fundamental analysis completed for CARTRADE: 58 fields
+2025-08-31 19:09:52,096 - INFO - Comprehensive data extracted for POLICYBZR
+2025-08-31 19:09:52,098 - INFO - Fundamental analysis completed for POLICYBZR: 58 fields
+2025-08-31 19:09:52,230 - INFO - Enhanced technical analysis completed for CARTRADE: 52 fields
+2025-08-31 19:09:52,230 - INFO - Comprehensive data extracted for NYKAA
+2025-08-31 19:09:52,230 - INFO - Fundamental analysis completed for NYKAA: 58 fields
+2025-08-31 19:09:52,334 - INFO - Enhanced technical analysis completed for POLICYBZR: 52 fields
+2025-08-31 19:09:52,546 - INFO - Enhanced technical analysis completed for NYKAA: 52 fields
+2025-08-31 19:09:53,055 - INFO - Comprehensive data extracted for EASEMYTRIP
+2025-08-31 19:09:53,056 - INFO - Fundamental analysis completed for EASEMYTRIP: 58 fields
+2025-08-31 19:09:53,099 - INFO - Comprehensive data extracted for TATASTEEL
+2025-08-31 19:09:53,099 - INFO - Fundamental analysis completed for TATASTEEL: 58 fields
+2025-08-31 19:09:53,233 - INFO - Enhanced technical analysis completed for EASEMYTRIP: 52 fields
+2025-08-31 19:09:53,551 - INFO - Enhanced technical analysis completed for TATASTEEL: 52 fields
+2025-08-31 19:09:59,226 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-08-31 19:09:59,255 - INFO - Fundamental analysis completed for ADANIPOWER: 58 fields
+2025-08-31 19:09:59,275 - INFO - Comprehensive data extracted for NTPC
+2025-08-31 19:09:59,278 - INFO - Fundamental analysis completed for NTPC: 58 fields
+2025-08-31 19:09:59,382 - INFO - Comprehensive data extracted for JSWENERGY
+2025-08-31 19:09:59,384 - INFO - Fundamental analysis completed for JSWENERGY: 58 fields
+2025-08-31 19:09:59,478 - INFO - Enhanced technical analysis completed for NTPC: 52 fields
+2025-08-31 19:09:59,596 - INFO - Enhanced technical analysis completed for ADANIPOWER: 52 fields
+2025-08-31 19:09:59,797 - INFO - Enhanced technical analysis completed for JSWENERGY: 52 fields
+2025-08-31 19:10:00,356 - INFO - Comprehensive data extracted for SJVN
+2025-08-31 19:10:00,356 - INFO - Fundamental analysis completed for SJVN: 58 fields
+2025-08-31 19:10:00,401 - INFO - Comprehensive data extracted for BHEL
+2025-08-31 19:10:00,401 - INFO - Fundamental analysis completed for BHEL: 58 fields
+2025-08-31 19:10:00,531 - INFO - Enhanced technical analysis completed for SJVN: 52 fields
+2025-08-31 19:10:00,647 - INFO - Enhanced technical analysis completed for BHEL: 52 fields
+2025-08-31 19:10:06,132 - INFO - Comprehensive data extracted for IRFC
+2025-08-31 19:10:06,132 - INFO - Fundamental analysis completed for IRFC: 58 fields
+2025-08-31 19:10:06,428 - INFO - Enhanced technical analysis completed for IRFC: 52 fields
+2025-08-31 19:10:06,536 - INFO - Comprehensive data extracted for NHPC
+2025-08-31 19:10:06,540 - INFO - Fundamental analysis completed for NHPC: 58 fields
+2025-08-31 19:10:06,598 - INFO - Comprehensive data extracted for CONCOR
+2025-08-31 19:10:06,608 - INFO - Fundamental analysis completed for CONCOR: 58 fields
+2025-08-31 19:10:06,880 - INFO - Enhanced technical analysis completed for NHPC: 52 fields
+2025-08-31 19:10:06,909 - INFO - Enhanced technical analysis completed for CONCOR: 52 fields
+2025-08-31 19:10:07,370 - INFO - Comprehensive data extracted for IRCON
+2025-08-31 19:10:07,371 - INFO - Fundamental analysis completed for IRCON: 58 fields
+2025-08-31 19:10:07,661 - INFO - Enhanced technical analysis completed for IRCON: 52 fields
+2025-08-31 19:10:07,764 - INFO - Comprehensive data extracted for RVNL
+2025-08-31 19:10:07,773 - INFO - Fundamental analysis completed for RVNL: 58 fields
+2025-08-31 19:10:08,161 - INFO - Enhanced technical analysis completed for RVNL: 52 fields
+2025-08-31 19:10:13,647 - INFO - Comprehensive data extracted for RITES
+2025-08-31 19:10:13,647 - INFO - Fundamental analysis completed for RITES: 58 fields
+2025-08-31 19:10:13,821 - INFO - Enhanced technical analysis completed for RITES: 52 fields
+2025-08-31 19:10:13,905 - INFO - Comprehensive data extracted for RAILTEL
+2025-08-31 19:10:13,910 - INFO - Comprehensive data extracted for MAZDOCK
+2025-08-31 19:10:13,910 - INFO - Fundamental analysis completed for RAILTEL: 58 fields
+2025-08-31 19:10:13,910 - INFO - Fundamental analysis completed for MAZDOCK: 58 fields
+2025-08-31 19:10:14,211 - INFO - Enhanced technical analysis completed for MAZDOCK: 52 fields
+2025-08-31 19:10:14,236 - INFO - Enhanced technical analysis completed for RAILTEL: 52 fields
+2025-08-31 19:10:14,689 - INFO - Comprehensive data extracted for GRSE
+2025-08-31 19:10:14,689 - INFO - Fundamental analysis completed for GRSE: 58 fields
+2025-08-31 19:10:14,978 - INFO - Enhanced technical analysis completed for GRSE: 52 fields
+2025-08-31 19:10:15,095 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-08-31 19:10:15,095 - INFO - Fundamental analysis completed for COCHINSHIP: 58 fields
+2025-08-31 19:10:15,267 - INFO - Enhanced technical analysis completed for COCHINSHIP: 52 fields
+2025-08-31 19:10:20,703 - INFO - Comprehensive data extracted for MIDHANI
+2025-08-31 19:10:20,707 - INFO - Fundamental analysis completed for MIDHANI: 58 fields
+2025-08-31 19:10:20,879 - INFO - Comprehensive data extracted for BEL
+2025-08-31 19:10:20,918 - INFO - Fundamental analysis completed for BEL: 58 fields
+2025-08-31 19:10:20,928 - INFO - Enhanced technical analysis completed for MIDHANI: 52 fields
+2025-08-31 19:10:20,964 - INFO - Comprehensive data extracted for BEML
+2025-08-31 19:10:20,964 - INFO - Fundamental analysis completed for BEML: 58 fields
+2025-08-31 19:10:21,197 - INFO - Enhanced technical analysis completed for BEL: 52 fields
+2025-08-31 19:10:21,300 - INFO - Enhanced technical analysis completed for BEML: 52 fields
+2025-08-31 19:10:21,478 - ERROR - HTTP Error 404: 
+2025-08-31 19:10:22,039 - INFO - Comprehensive data extracted for DCMSHRIRAM
+2025-08-31 19:10:22,039 - INFO - Fundamental analysis completed for DCMSHRIRAM: 58 fields
+2025-08-31 19:10:22,615 - INFO - Enhanced technical analysis completed for DCMSHRIRAM: 52 fields
+2025-08-31 19:10:22,984 - ERROR - $MTAR.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:22,984 - INFO - Comprehensive data extracted for MTAR
+2025-08-31 19:10:22,984 - INFO - Fundamental analysis completed for MTAR: 53 fields
+2025-08-31 19:10:23,452 - ERROR - $MTAR.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:23,454 - WARNING - Enhanced technical analysis failed for MTAR
+2025-08-31 19:10:23,914 - ERROR - $MTAR.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:29,541 - INFO - Comprehensive data extracted for GSFC
+2025-08-31 19:10:29,547 - INFO - Fundamental analysis completed for GSFC: 58 fields
+2025-08-31 19:10:29,582 - INFO - Comprehensive data extracted for GNFC
+2025-08-31 19:10:29,596 - INFO - Fundamental analysis completed for GNFC: 58 fields
+2025-08-31 19:10:29,713 - ERROR - $DEEPAKNI.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 19:10:29,713 - INFO - Comprehensive data extracted for DEEPAKNI
+2025-08-31 19:10:29,713 - INFO - Fundamental analysis completed for DEEPAKNI: 53 fields
+2025-08-31 19:10:29,847 - INFO - Enhanced technical analysis completed for GNFC: 52 fields
+2025-08-31 19:10:30,000 - INFO - Enhanced technical analysis completed for GSFC: 52 fields
+2025-08-31 19:10:30,004 - ERROR - $DEEPAKNI.NS: possibly delisted; no price data found  (period=6mo)
+2025-08-31 19:10:30,013 - WARNING - Enhanced technical analysis failed for DEEPAKNI
+2025-08-31 19:10:30,046 - ERROR - $DEEPAKNI.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 19:10:30,686 - INFO - Comprehensive data extracted for FACT
+2025-08-31 19:10:30,686 - INFO - Fundamental analysis completed for FACT: 58 fields
+2025-08-31 19:10:30,874 - INFO - Comprehensive data extracted for RCF
+2025-08-31 19:10:30,874 - INFO - Fundamental analysis completed for RCF: 58 fields
+2025-08-31 19:10:30,997 - INFO - Enhanced technical analysis completed for FACT: 52 fields
+2025-08-31 19:10:31,181 - INFO - Enhanced technical analysis completed for RCF: 52 fields
+2025-08-31 19:10:36,897 - INFO - Comprehensive data extracted for CHAMBLFERT
+2025-08-31 19:10:36,897 - INFO - Fundamental analysis completed for CHAMBLFERT: 58 fields
+2025-08-31 19:10:37,027 - INFO - Comprehensive data extracted for NFL
+2025-08-31 19:10:37,027 - INFO - Fundamental analysis completed for NFL: 58 fields
+2025-08-31 19:10:37,234 - INFO - Enhanced technical analysis completed for CHAMBLFERT: 52 fields
+2025-08-31 19:10:37,280 - INFO - Comprehensive data extracted for COROMANDEL
+2025-08-31 19:10:37,282 - INFO - Fundamental analysis completed for COROMANDEL: 58 fields
+2025-08-31 19:10:37,435 - INFO - Enhanced technical analysis completed for NFL: 52 fields
+2025-08-31 19:10:37,641 - INFO - Enhanced technical analysis completed for COROMANDEL: 52 fields
+2025-08-31 19:10:38,067 - INFO - Comprehensive data extracted for MADHUCON
+2025-08-31 19:10:38,067 - INFO - Fundamental analysis completed for MADHUCON: 58 fields
+2025-08-31 19:10:38,392 - ERROR - HTTP Error 404: 
+2025-08-31 19:10:38,506 - INFO - Enhanced technical analysis completed for MADHUCON: 52 fields
+2025-08-31 19:10:40,604 - ERROR - $KRIBHCO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:40,605 - INFO - Comprehensive data extracted for KRIBHCO
+2025-08-31 19:10:40,605 - INFO - Fundamental analysis completed for KRIBHCO: 53 fields
+2025-08-31 19:10:41,113 - ERROR - $KRIBHCO.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:41,118 - WARNING - Enhanced technical analysis failed for KRIBHCO
+2025-08-31 19:10:41,655 - ERROR - $KRIBHCO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:47,278 - INFO - Comprehensive data extracted for GPIL
+2025-08-31 19:10:47,278 - INFO - Fundamental analysis completed for GPIL: 58 fields
+2025-08-31 19:10:47,378 - INFO - Comprehensive data extracted for SRF
+2025-08-31 19:10:47,378 - INFO - Fundamental analysis completed for SRF: 58 fields
+2025-08-31 19:10:47,456 - INFO - Comprehensive data extracted for AAVAS
+2025-08-31 19:10:47,457 - INFO - Fundamental analysis completed for AAVAS: 58 fields
+2025-08-31 19:10:47,677 - INFO - Enhanced technical analysis completed for SRF: 52 fields
+2025-08-31 19:10:47,767 - INFO - Enhanced technical analysis completed for GPIL: 52 fields
+2025-08-31 19:10:47,815 - INFO - Enhanced technical analysis completed for AAVAS: 52 fields
+2025-08-31 19:10:48,531 - INFO - Comprehensive data extracted for CANFINHOME
+2025-08-31 19:10:48,569 - INFO - Fundamental analysis completed for CANFINHOME: 58 fields
+2025-08-31 19:10:48,583 - INFO - Comprehensive data extracted for HOMEFIRST
+2025-08-31 19:10:48,586 - INFO - Fundamental analysis completed for HOMEFIRST: 58 fields
+2025-08-31 19:10:48,855 - INFO - Enhanced technical analysis completed for HOMEFIRST: 52 fields
+2025-08-31 19:10:48,897 - INFO - Enhanced technical analysis completed for CANFINHOME: 52 fields
+2025-08-31 19:10:54,660 - ERROR - HTTP Error 404: 
+2025-08-31 19:10:55,027 - INFO - Comprehensive data extracted for LICHSGFIN
+2025-08-31 19:10:55,029 - INFO - Fundamental analysis completed for LICHSGFIN: 58 fields
+2025-08-31 19:10:55,417 - INFO - Comprehensive data extracted for SHRIRAMFIN
+2025-08-31 19:10:55,433 - INFO - Fundamental analysis completed for SHRIRAMFIN: 58 fields
+2025-08-31 19:10:55,586 - INFO - Enhanced technical analysis completed for LICHSGFIN: 52 fields
+2025-08-31 19:10:55,817 - ERROR - $REPCO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:55,818 - INFO - Comprehensive data extracted for REPCO
+2025-08-31 19:10:55,818 - INFO - Fundamental analysis completed for REPCO: 53 fields
+2025-08-31 19:10:55,951 - INFO - Enhanced technical analysis completed for SHRIRAMFIN: 52 fields
+2025-08-31 19:10:56,712 - ERROR - $REPCO.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:56,715 - ERROR - HTTP Error 404: 
+2025-08-31 19:10:56,715 - WARNING - Enhanced technical analysis failed for REPCO
+2025-08-31 19:10:57,294 - ERROR - $REPCO.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:57,556 - INFO - Comprehensive data extracted for SWANENERGY
+2025-08-31 19:10:57,556 - INFO - Fundamental analysis completed for SWANENERGY: 58 fields
+2025-08-31 19:10:58,303 - INFO - Enhanced technical analysis completed for SWANENERGY: 52 fields
+2025-08-31 19:10:58,793 - ERROR - $MMFIN.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:58,795 - INFO - Comprehensive data extracted for MMFIN
+2025-08-31 19:10:58,796 - INFO - Fundamental analysis completed for MMFIN: 53 fields
+2025-08-31 19:10:59,288 - ERROR - $MMFIN.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:10:59,291 - WARNING - Enhanced technical analysis failed for MMFIN
+2025-08-31 19:10:59,778 - ERROR - $MMFIN.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:05,373 - INFO - Comprehensive data extracted for RPOWER
+2025-08-31 19:11:05,374 - INFO - Fundamental analysis completed for RPOWER: 58 fields
+2025-08-31 19:11:05,390 - INFO - Comprehensive data extracted for SUZLON
+2025-08-31 19:11:05,391 - INFO - Fundamental analysis completed for SUZLON: 58 fields
+2025-08-31 19:11:05,498 - INFO - Comprehensive data extracted for ORIENTELEC
+2025-08-31 19:11:05,499 - INFO - Fundamental analysis completed for ORIENTELEC: 58 fields
+2025-08-31 19:11:05,591 - INFO - Enhanced technical analysis completed for RPOWER: 52 fields
+2025-08-31 19:11:05,747 - INFO - Enhanced technical analysis completed for SUZLON: 52 fields
+2025-08-31 19:11:05,974 - INFO - Enhanced technical analysis completed for ORIENTELEC: 52 fields
+2025-08-31 19:11:06,416 - INFO - Comprehensive data extracted for KEI
+2025-08-31 19:11:06,416 - INFO - Fundamental analysis completed for KEI: 58 fields
+2025-08-31 19:11:06,522 - INFO - Comprehensive data extracted for POLYCAB
+2025-08-31 19:11:06,524 - INFO - Fundamental analysis completed for POLYCAB: 58 fields
+2025-08-31 19:11:06,642 - INFO - Enhanced technical analysis completed for KEI: 52 fields
+2025-08-31 19:11:06,765 - INFO - Enhanced technical analysis completed for POLYCAB: 52 fields
+2025-08-31 19:11:12,443 - INFO - Comprehensive data extracted for CROMPTON
+2025-08-31 19:11:12,443 - INFO - Fundamental analysis completed for CROMPTON: 58 fields
+2025-08-31 19:11:12,494 - INFO - Comprehensive data extracted for HAVELLS
+2025-08-31 19:11:12,497 - INFO - Fundamental analysis completed for HAVELLS: 58 fields
+2025-08-31 19:11:12,812 - INFO - Enhanced technical analysis completed for CROMPTON: 52 fields
+2025-08-31 19:11:12,824 - INFO - Comprehensive data extracted for VGUARD
+2025-08-31 19:11:12,828 - INFO - Fundamental analysis completed for VGUARD: 58 fields
+2025-08-31 19:11:12,881 - INFO - Enhanced technical analysis completed for HAVELLS: 52 fields
+2025-08-31 19:11:13,163 - INFO - Enhanced technical analysis completed for VGUARD: 52 fields
+2025-08-31 19:11:13,603 - INFO - Comprehensive data extracted for SYMPHONY
+2025-08-31 19:11:13,603 - INFO - Fundamental analysis completed for SYMPHONY: 58 fields
+2025-08-31 19:11:13,826 - INFO - Enhanced technical analysis completed for SYMPHONY: 52 fields
+2025-08-31 19:11:13,886 - INFO - Comprehensive data extracted for BLUESTARCO
+2025-08-31 19:11:13,887 - INFO - Fundamental analysis completed for BLUESTARCO: 58 fields
+2025-08-31 19:11:14,178 - INFO - Enhanced technical analysis completed for BLUESTARCO: 52 fields
+2025-08-31 19:11:19,860 - INFO - Comprehensive data extracted for VOLTAS
+2025-08-31 19:11:19,860 - INFO - Fundamental analysis completed for VOLTAS: 58 fields
+2025-08-31 19:11:19,902 - INFO - Comprehensive data extracted for RAJESHEXPO
+2025-08-31 19:11:19,904 - INFO - Fundamental analysis completed for RAJESHEXPO: 58 fields
+2025-08-31 19:11:19,965 - INFO - Comprehensive data extracted for WHIRLPOOL
+2025-08-31 19:11:19,965 - INFO - Fundamental analysis completed for WHIRLPOOL: 58 fields
+2025-08-31 19:11:20,184 - INFO - Enhanced technical analysis completed for RAJESHEXPO: 52 fields
+2025-08-31 19:11:20,213 - INFO - Enhanced technical analysis completed for VOLTAS: 52 fields
+2025-08-31 19:11:20,376 - INFO - Enhanced technical analysis completed for WHIRLPOOL: 52 fields
+2025-08-31 19:11:20,989 - INFO - Comprehensive data extracted for THERMAX
+2025-08-31 19:11:20,989 - INFO - Fundamental analysis completed for THERMAX: 58 fields
+2025-08-31 19:11:21,423 - INFO - Enhanced technical analysis completed for THERMAX: 52 fields
+2025-08-31 19:11:21,809 - ERROR - $KALPATPOWR.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:21,809 - INFO - Comprehensive data extracted for KALPATPOWR
+2025-08-31 19:11:21,812 - INFO - Fundamental analysis completed for KALPATPOWR: 53 fields
+2025-08-31 19:11:22,295 - ERROR - $KALPATPOWR.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:22,297 - WARNING - Enhanced technical analysis failed for KALPATPOWR
+2025-08-31 19:11:22,770 - ERROR - $KALPATPOWR.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:28,361 - INFO - Comprehensive data extracted for KIRLOSENG
+2025-08-31 19:11:28,361 - INFO - Fundamental analysis completed for KIRLOSENG: 58 fields
+2025-08-31 19:11:28,415 - INFO - Comprehensive data extracted for CUMMINSIND
+2025-08-31 19:11:28,417 - INFO - Fundamental analysis completed for CUMMINSIND: 58 fields
+2025-08-31 19:11:28,930 - INFO - Enhanced technical analysis completed for KIRLOSENG: 52 fields
+2025-08-31 19:11:28,933 - INFO - Enhanced technical analysis completed for CUMMINSIND: 52 fields
+2025-08-31 19:11:29,240 - ERROR - $MAHINDCIE.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:29,240 - INFO - Comprehensive data extracted for MAHINDCIE
+2025-08-31 19:11:29,256 - INFO - Fundamental analysis completed for MAHINDCIE: 53 fields
+2025-08-31 19:11:29,732 - ERROR - $MAHINDCIE.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:29,732 - WARNING - Enhanced technical analysis failed for MAHINDCIE
+2025-08-31 19:11:30,225 - ERROR - $MAHINDCIE.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:30,298 - INFO - Comprehensive data extracted for RAMCOCEM
+2025-08-31 19:11:30,311 - INFO - Fundamental analysis completed for RAMCOCEM: 58 fields
+2025-08-31 19:11:30,426 - INFO - Comprehensive data extracted for MOTHERSON
+2025-08-31 19:11:30,428 - INFO - Fundamental analysis completed for MOTHERSON: 58 fields
+2025-08-31 19:11:30,540 - INFO - Enhanced technical analysis completed for RAMCOCEM: 52 fields
+2025-08-31 19:11:30,711 - INFO - Enhanced technical analysis completed for MOTHERSON: 52 fields
+2025-08-31 19:11:36,698 - ERROR - HTTP Error 404: 
+2025-08-31 19:11:36,843 - INFO - Comprehensive data extracted for HEIDELBERG
+2025-08-31 19:11:36,843 - INFO - Fundamental analysis completed for HEIDELBERG: 58 fields
+2025-08-31 19:11:37,069 - INFO - Enhanced technical analysis completed for HEIDELBERG: 52 fields
+2025-08-31 19:11:37,202 - INFO - Comprehensive data extracted for JKCEMENT
+2025-08-31 19:11:37,202 - INFO - Fundamental analysis completed for JKCEMENT: 58 fields
+2025-08-31 19:11:37,593 - INFO - Enhanced technical analysis completed for JKCEMENT: 52 fields
+2025-08-31 19:11:37,844 - ERROR - HTTP Error 404: 
+2025-08-31 19:11:38,229 - ERROR - $AMBUJACEMENT.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:38,235 - INFO - Comprehensive data extracted for AMBUJACEMENT
+2025-08-31 19:11:38,235 - INFO - Fundamental analysis completed for AMBUJACEMENT: 53 fields
+2025-08-31 19:11:38,701 - ERROR - $AMBUJACEMENT.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:38,706 - WARNING - Enhanced technical analysis failed for AMBUJACEMENT
+2025-08-31 19:11:38,764 - INFO - Comprehensive data extracted for ORIENTCEM
+2025-08-31 19:11:38,764 - INFO - Fundamental analysis completed for ORIENTCEM: 58 fields
+2025-08-31 19:11:38,976 - INFO - Enhanced technical analysis completed for ORIENTCEM: 52 fields
+2025-08-31 19:11:39,183 - ERROR - $PRISMCEMENT.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:39,185 - INFO - Comprehensive data extracted for PRISMCEMENT
+2025-08-31 19:11:39,185 - ERROR - $AMBUJACEMENT.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:39,185 - INFO - Fundamental analysis completed for PRISMCEMENT: 53 fields
+2025-08-31 19:11:39,751 - ERROR - $PRISMCEMENT.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:39,767 - WARNING - Enhanced technical analysis failed for PRISMCEMENT
+2025-08-31 19:11:40,621 - ERROR - $PRISMCEMENT.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:46,196 - ERROR - HTTP Error 404: 
+2025-08-31 19:11:46,551 - INFO - Comprehensive data extracted for MARICO
+2025-08-31 19:11:46,551 - INFO - Fundamental analysis completed for MARICO: 58 fields
+2025-08-31 19:11:46,638 - INFO - Comprehensive data extracted for PAGEIND
+2025-08-31 19:11:46,640 - INFO - Fundamental analysis completed for PAGEIND: 58 fields
+2025-08-31 19:11:47,130 - INFO - Enhanced technical analysis completed for MARICO: 52 fields
+2025-08-31 19:11:47,165 - INFO - Enhanced technical analysis completed for PAGEIND: 52 fields
+2025-08-31 19:11:47,552 - ERROR - $DALMIACEMT.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:47,570 - INFO - Comprehensive data extracted for DALMIACEMT
+2025-08-31 19:11:47,581 - INFO - Fundamental analysis completed for DALMIACEMT: 53 fields
+2025-08-31 19:11:48,066 - ERROR - $DALMIACEMT.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:48,066 - WARNING - Enhanced technical analysis failed for DALMIACEMT
+2025-08-31 19:11:48,309 - INFO - Comprehensive data extracted for GODREJIND
+2025-08-31 19:11:48,309 - INFO - Fundamental analysis completed for GODREJIND: 58 fields
+2025-08-31 19:11:48,648 - INFO - Comprehensive data extracted for VBL
+2025-08-31 19:11:48,664 - INFO - Fundamental analysis completed for VBL: 58 fields
+2025-08-31 19:11:48,680 - ERROR - $DALMIACEMT.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:48,730 - INFO - Enhanced technical analysis completed for GODREJIND: 52 fields
+2025-08-31 19:11:49,002 - INFO - Enhanced technical analysis completed for VBL: 52 fields
+2025-08-31 19:11:54,711 - ERROR - HTTP Error 404: 
+2025-08-31 19:11:55,067 - INFO - Comprehensive data extracted for RADICO
+2025-08-31 19:11:55,071 - INFO - Fundamental analysis completed for RADICO: 58 fields
+2025-08-31 19:11:55,102 - INFO - Comprehensive data extracted for UBL
+2025-08-31 19:11:55,102 - INFO - Fundamental analysis completed for UBL: 58 fields
+2025-08-31 19:11:55,630 - INFO - Enhanced technical analysis completed for UBL: 52 fields
+2025-08-31 19:11:55,685 - INFO - Enhanced technical analysis completed for RADICO: 52 fields
+2025-08-31 19:11:55,971 - ERROR - $MCDOWELL.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:55,971 - INFO - Comprehensive data extracted for MCDOWELL
+2025-08-31 19:11:55,971 - INFO - Fundamental analysis completed for MCDOWELL: 53 fields
+2025-08-31 19:11:56,474 - ERROR - $MCDOWELL.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:56,477 - WARNING - Enhanced technical analysis failed for MCDOWELL
+2025-08-31 19:11:56,747 - INFO - Comprehensive data extracted for GODFRYPHLP
+2025-08-31 19:11:56,747 - INFO - Fundamental analysis completed for GODFRYPHLP: 58 fields
+2025-08-31 19:11:57,440 - ERROR - $MCDOWELL.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:11:57,595 - INFO - Comprehensive data extracted for VSTIND
+2025-08-31 19:11:57,621 - INFO - Fundamental analysis completed for VSTIND: 58 fields
+2025-08-31 19:11:57,628 - INFO - Enhanced technical analysis completed for GODFRYPHLP: 52 fields
+2025-08-31 19:11:57,856 - INFO - Enhanced technical analysis completed for VSTIND: 52 fields
+2025-08-31 19:12:03,541 - INFO - Comprehensive data extracted for ABBOTINDIA
+2025-08-31 19:12:03,543 - INFO - Fundamental analysis completed for ABBOTINDIA: 58 fields
+2025-08-31 19:12:03,627 - INFO - Comprehensive data extracted for HONAUT
+2025-08-31 19:12:03,631 - INFO - Comprehensive data extracted for ASTRAZEN
+2025-08-31 19:12:03,632 - INFO - Fundamental analysis completed for HONAUT: 58 fields
+2025-08-31 19:12:03,632 - INFO - Fundamental analysis completed for ASTRAZEN: 58 fields
+2025-08-31 19:12:03,880 - INFO - Enhanced technical analysis completed for ABBOTINDIA: 52 fields
+2025-08-31 19:12:03,989 - INFO - Enhanced technical analysis completed for HONAUT: 52 fields
+2025-08-31 19:12:04,045 - INFO - Enhanced technical analysis completed for ASTRAZEN: 52 fields
+2025-08-31 19:12:04,800 - ERROR - HTTP Error 404: 
+2025-08-31 19:12:04,869 - INFO - Comprehensive data extracted for PFIZER
+2025-08-31 19:12:04,870 - INFO - Fundamental analysis completed for PFIZER: 58 fields
+2025-08-31 19:12:05,107 - INFO - Enhanced technical analysis completed for PFIZER: 52 fields
+2025-08-31 19:12:06,043 - ERROR - $NOVARTIS.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:12:06,043 - INFO - Comprehensive data extracted for NOVARTIS
+2025-08-31 19:12:06,043 - INFO - Fundamental analysis completed for NOVARTIS: 53 fields
+2025-08-31 19:12:06,907 - ERROR - $NOVARTIS.NS: possibly delisted; no price data found  (period=6mo) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:12:06,912 - WARNING - Enhanced technical analysis failed for NOVARTIS
+2025-08-31 19:12:07,423 - ERROR - $NOVARTIS.NS: possibly delisted; no price data found  (period=1y) (Yahoo error = "No data found, symbol may be delisted")
+2025-08-31 19:12:13,029 - INFO - Comprehensive data extracted for SANOFI
+2025-08-31 19:12:13,045 - INFO - Fundamental analysis completed for SANOFI: 58 fields
+2025-08-31 19:12:13,081 - INFO - Comprehensive data extracted for GLAXO
+2025-08-31 19:12:13,084 - INFO - Fundamental analysis completed for GLAXO: 58 fields
+2025-08-31 19:12:13,088 - ERROR - $IPCA.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 19:12:13,088 - INFO - Comprehensive data extracted for IPCA
+2025-08-31 19:12:13,092 - INFO - Fundamental analysis completed for IPCA: 53 fields
+2025-08-31 19:12:13,179 - ERROR - $IPCA.NS: possibly delisted; no price data found  (period=6mo)
+2025-08-31 19:12:13,179 - WARNING - Enhanced technical analysis failed for IPCA
+2025-08-31 19:12:13,280 - ERROR - $IPCA.NS: possibly delisted; no price data found  (period=1y)
+2025-08-31 19:12:13,348 - INFO - Enhanced technical analysis completed for SANOFI: 52 fields
+2025-08-31 19:12:13,420 - INFO - Enhanced technical analysis completed for GLAXO: 52 fields
+2025-08-31 19:12:13,920 - INFO - Comprehensive data extracted for ALKEM
+2025-08-31 19:12:13,920 - INFO - Fundamental analysis completed for ALKEM: 58 fields
+2025-08-31 19:12:14,028 - INFO - Comprehensive data extracted for LALPATHLAB
+2025-08-31 19:12:14,030 - INFO - Fundamental analysis completed for LALPATHLAB: 58 fields
+2025-08-31 19:12:14,144 - INFO - Enhanced technical analysis completed for ALKEM: 52 fields
+2025-08-31 19:12:14,353 - INFO - Enhanced technical analysis completed for LALPATHLAB: 52 fields
+2025-08-31 19:12:20,027 - INFO - Comprehensive data extracted for THYROCARE
+2025-08-31 19:12:20,067 - INFO - Fundamental analysis completed for THYROCARE: 58 fields
+2025-08-31 19:12:20,067 - INFO - Comprehensive data extracted for KRBL
+2025-08-31 19:12:20,081 - INFO - Fundamental analysis completed for KRBL: 58 fields
+2025-08-31 19:12:20,168 - INFO - Comprehensive data extracted for METROPOLIS
+2025-08-31 19:12:20,169 - INFO - Fundamental analysis completed for METROPOLIS: 58 fields
+2025-08-31 19:12:20,436 - INFO - Enhanced technical analysis completed for KRBL: 52 fields
+2025-08-31 19:12:20,493 - INFO - Enhanced technical analysis completed for THYROCARE: 52 fields
+2025-08-31 19:12:20,498 - INFO - Enhanced technical analysis completed for METROPOLIS: 52 fields
+2025-08-31 19:12:21,187 - INFO - Comprehensive data extracted for BALRAMCHIN
+2025-08-31 19:12:21,187 - INFO - Fundamental analysis completed for BALRAMCHIN: 58 fields
+2025-08-31 19:12:21,234 - INFO - Comprehensive data extracted for ANDHRSUGAR
+2025-08-31 19:12:21,236 - INFO - Fundamental analysis completed for ANDHRSUGAR: 58 fields
+2025-08-31 19:12:21,482 - INFO - Enhanced technical analysis completed for ANDHRSUGAR: 52 fields
+2025-08-31 19:12:21,551 - INFO - Enhanced technical analysis completed for BALRAMCHIN: 52 fields
+2025-08-31 19:12:21,683 - INFO - Batch analysis completed: 200 results, 0 failures
+2025-08-31 19:12:32,683 - INFO - Comprehensive Excel report saved: reports\Stock_Report_2025-08-31.xlsx
+2025-08-31 19:12:32,683 - INFO - Excel report generated: reports\Stock_Report_2025-08-31.xlsx, Size: 377122 bytes
