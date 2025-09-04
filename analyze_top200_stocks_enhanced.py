@@ -1104,7 +1104,10 @@ class EnhancedTop200StockAnalyzer:
         print(f"   ✅ Successful: {len(self.results) - len(self.failed_stocks)}")
         print(f"   ❌ Failed: {len(self.failed_stocks)}")
         print(f"   ⏱️  Total duration: {total_duration/60:.1f} minutes")
-        print(f"   📈 Average per stock: {total_duration/total_stocks:.1f} seconds")
+        if total_stocks > 0:
+            print(f"   📈 Average per stock: {total_duration/total_stocks:.1f} seconds")
+        else:
+            print(f"   📈 No stocks processed")
         
         # Use emoji-free text for logging to avoid encoding issues
         logging.info(f"Batch analysis completed: {len(self.results)} results, {len(self.failed_stocks)} failures")
@@ -1874,10 +1877,13 @@ def main():
         print(f"🔍 Single stock analysis mode: {args.symbol}")
         # Create a new list with just the requested symbol
         analyzer.stock_list = [args.symbol]
-    elif args.num < 200:
-        # Limit the number of stocks
+    elif args.num > 0:
+        # Limit the number of stocks (only if num > 0)
         analyzer.stock_list = analyzer.stock_list[:args.num]
         print(f"🔍 Limited to {args.num} stocks")
+    else:
+        # args.num == 0 means analyze all stocks
+        print(f"🔍 Analyzing all {len(analyzer.stock_list)} stocks from CSV")
         
     # Display info about CSV if used
     if hasattr(analyzer, '_csv_path') and analyzer._csv_path:
