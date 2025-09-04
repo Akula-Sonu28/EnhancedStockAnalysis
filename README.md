@@ -1,4 +1,64 @@
 
+## 🗂️ PROJECT ORGANIZATION (Updated: 2025-09-04)
+
+### 📁 Directory Structure:
+- **`/`** - Core analysis files and main entry points
+- **`/docs/`** - All documentation and user guides  
+- **`/scripts/`** - Utility scripts and analysis tools
+- **`/tests/`** - All test files (moved from root)
+- **`/backup/`** - Backup files for troubleshooting
+- **`/src/`** - Source code modules
+- **`/data/`** - Data files and templates
+- **`/reports/`** - Generated analysis reports
+
+### 🚀 Quick Start:
+```bash
+# Main analysis (recommended)
+python main.py --interactive
+
+# Direct enhanced analysis
+python analyze_top200_stocks_enhanced.py --risk-profile aggressive --focus-growth
+
+# Check all available commands
+cat docs/COMMANDS.md
+```
+
+### 🔧 Troubleshooting:
+If main files don't work as expected, check `/backup/` directory for original files.
+
+---
+
+
+## 🗂️ PROJECT ORGANIZATION (Updated: 2025-09-04)
+
+### 📁 Directory Structure:
+- **`/`** - Core analysis files and main entry points
+- **`/docs/`** - All documentation and user guides  
+- **`/scripts/`** - Utility scripts and analysis tools
+- **`/tests/`** - All test files (moved from root)
+- **`/backup/`** - Backup files for troubleshooting
+- **`/src/`** - Source code modules
+- **`/data/`** - Data files and templates
+- **`/reports/`** - Generated analysis reports
+
+### 🚀 Quick Start:
+```bash
+# Main analysis (recommended)
+python main.py --interactive
+
+# Direct enhanced analysis
+python analyze_top200_stocks_enhanced.py --risk-profile aggressive --focus-growth
+
+# Check all available commands
+cat docs/COMMANDS.md
+```
+
+### 🔧 Troubleshooting:
+If main files don't work as expected, check `/backup/` directory for original files.
+
+---
+
+
 # 🚀 Enhanced Stock Analysis System v2.0.0
 
 A comprehensive, robust stock analysis system that performs technical, fundamental, and sentiment analysis on Indian stocks (NSE) and generates detailed reports with professional Excel outputs and trading plans.
