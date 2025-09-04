@@ -164,9 +164,8 @@ def get_additional_options():
     if fast_mode in ['y', 'yes']:
         options.append('--skip-risk')
     
-    force_fresh = input("Force fresh data (ignore cache)? (y/N): ").strip().lower()
-    if force_fresh in ['y', 'yes']:
-        options.append('--force')
+    # Note: Cache is managed automatically by the enhanced analyzer
+    # Fresh data is fetched when cache expires (4 hours)
     
     return options
 
