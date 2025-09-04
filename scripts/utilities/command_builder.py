@@ -54,11 +54,13 @@ def get_stock_count():
     print("\n3️⃣ NUMBER OF STOCKS:")
     print("1. Quick Test (5-10 stocks, 2-3 minutes)")
     print("2. Medium Analysis (25-50 stocks, 5-8 minutes)")
-    print("3. Full Analysis (100-200 stocks, 15-25 minutes)")
-    print("4. Custom number")
+    print("3. Extended Analysis (100-200 stocks, 15-25 minutes)")
+    print("4. Large Scale Analysis (300-500 stocks, 45-60 minutes)")
+    print("5. All Available Stocks (process entire CSV)")
+    print("6. Custom number")
     
     while True:
-        choice = input("\nSelect stock count (1-4, default=2): ").strip()
+        choice = input("\nSelect stock count (1-6, default=2): ").strip()
         if choice == "" or choice == "2":
             return 25
         elif choice == "1":
@@ -66,16 +68,23 @@ def get_stock_count():
         elif choice == "3":
             return 200
         elif choice == "4":
+            return 500
+        elif choice == "5":
+            return 0  # 0 means all available stocks
+        elif choice == "6":
             try:
-                custom = int(input("Enter custom number (1-200): "))
-                if 1 <= custom <= 200:
+                custom = int(input("Enter custom number (1-5000, or 0 for all): "))
+                if custom == 0:
+                    print("Will analyze all stocks in your CSV file.")
+                    return 0
+                elif 1 <= custom <= 5000:
                     return custom
                 else:
-                    print("Number must be between 1 and 200.")
+                    print("Number must be between 1 and 5000, or 0 for all stocks.")
             except ValueError:
                 print("Please enter a valid number.")
         else:
-            print("Invalid choice. Please select 1, 2, 3, or 4.")
+            print("Invalid choice. Please select 1, 2, 3, 4, 5, or 6.")
 
 def get_volatility_filter():
     print("\n4️⃣ VOLATILITY FILTER (for high-risk traders):")
