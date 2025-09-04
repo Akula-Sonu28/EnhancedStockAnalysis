@@ -1,0 +1,25 @@
+2025-09-04 10:11:20,825 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-09-04 10:11:20,825 - INFO - Risk profile set to: aggressive
+2025-09-04 10:11:20,831 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=False, Momentum=False, MinVol=0.0
+2025-09-04 10:11:20,831 - INFO - Using default stock list from stock_list_template.csv
+2025-09-04 10:11:20,831 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-04 10:11:20,840 - INFO - Loaded 200 stocks with company names
+2025-09-04 10:11:20,840 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-04 10:11:20,850 - INFO - Starting batch analysis of 3 stocks
+2025-09-04 10:11:21,857 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-04 10:11:21,857 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-04 10:11:21,909 - INFO - Comprehensive data extracted for ACC
+2025-09-04 10:11:21,909 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-04 10:11:22,057 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-04 10:11:22,134 - INFO - Comprehensive data extracted for ABB
+2025-09-04 10:11:22,161 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-04 10:11:22,175 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-04 10:11:22,198 - INFO - Completed analysis for APLAPOLLO: Score=33.0, Recommendation=SELL
+2025-09-04 10:11:22,263 - INFO - Completed analysis for ACC: Score=66.2, Recommendation=BUY (VALUE)
+2025-09-04 10:11:22,407 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-04 10:11:22,470 - INFO - Completed analysis for ABB: Score=56.6, Recommendation=HOLD
+2025-09-04 10:11:22,473 - INFO - Batch analysis completed: 3 results, 0 failures
+2025-09-04 10:11:22,496 - INFO - Calculated sector rankings for 2 sectors
+2025-09-04 10:11:22,913 - INFO - Completed risk-return analysis
+2025-09-04 10:11:22,921 - INFO - Generated portfolio allocation for 1 stocks
+2025-09-04 10:11:23,462 - INFO - Enhanced Excel report generated: reports/Enhanced_Stock_Report_20250904_101122.xlsx, Size: 18009 bytes

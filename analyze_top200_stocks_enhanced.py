@@ -64,7 +64,12 @@ class EnhancedTop200StockAnalyzer:
         }
         
         # 🚀 NEW: Risk Profile Settings
-        self.risk_profile = risk_profile      # conservative, moderate, aggressive
+        self.risk_profile = risk_profile
+        # Validate risk profile
+        if self.risk_profile not in ["conservative", "moderate", "aggressive"]:
+            logging.warning(f"Invalid risk profile '{self.risk_profile}', defaulting to 'moderate'")
+            self.risk_profile = "moderate"
+        logging.info(f"Risk profile set to: {self.risk_profile}")      # conservative, moderate, aggressive
         self.focus_growth = focus_growth      # Focus on growth stocks
         self.focus_momentum = focus_momentum  # Focus on momentum stocks
         self.min_volatility = min_volatility  # Minimum volatility for aggressive investors
@@ -815,6 +820,8 @@ class EnhancedTop200StockAnalyzer:
                         results_df.at[idx, 'sharpe_proxy'] = round(sharpe_proxy, 2)
                         results_df.at[idx, 'risk_adjusted_score'] = round(risk_adjusted_score, 1)
                         results_df.at[idx, 'risk_category'] = risk_category
+                        # Debug log for risk category assignment
+                        logging.debug(f"{symbol}: volatility={volatility:.1f}%, profile={self.risk_profile}, risk_category={risk_category}")
                         
                     else:
                         # Default values if no data
@@ -902,7 +909,47 @@ class EnhancedTop200StockAnalyzer:
                 sector_adjustment = 1.0 if sector_count <= 2 else 0.8  # Reduce weight if too many from same sector
                 
                 # Risk adjustment
-                risk_cat = stock.get('risk_category', 'MODERATE')
+                risk_cat = stock.get('risk_category', 'UNKNOWN')
+                # If risk category is still unknown, calculate it based on volatility and profile
+                if risk_cat in ['UNKNOWN', None, '']:
+                    volatility = stock.get('volatility_6m', 0)
+                    if volatility > 0:
+                        # Apply same logic as risk calculation
+                        if self.risk_profile == "conservative":
+                            if volatility <= 10:
+                                risk_cat = "LOW"
+                            elif volatility <= 18:
+                                risk_cat = "MODERATE"
+                            elif volatility <= 28:
+                                risk_cat = "HIGH"
+                            else:
+                                risk_cat = "VERY HIGH"
+                        elif self.risk_profile == "aggressive":
+                            if volatility <= 20:
+                                risk_cat = "LOW"
+                            elif volatility <= 35:
+                                risk_cat = "MODERATE"
+                            elif volatility <= 50:
+                                risk_cat = "HIGH"
+                            else:
+                                risk_cat = "VERY HIGH"
+                        else:  # moderate
+                            if volatility <= 15:
+                                risk_cat = "LOW"
+                            elif volatility <= 25:
+                                risk_cat = "MODERATE"
+                            elif volatility <= 35:
+                                risk_cat = "HIGH"
+                            else:
+                                risk_cat = "VERY HIGH"
+                    else:
+                        # Default based on risk profile when no volatility data
+                        if self.risk_profile == "conservative":
+                            risk_cat = "LOW"
+                        elif self.risk_profile == "aggressive":
+                            risk_cat = "HIGH"
+                        else:
+                            risk_cat = "MODERATE"
                 if risk_cat == 'LOW':
                     risk_adjustment = 1.2
                 elif risk_cat == 'MODERATE':
@@ -924,10 +971,11 @@ class EnhancedTop200StockAnalyzer:
                     'overall_score': stock['overall_score_with_value'],
                     'risk_adjusted_score': stock['risk_adjusted_score'],
                     'undervaluation_score': stock['undervaluation_score'],
-                    'risk_category': risk_cat,
+                    'risk_category': risk_cat,  # Now properly calculated above
                     'raw_weight': final_weight,
                     'current_price': stock.get('current_price', 0),
-                    'recommendation': stock.get('final_recommendation', '')
+                    'recommendation': stock.get('final_recommendation', ''),
+                    'volatility_6m': stock.get('volatility_6m', 0)  # Include volatility for reference
                 })
             
             # Normalize weights to sum to 100%
