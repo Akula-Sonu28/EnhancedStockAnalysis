@@ -85,10 +85,10 @@ class EnhancedTop200StockAnalyzer:
             logging.info(f"Using default stock list from {default_csv}")
         
         # Load stocks from CSV if provided, otherwise use hardcoded list
-        self.top_200_stocks = self.load_stocks_from_csv(csv_file) if csv_file else self.get_default_stock_list()
+        self.stock_list = self.load_stocks_from_csv(csv_file) if csv_file else self.get_default_stock_list()
         
         # Take first 200 stocks
-        self.top_200_stocks = self.top_200_stocks[:200]
+        # Dynamic limit - use all stocks from CSV or default list
     
     def load_stocks_from_csv(self, csv_file):
         """Load stock symbols from a CSV file"""
@@ -230,7 +230,7 @@ class EnhancedTop200StockAnalyzer:
             ]
         )
         
-        logging.info("Top 200 NSE Stock Analysis Initialized")
+        logging.info("Dynamic NSE Stock Analysis Initialized")
     
     def analyze_single_stock(self, symbol):
         """Analyze a single stock with comprehensive data"""
@@ -1017,10 +1017,10 @@ class EnhancedTop200StockAnalyzer:
     
     def analyze_batch(self, batch_size=10):
         """Analyze stocks in batches to avoid overwhelming the system"""
-        total_stocks = len(self.top_200_stocks)
+        total_stocks = len(self.stock_list)
         self.total_stocks = total_stocks
         
-        print(f"🚀 Starting Top 200 NSE Stock Analysis")
+        print(f"🚀 Starting Dynamic NSE Stock Analysis")
         print(f"📊 Total stocks to analyze: {total_stocks}")
         print(f"🔄 Batch size: {batch_size}")
         print(f"👥 Max workers: {self.max_workers}")
@@ -1034,7 +1034,7 @@ class EnhancedTop200StockAnalyzer:
         # Process in batches
         for batch_start in range(0, total_stocks, batch_size):
             batch_end = min(batch_start + batch_size, total_stocks)
-            current_batch = self.top_200_stocks[batch_start:batch_end]
+            current_batch = self.stock_list[batch_start:batch_end]
             
             print(f"\n📦 Processing Batch {(batch_start//batch_size)+1}: Stocks {batch_start+1}-{batch_end}")
             print("-" * 60)
@@ -1796,7 +1796,7 @@ def generate_top_10_categories(results_df, analyzer=None):
 
 def main():
     """Main execution function"""
-    print("🎯 ENHANCED TOP 200 NSE STOCKS - COMPREHENSIVE ANALYSIS WITH AI INSIGHTS")
+    print("🎯 ENHANCED NSE STOCK ANALYSIS - COMPREHENSIVE ANALYSIS WITH AI INSIGHTS")
     print("=" * 90)
     
     # Parse command line arguments
@@ -1805,7 +1805,7 @@ def main():
     parser.add_argument('-w', '--workers', type=int, default=3, help='Max worker threads')
     parser.add_argument('-b', '--batch', type=int, default=5, help='Batch size')
     parser.add_argument('-s', '--symbol', type=str, help='Single stock symbol to analyze')
-    parser.add_argument('-n', '--num', type=int, default=200, help='Number of stocks to analyze (max 200)')
+    parser.add_argument('-n', '--num', type=int, default=0, help='Number of stocks to analyze (0 = all stocks in CSV, default: all available)')
     parser.add_argument('-c', '--csv', type=str, help='Path to CSV file with stock symbols (defaults to stock_list_template.csv if available)')
     parser.add_argument('-e', '--export', type=str, help='Export default stock list to a CSV file and exit')
     parser.add_argument('--portfolio-amount', type=float, default=100000, help='Target portfolio amount for allocation suggestions (default: ₹1,00,000)')
@@ -1873,10 +1873,10 @@ def main():
     if args.symbol:
         print(f"🔍 Single stock analysis mode: {args.symbol}")
         # Create a new list with just the requested symbol
-        analyzer.top_200_stocks = [args.symbol]
+        analyzer.stock_list = [args.symbol]
     elif args.num < 200:
         # Limit the number of stocks
-        analyzer.top_200_stocks = analyzer.top_200_stocks[:args.num]
+        analyzer.stock_list = analyzer.stock_list[:args.num]
         print(f"🔍 Limited to {args.num} stocks")
         
     # Display info about CSV if used
@@ -1889,7 +1889,7 @@ def main():
         else:
             print(f"📄 Using stock list from CSV: {csv_path}")
             
-        print(f"   - Stocks loaded: {len(analyzer.top_200_stocks)}")
+        print(f"   - Stocks loaded: {len(analyzer.stock_list)}")
         print(f"   - Company names: {'Available' if len(analyzer.company_names) > 0 else 'Not available'}")
     
     # Display enhancement options
