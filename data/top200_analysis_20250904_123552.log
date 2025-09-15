@@ -1,0 +1,52 @@
+2025-09-04 12:35:52,260 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-04 12:35:52,260 - INFO - Risk profile set to: conservative
+2025-09-04 12:35:52,264 - INFO - Using default stock list from stock_list_template.csv
+2025-09-04 12:35:52,264 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-04 12:35:52,308 - INFO - Loaded 501 stocks with company names
+2025-09-04 12:35:52,308 - INFO - Sample stocks: 360ONE, 3MINDIA, ABB, ACC, ACMESOLAR
+2025-09-04 12:35:52,308 - INFO - Starting batch analysis of 10 stocks
+2025-09-04 12:36:00,865 - INFO - Comprehensive data extracted for ABB
+2025-09-04 12:36:00,873 - INFO - Comprehensive data extracted for 360ONE
+2025-09-04 12:36:00,876 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-04 12:36:00,876 - INFO - Fundamental analysis completed for 360ONE: 58 fields
+2025-09-04 12:36:00,902 - INFO - Comprehensive data extracted for 3MINDIA
+2025-09-04 12:36:00,904 - INFO - Fundamental analysis completed for 3MINDIA: 58 fields
+2025-09-04 12:36:01,066 - INFO - Enhanced technical analysis completed for 360ONE: 52 fields
+2025-09-04 12:36:01,118 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-04 12:36:01,182 - INFO - Completed analysis for 360ONE: Score=34.1, Recommendation=SELL
+2025-09-04 12:36:01,231 - INFO - Enhanced technical analysis completed for 3MINDIA: 52 fields
+2025-09-04 12:36:01,243 - INFO - Completed analysis for ABB: Score=55.6, Recommendation=HOLD
+2025-09-04 12:36:01,300 - INFO - Completed analysis for 3MINDIA: Score=39.4, Recommendation=SELL
+2025-09-04 12:36:01,640 - INFO - Comprehensive data extracted for ACMESOLAR
+2025-09-04 12:36:01,642 - INFO - Fundamental analysis completed for ACMESOLAR: 58 fields
+2025-09-04 12:36:02,000 - INFO - Enhanced technical analysis completed for ACMESOLAR: 52 fields
+2025-09-04 12:36:02,067 - INFO - Completed analysis for ACMESOLAR: Score=47.0, Recommendation=WEAK SELL
+2025-09-04 12:36:04,935 - INFO - Comprehensive data extracted for ACC
+2025-09-04 12:36:04,937 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-04 12:36:05,180 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-04 12:36:05,239 - INFO - Completed analysis for ACC: Score=64.6, Recommendation=BUY (VALUE)
+2025-09-04 12:36:10,754 - INFO - Comprehensive data extracted for AUBANK
+2025-09-04 12:36:10,755 - INFO - Fundamental analysis completed for AUBANK: 58 fields
+2025-09-04 12:36:10,788 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-04 12:36:10,794 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-04 12:36:10,967 - INFO - Comprehensive data extracted for AIAENG
+2025-09-04 12:36:10,967 - INFO - Fundamental analysis completed for AIAENG: 58 fields
+2025-09-04 12:36:11,094 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-04 12:36:11,165 - INFO - Enhanced technical analysis completed for AUBANK: 52 fields
+2025-09-04 12:36:11,231 - INFO - Completed analysis for APLAPOLLO: Score=35.8, Recommendation=SELL
+2025-09-04 12:36:11,316 - INFO - Enhanced technical analysis completed for AIAENG: 52 fields
+2025-09-04 12:36:11,331 - INFO - Completed analysis for AUBANK: Score=65.3, Recommendation=BUY
+2025-09-04 12:36:11,392 - INFO - Completed analysis for AIAENG: Score=42.6, Recommendation=WEAK SELL
+2025-09-04 12:36:11,596 - INFO - Comprehensive data extracted for AWL
+2025-09-04 12:36:11,596 - INFO - Fundamental analysis completed for AWL: 58 fields
+2025-09-04 12:36:11,881 - INFO - Enhanced technical analysis completed for AWL: 52 fields
+2025-09-04 12:36:11,905 - INFO - Comprehensive data extracted for AADHARHFC
+2025-09-04 12:36:11,905 - INFO - Fundamental analysis completed for AADHARHFC: 58 fields
+2025-09-04 12:36:11,939 - INFO - Completed analysis for AWL: Score=32.2, Recommendation=SELL
+2025-09-04 12:36:12,065 - INFO - Enhanced technical analysis completed for AADHARHFC: 52 fields
+2025-09-04 12:36:12,115 - INFO - Completed analysis for AADHARHFC: Score=58.2, Recommendation=HOLD
+2025-09-04 12:36:12,124 - INFO - Batch analysis completed: 10 results, 0 failures
+2025-09-04 12:36:12,154 - INFO - Calculated sector rankings for 5 sectors
+2025-09-04 12:36:13,648 - INFO - Completed risk-return analysis
+2025-09-04 12:36:13,652 - WARNING - No suitable investment candidates found
+2025-09-04 12:36:15,776 - INFO - Enhanced Excel report generated: reports/Enhanced_Stock_Report_20250904_123613.xlsx, Size: 28722 bytes
