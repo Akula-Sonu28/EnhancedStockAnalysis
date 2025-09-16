@@ -1,3 +1,0 @@
-"""
-Analysis modules package
-"""

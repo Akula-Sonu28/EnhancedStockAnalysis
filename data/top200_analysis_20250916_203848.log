@@ -1,0 +1,815 @@
+2025-09-16 20:38:48,684 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-16 20:38:48,689 - INFO - Risk profile set to: aggressive
+2025-09-16 20:38:48,691 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=True, Momentum=True, MinVol=0.0
+2025-09-16 20:38:48,691 - INFO - Using default stock list from stock_list_template.csv
+2025-09-16 20:38:48,691 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-16 20:38:48,702 - INFO - Loaded 200 stocks with company names
+2025-09-16 20:38:48,703 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-16 20:38:48,705 - INFO - Starting batch analysis of 200 stocks
+2025-09-16 20:38:50,149 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-16 20:38:50,149 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-16 20:38:50,221 - INFO - Comprehensive data extracted for ACC
+2025-09-16 20:38:50,223 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-16 20:38:50,308 - INFO - Comprehensive data extracted for ABB
+2025-09-16 20:38:50,310 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-16 20:38:50,482 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-16 20:38:50,482 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-16 20:38:50,528 - INFO - Completed analysis for APLAPOLLO: Score=35.9, Recommendation=SELL
+2025-09-16 20:38:50,561 - INFO - Completed analysis for ACC: Score=60.6, Recommendation=BUY (VALUE)
+2025-09-16 20:38:50,752 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-16 20:38:50,827 - INFO - Completed analysis for ABB: Score=52.9, Recommendation=HOLD
+2025-09-16 20:38:50,965 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-09-16 20:38:50,965 - INFO - Fundamental analysis completed for ADANIENSOL: 58 fields
+2025-09-16 20:38:51,090 - INFO - Enhanced technical analysis completed for ADANIENSOL: 52 fields
+2025-09-16 20:38:51,108 - INFO - Comprehensive data extracted for AUBANK
+2025-09-16 20:38:51,114 - INFO - Fundamental analysis completed for AUBANK: 58 fields
+2025-09-16 20:38:51,143 - INFO - Completed analysis for ADANIENSOL: Score=39.6, Recommendation=SELL
+2025-09-16 20:38:51,343 - INFO - Enhanced technical analysis completed for AUBANK: 52 fields
+2025-09-16 20:38:51,385 - INFO - Completed analysis for AUBANK: Score=67.4, Recommendation=BUY
+2025-09-16 20:38:56,971 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-09-16 20:38:56,991 - INFO - Fundamental analysis completed for ADANIPORTS: 58 fields
+2025-09-16 20:38:57,080 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-09-16 20:38:57,086 - INFO - Fundamental analysis completed for ADANIGREEN: 58 fields
+2025-09-16 20:38:57,190 - INFO - Comprehensive data extracted for ADANIENT
+2025-09-16 20:38:57,190 - INFO - Fundamental analysis completed for ADANIENT: 58 fields
+2025-09-16 20:38:57,341 - INFO - Enhanced technical analysis completed for ADANIGREEN: 52 fields
+2025-09-16 20:38:57,343 - INFO - Enhanced technical analysis completed for ADANIPORTS: 52 fields
+2025-09-16 20:38:57,393 - INFO - Completed analysis for ADANIGREEN: Score=41.9, Recommendation=WEAK SELL
+2025-09-16 20:38:57,507 - INFO - Enhanced technical analysis completed for ADANIENT: 52 fields
+2025-09-16 20:38:57,519 - INFO - Completed analysis for ADANIPORTS: Score=45.9, Recommendation=WEAK SELL
+2025-09-16 20:38:57,582 - INFO - Completed analysis for ADANIENT: Score=25.9, Recommendation=SELL
+2025-09-16 20:38:58,044 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-09-16 20:38:58,044 - INFO - Fundamental analysis completed for ADANIPOWER: 58 fields
+2025-09-16 20:38:58,263 - INFO - Enhanced technical analysis completed for ADANIPOWER: 52 fields
+2025-09-16 20:38:58,304 - INFO - Completed analysis for ADANIPOWER: Score=28.2, Recommendation=SELL
+2025-09-16 20:38:58,521 - INFO - Comprehensive data extracted for ATGL
+2025-09-16 20:38:58,522 - INFO - Fundamental analysis completed for ATGL: 58 fields
+2025-09-16 20:38:58,767 - INFO - Enhanced technical analysis completed for ATGL: 52 fields
+2025-09-16 20:38:58,812 - INFO - Completed analysis for ATGL: Score=38.3, Recommendation=SELL
+2025-09-16 20:39:04,335 - INFO - Comprehensive data extracted for ABFRL
+2025-09-16 20:39:04,335 - INFO - Fundamental analysis completed for ABFRL: 58 fields
+2025-09-16 20:39:04,484 - INFO - Enhanced technical analysis completed for ABFRL: 52 fields
+2025-09-16 20:39:04,532 - INFO - Comprehensive data extracted for ALKEM
+2025-09-16 20:39:04,532 - INFO - Fundamental analysis completed for ALKEM: 58 fields
+2025-09-16 20:39:04,578 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-09-16 20:39:04,597 - INFO - Fundamental analysis completed for ABCAPITAL: 58 fields
+2025-09-16 20:39:04,618 - INFO - Completed analysis for ABFRL: Score=29.2, Recommendation=SELL
+2025-09-16 20:39:04,732 - INFO - Enhanced technical analysis completed for ALKEM: 52 fields
+2025-09-16 20:39:04,861 - INFO - Enhanced technical analysis completed for ABCAPITAL: 52 fields
+2025-09-16 20:39:04,879 - INFO - Completed analysis for ALKEM: Score=51.8, Recommendation=HOLD
+2025-09-16 20:39:04,923 - INFO - Completed analysis for ABCAPITAL: Score=45.1, Recommendation=WEAK SELL
+2025-09-16 20:39:05,270 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-09-16 20:39:05,270 - INFO - Fundamental analysis completed for APOLLOHOSP: 58 fields
+2025-09-16 20:39:05,309 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-09-16 20:39:05,309 - INFO - Fundamental analysis completed for AMBUJACEM: 58 fields
+2025-09-16 20:39:05,478 - INFO - Enhanced technical analysis completed for APOLLOHOSP: 52 fields
+2025-09-16 20:39:05,577 - INFO - Completed analysis for APOLLOHOSP: Score=42.7, Recommendation=WEAK SELL
+2025-09-16 20:39:05,643 - INFO - Enhanced technical analysis completed for AMBUJACEM: 52 fields
+2025-09-16 20:39:05,702 - INFO - Completed analysis for AMBUJACEM: Score=46.9, Recommendation=WEAK SELL
+2025-09-16 20:39:11,498 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-09-16 20:39:11,502 - INFO - Fundamental analysis completed for ASHOKLEY: 58 fields
+2025-09-16 20:39:11,612 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-09-16 20:39:11,612 - INFO - Fundamental analysis completed for APOLLOTYRE: 58 fields
+2025-09-16 20:39:11,711 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-09-16 20:39:11,712 - INFO - Fundamental analysis completed for ASIANPAINT: 58 fields
+2025-09-16 20:39:11,824 - INFO - Enhanced technical analysis completed for ASHOKLEY: 52 fields
+2025-09-16 20:39:11,945 - INFO - Enhanced technical analysis completed for ASIANPAINT: 52 fields
+2025-09-16 20:39:12,006 - INFO - Completed analysis for ASIANPAINT: Score=22.7, Recommendation=SELL
+2025-09-16 20:39:12,247 - INFO - Completed analysis for ASHOKLEY: Score=43.8, Recommendation=WEAK SELL
+2025-09-16 20:39:12,301 - INFO - Enhanced technical analysis completed for APOLLOTYRE: 52 fields
+2025-09-16 20:39:12,369 - INFO - Completed analysis for APOLLOTYRE: Score=29.2, Recommendation=SELL
+2025-09-16 20:39:12,553 - INFO - Comprehensive data extracted for ASTRAL
+2025-09-16 20:39:12,568 - INFO - Fundamental analysis completed for ASTRAL: 58 fields
+2025-09-16 20:39:12,891 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-09-16 20:39:12,905 - INFO - Enhanced technical analysis completed for ASTRAL: 52 fields
+2025-09-16 20:39:12,905 - INFO - Fundamental analysis completed for AUROPHARMA: 58 fields
+2025-09-16 20:39:12,978 - INFO - Completed analysis for ASTRAL: Score=27.3, Recommendation=SELL
+2025-09-16 20:39:13,287 - INFO - Enhanced technical analysis completed for AUROPHARMA: 52 fields
+2025-09-16 20:39:13,354 - INFO - Completed analysis for AUROPHARMA: Score=49.5, Recommendation=WEAK SELL
+2025-09-16 20:39:19,129 - INFO - Comprehensive data extracted for BSE
+2025-09-16 20:39:19,131 - INFO - Fundamental analysis completed for BSE: 58 fields
+2025-09-16 20:39:19,373 - INFO - Comprehensive data extracted for AXISBANK
+2025-09-16 20:39:19,378 - INFO - Fundamental analysis completed for AXISBANK: 58 fields
+2025-09-16 20:39:19,410 - INFO - Comprehensive data extracted for DMART
+2025-09-16 20:39:19,435 - INFO - Fundamental analysis completed for DMART: 58 fields
+2025-09-16 20:39:19,556 - INFO - Enhanced technical analysis completed for BSE: 52 fields
+2025-09-16 20:39:19,639 - INFO - Completed analysis for BSE: Score=52.0, Recommendation=HOLD
+2025-09-16 20:39:19,757 - INFO - Enhanced technical analysis completed for DMART: 52 fields
+2025-09-16 20:39:19,818 - INFO - Completed analysis for DMART: Score=21.0, Recommendation=SELL
+2025-09-16 20:39:19,949 - INFO - Enhanced technical analysis completed for AXISBANK: 52 fields
+2025-09-16 20:39:20,006 - INFO - Completed analysis for AXISBANK: Score=73.9, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:39:20,333 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-09-16 20:39:20,333 - INFO - Fundamental analysis completed for BAJAJ-AUTO: 58 fields
+2025-09-16 20:39:20,460 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-09-16 20:39:20,460 - INFO - Fundamental analysis completed for BAJFINANCE: 58 fields
+2025-09-16 20:39:20,647 - INFO - Enhanced technical analysis completed for BAJAJ-AUTO: 52 fields
+2025-09-16 20:39:20,768 - INFO - Enhanced technical analysis completed for BAJFINANCE: 52 fields
+2025-09-16 20:39:20,835 - INFO - Completed analysis for BAJAJ-AUTO: Score=36.9, Recommendation=SELL
+2025-09-16 20:39:20,882 - INFO - Completed analysis for BAJFINANCE: Score=53.1, Recommendation=HOLD
+2025-09-16 20:39:26,491 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-09-16 20:39:26,493 - INFO - Fundamental analysis completed for BAJAJHFL: 58 fields
+2025-09-16 20:39:26,538 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-09-16 20:39:26,543 - INFO - Fundamental analysis completed for BAJAJHLDNG: 58 fields
+2025-09-16 20:39:26,582 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-09-16 20:39:26,582 - INFO - Fundamental analysis completed for BAJAJFINSV: 58 fields
+2025-09-16 20:39:26,677 - INFO - Enhanced technical analysis completed for BAJAJHFL: 52 fields
+2025-09-16 20:39:26,785 - INFO - Completed analysis for BAJAJHFL: Score=43.0, Recommendation=WEAK SELL
+2025-09-16 20:39:26,905 - INFO - Enhanced technical analysis completed for BAJAJFINSV: 52 fields
+2025-09-16 20:39:26,951 - INFO - Enhanced technical analysis completed for BAJAJHLDNG: 52 fields
+2025-09-16 20:39:27,014 - INFO - Completed analysis for BAJAJFINSV: Score=49.6, Recommendation=WEAK SELL
+2025-09-16 20:39:27,078 - INFO - Completed analysis for BAJAJHLDNG: Score=76.2, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:39:27,612 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-09-16 20:39:27,639 - INFO - Fundamental analysis completed for BANDHANBNK: 58 fields
+2025-09-16 20:39:27,858 - INFO - Comprehensive data extracted for BANKBARODA
+2025-09-16 20:39:27,858 - INFO - Fundamental analysis completed for BANKBARODA: 58 fields
+2025-09-16 20:39:28,227 - INFO - Enhanced technical analysis completed for BANDHANBNK: 52 fields
+2025-09-16 20:39:28,250 - INFO - Enhanced technical analysis completed for BANKBARODA: 52 fields
+2025-09-16 20:39:28,317 - INFO - Completed analysis for BANKBARODA: Score=78.2, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:39:28,368 - INFO - Completed analysis for BANDHANBNK: Score=65.5, Recommendation=BUY (VALUE)
+2025-09-16 20:39:33,928 - INFO - Comprehensive data extracted for BANKINDIA
+2025-09-16 20:39:33,944 - INFO - Fundamental analysis completed for BANKINDIA: 58 fields
+2025-09-16 20:39:33,969 - INFO - Comprehensive data extracted for BDL
+2025-09-16 20:39:33,971 - INFO - Fundamental analysis completed for BDL: 58 fields
+2025-09-16 20:39:34,109 - INFO - Comprehensive data extracted for MAHABANK
+2025-09-16 20:39:34,109 - INFO - Fundamental analysis completed for MAHABANK: 58 fields
+2025-09-16 20:39:34,198 - INFO - Enhanced technical analysis completed for BDL: 52 fields
+2025-09-16 20:39:34,285 - INFO - Enhanced technical analysis completed for MAHABANK: 52 fields
+2025-09-16 20:39:34,375 - INFO - Completed analysis for BDL: Score=66.5, Recommendation=BUY
+2025-09-16 20:39:34,399 - INFO - Enhanced technical analysis completed for BANKINDIA: 52 fields
+2025-09-16 20:39:34,406 - INFO - Completed analysis for MAHABANK: Score=92.8, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:39:34,448 - INFO - Completed analysis for BANKINDIA: Score=81.4, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:39:34,888 - INFO - Comprehensive data extracted for BEL
+2025-09-16 20:39:34,889 - INFO - Fundamental analysis completed for BEL: 58 fields
+2025-09-16 20:39:35,018 - INFO - Comprehensive data extracted for BHARATFORG
+2025-09-16 20:39:35,018 - INFO - Fundamental analysis completed for BHARATFORG: 58 fields
+2025-09-16 20:39:35,114 - INFO - Enhanced technical analysis completed for BEL: 52 fields
+2025-09-16 20:39:35,205 - INFO - Enhanced technical analysis completed for BHARATFORG: 52 fields
+2025-09-16 20:39:35,213 - INFO - Completed analysis for BEL: Score=51.2, Recommendation=HOLD
+2025-09-16 20:39:35,245 - INFO - Completed analysis for BHARATFORG: Score=31.3, Recommendation=SELL
+2025-09-16 20:39:40,838 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-09-16 20:39:40,838 - INFO - Fundamental analysis completed for BHARTIARTL: 58 fields
+2025-09-16 20:39:40,881 - INFO - Comprehensive data extracted for BPCL
+2025-09-16 20:39:40,904 - INFO - Comprehensive data extracted for BHEL
+2025-09-16 20:39:40,962 - INFO - Fundamental analysis completed for BPCL: 58 fields
+2025-09-16 20:39:40,964 - INFO - Fundamental analysis completed for BHEL: 58 fields
+2025-09-16 20:39:41,087 - INFO - Enhanced technical analysis completed for BHARTIARTL: 52 fields
+2025-09-16 20:39:41,166 - INFO - Enhanced technical analysis completed for BHEL: 52 fields
+2025-09-16 20:39:41,205 - INFO - Completed analysis for BHARTIARTL: Score=58.2, Recommendation=HOLD
+2025-09-16 20:39:41,242 - INFO - Completed analysis for BHEL: Score=35.1, Recommendation=SELL
+2025-09-16 20:39:41,393 - INFO - Enhanced technical analysis completed for BPCL: 52 fields
+2025-09-16 20:39:41,441 - INFO - Completed analysis for BPCL: Score=55.9, Recommendation=HOLD
+2025-09-16 20:39:41,721 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-09-16 20:39:41,723 - INFO - Fundamental analysis completed for BHARTIHEXA: 58 fields
+2025-09-16 20:39:41,759 - INFO - Comprehensive data extracted for BIOCON
+2025-09-16 20:39:41,759 - INFO - Fundamental analysis completed for BIOCON: 58 fields
+2025-09-16 20:39:41,950 - INFO - Enhanced technical analysis completed for BHARTIHEXA: 52 fields
+2025-09-16 20:39:42,024 - INFO - Enhanced technical analysis completed for BIOCON: 52 fields
+2025-09-16 20:39:42,042 - INFO - Completed analysis for BHARTIHEXA: Score=45.6, Recommendation=WEAK SELL
+2025-09-16 20:39:42,074 - INFO - Completed analysis for BIOCON: Score=35.9, Recommendation=SELL
+2025-09-16 20:39:47,690 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-09-16 20:39:47,690 - INFO - Fundamental analysis completed for BOSCHLTD: 58 fields
+2025-09-16 20:39:47,892 - INFO - Comprehensive data extracted for BRITANNIA
+2025-09-16 20:39:47,898 - INFO - Fundamental analysis completed for BRITANNIA: 58 fields
+2025-09-16 20:39:47,971 - INFO - Enhanced technical analysis completed for BOSCHLTD: 52 fields
+2025-09-16 20:39:48,018 - INFO - Comprehensive data extracted for CGPOWER
+2025-09-16 20:39:48,021 - INFO - Fundamental analysis completed for CGPOWER: 58 fields
+2025-09-16 20:39:48,094 - INFO - Completed analysis for BOSCHLTD: Score=40.4, Recommendation=WEAK SELL
+2025-09-16 20:39:48,357 - INFO - Enhanced technical analysis completed for CGPOWER: 52 fields
+2025-09-16 20:39:48,431 - INFO - Enhanced technical analysis completed for BRITANNIA: 52 fields
+2025-09-16 20:39:48,504 - INFO - Completed analysis for CGPOWER: Score=43.3, Recommendation=WEAK SELL
+2025-09-16 20:39:48,562 - INFO - Completed analysis for BRITANNIA: Score=32.2, Recommendation=SELL
+2025-09-16 20:39:48,621 - INFO - Comprehensive data extracted for CANBK
+2025-09-16 20:39:48,622 - INFO - Fundamental analysis completed for CANBK: 58 fields
+2025-09-16 20:39:48,825 - INFO - Enhanced technical analysis completed for CANBK: 52 fields
+2025-09-16 20:39:48,892 - INFO - Completed analysis for CANBK: Score=90.5, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:39:49,216 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-09-16 20:39:49,216 - INFO - Fundamental analysis completed for CHOLAFIN: 58 fields
+2025-09-16 20:39:49,517 - INFO - Enhanced technical analysis completed for CHOLAFIN: 52 fields
+2025-09-16 20:39:49,578 - INFO - Completed analysis for CHOLAFIN: Score=51.0, Recommendation=HOLD
+2025-09-16 20:39:55,471 - INFO - Comprehensive data extracted for COALINDIA
+2025-09-16 20:39:55,499 - INFO - Comprehensive data extracted for CIPLA
+2025-09-16 20:39:55,501 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-09-16 20:39:55,501 - INFO - Fundamental analysis completed for COALINDIA: 58 fields
+2025-09-16 20:39:55,502 - INFO - Fundamental analysis completed for CIPLA: 58 fields
+2025-09-16 20:39:55,502 - INFO - Fundamental analysis completed for COCHINSHIP: 58 fields
+2025-09-16 20:39:55,684 - INFO - Enhanced technical analysis completed for COCHINSHIP: 52 fields
+2025-09-16 20:39:55,803 - INFO - Enhanced technical analysis completed for COALINDIA: 52 fields
+2025-09-16 20:39:55,905 - INFO - Completed analysis for COCHINSHIP: Score=49.8, Recommendation=WEAK SELL
+2025-09-16 20:39:55,929 - INFO - Completed analysis for COALINDIA: Score=54.0, Recommendation=HOLD
+2025-09-16 20:39:56,051 - INFO - Enhanced technical analysis completed for CIPLA: 52 fields
+2025-09-16 20:39:56,122 - INFO - Completed analysis for CIPLA: Score=49.8, Recommendation=WEAK SELL
+2025-09-16 20:39:56,490 - INFO - Comprehensive data extracted for COLPAL
+2025-09-16 20:39:56,494 - INFO - Fundamental analysis completed for COLPAL: 58 fields
+2025-09-16 20:39:56,604 - INFO - Comprehensive data extracted for COFORGE
+2025-09-16 20:39:56,606 - INFO - Fundamental analysis completed for COFORGE: 58 fields
+2025-09-16 20:39:56,823 - INFO - Enhanced technical analysis completed for COLPAL: 52 fields
+2025-09-16 20:39:56,941 - INFO - Enhanced technical analysis completed for COFORGE: 52 fields
+2025-09-16 20:39:57,036 - INFO - Completed analysis for COLPAL: Score=22.2, Recommendation=SELL
+2025-09-16 20:39:57,104 - INFO - Completed analysis for COFORGE: Score=45.6, Recommendation=WEAK SELL
+2025-09-16 20:40:03,312 - INFO - Comprehensive data extracted for CUMMINSIND
+2025-09-16 20:40:03,337 - INFO - Fundamental analysis completed for CUMMINSIND: 58 fields
+2025-09-16 20:40:03,410 - INFO - Comprehensive data extracted for DLF
+2025-09-16 20:40:03,574 - INFO - Fundamental analysis completed for DLF: 58 fields
+2025-09-16 20:40:03,803 - INFO - Comprehensive data extracted for CONCOR
+2025-09-16 20:40:03,876 - INFO - Fundamental analysis completed for CONCOR: 58 fields
+2025-09-16 20:40:04,281 - INFO - Enhanced technical analysis completed for DLF: 52 fields
+2025-09-16 20:40:04,285 - INFO - Enhanced technical analysis completed for CUMMINSIND: 52 fields
+2025-09-16 20:40:04,683 - INFO - Completed analysis for CUMMINSIND: Score=54.0, Recommendation=HOLD
+2025-09-16 20:40:04,716 - INFO - Completed analysis for DLF: Score=54.8, Recommendation=HOLD
+2025-09-16 20:40:04,776 - INFO - Enhanced technical analysis completed for CONCOR: 52 fields
+2025-09-16 20:40:04,814 - INFO - Completed analysis for CONCOR: Score=35.3, Recommendation=SELL
+2025-09-16 20:40:05,182 - INFO - Comprehensive data extracted for DABUR
+2025-09-16 20:40:05,188 - INFO - Fundamental analysis completed for DABUR: 58 fields
+2025-09-16 20:40:05,389 - INFO - Comprehensive data extracted for DIVISLAB
+2025-09-16 20:40:05,395 - INFO - Fundamental analysis completed for DIVISLAB: 58 fields
+2025-09-16 20:40:05,501 - INFO - Enhanced technical analysis completed for DABUR: 52 fields
+2025-09-16 20:40:05,566 - INFO - Completed analysis for DABUR: Score=27.9, Recommendation=SELL
+2025-09-16 20:40:05,761 - INFO - Enhanced technical analysis completed for DIVISLAB: 52 fields
+2025-09-16 20:40:05,822 - INFO - Completed analysis for DIVISLAB: Score=59.2, Recommendation=HOLD
+2025-09-16 20:40:11,348 - INFO - Comprehensive data extracted for EICHERMOT
+2025-09-16 20:40:11,349 - INFO - Fundamental analysis completed for EICHERMOT: 58 fields
+2025-09-16 20:40:11,458 - INFO - Comprehensive data extracted for DRREDDY
+2025-09-16 20:40:11,458 - INFO - Fundamental analysis completed for DRREDDY: 58 fields
+2025-09-16 20:40:11,539 - INFO - Enhanced technical analysis completed for EICHERMOT: 52 fields
+2025-09-16 20:40:11,568 - INFO - Comprehensive data extracted for DIXON
+2025-09-16 20:40:11,568 - INFO - Fundamental analysis completed for DIXON: 58 fields
+2025-09-16 20:40:11,611 - INFO - Completed analysis for EICHERMOT: Score=37.5, Recommendation=SELL
+2025-09-16 20:40:11,753 - INFO - Enhanced technical analysis completed for DRREDDY: 52 fields
+2025-09-16 20:40:11,844 - INFO - Enhanced technical analysis completed for DIXON: 52 fields
+2025-09-16 20:40:11,844 - INFO - Completed analysis for DRREDDY: Score=72.3, Recommendation=STRONG BUY
+2025-09-16 20:40:11,882 - INFO - Completed analysis for DIXON: Score=38.9, Recommendation=SELL
+2025-09-16 20:40:12,223 - INFO - Comprehensive data extracted for ESCORTS
+2025-09-16 20:40:12,223 - INFO - Fundamental analysis completed for ESCORTS: 58 fields
+2025-09-16 20:40:12,416 - INFO - Enhanced technical analysis completed for ESCORTS: 52 fields
+2025-09-16 20:40:12,462 - INFO - Completed analysis for ESCORTS: Score=40.9, Recommendation=WEAK SELL
+2025-09-16 20:40:12,503 - INFO - Comprehensive data extracted for ETERNAL
+2025-09-16 20:40:12,505 - INFO - Fundamental analysis completed for ETERNAL: 58 fields
+2025-09-16 20:40:12,775 - INFO - Enhanced technical analysis completed for ETERNAL: 52 fields
+2025-09-16 20:40:12,843 - INFO - Completed analysis for ETERNAL: Score=26.0, Recommendation=SELL
+2025-09-16 20:40:18,387 - INFO - Comprehensive data extracted for EXIDEIND
+2025-09-16 20:40:18,389 - INFO - Fundamental analysis completed for EXIDEIND: 58 fields
+2025-09-16 20:40:18,746 - INFO - Comprehensive data extracted for NYKAA
+2025-09-16 20:40:18,748 - INFO - Enhanced technical analysis completed for EXIDEIND: 52 fields
+2025-09-16 20:40:18,749 - INFO - Fundamental analysis completed for NYKAA: 58 fields
+2025-09-16 20:40:18,825 - INFO - Completed analysis for EXIDEIND: Score=40.4, Recommendation=WEAK SELL
+2025-09-16 20:40:18,895 - INFO - Comprehensive data extracted for FEDERALBNK
+2025-09-16 20:40:18,895 - INFO - Fundamental analysis completed for FEDERALBNK: 58 fields
+2025-09-16 20:40:19,685 - INFO - Comprehensive data extracted for GAIL
+2025-09-16 20:40:19,690 - INFO - Enhanced technical analysis completed for NYKAA: 52 fields
+2025-09-16 20:40:19,699 - INFO - Fundamental analysis completed for GAIL: 58 fields
+2025-09-16 20:40:19,761 - INFO - Enhanced technical analysis completed for FEDERALBNK: 52 fields
+2025-09-16 20:40:19,953 - INFO - Completed analysis for FEDERALBNK: Score=71.4, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:40:20,024 - INFO - Completed analysis for NYKAA: Score=35.0, Recommendation=SELL
+2025-09-16 20:40:20,094 - INFO - Enhanced technical analysis completed for GAIL: 52 fields
+2025-09-16 20:40:20,242 - INFO - Completed analysis for GAIL: Score=51.1, Recommendation=HOLD
+2025-09-16 20:40:20,562 - INFO - Comprehensive data extracted for GMRAIRPORT
+2025-09-16 20:40:20,564 - INFO - Fundamental analysis completed for GMRAIRPORT: 58 fields
+2025-09-16 20:40:20,899 - INFO - Enhanced technical analysis completed for GMRAIRPORT: 52 fields
+2025-09-16 20:40:20,969 - INFO - Completed analysis for GMRAIRPORT: Score=53.6, Recommendation=HOLD
+2025-09-16 20:40:26,594 - INFO - Comprehensive data extracted for GLENMARK
+2025-09-16 20:40:26,594 - INFO - Fundamental analysis completed for GLENMARK: 58 fields
+2025-09-16 20:40:26,635 - INFO - Comprehensive data extracted for GODREJPROP
+2025-09-16 20:40:26,637 - INFO - Fundamental analysis completed for GODREJPROP: 58 fields
+2025-09-16 20:40:26,691 - INFO - Comprehensive data extracted for GODREJCP
+2025-09-16 20:40:26,691 - INFO - Fundamental analysis completed for GODREJCP: 58 fields
+2025-09-16 20:40:26,898 - INFO - Enhanced technical analysis completed for GODREJPROP: 52 fields
+2025-09-16 20:40:27,193 - INFO - Enhanced technical analysis completed for GLENMARK: 52 fields
+2025-09-16 20:40:27,201 - INFO - Enhanced technical analysis completed for GODREJCP: 52 fields
+2025-09-16 20:40:27,220 - INFO - Completed analysis for GODREJPROP: Score=32.5, Recommendation=SELL
+2025-09-16 20:40:27,341 - INFO - Completed analysis for GODREJCP: Score=34.3, Recommendation=SELL
+2025-09-16 20:40:27,355 - INFO - Completed analysis for GLENMARK: Score=28.2, Recommendation=SELL
+2025-09-16 20:40:27,757 - INFO - Comprehensive data extracted for HCLTECH
+2025-09-16 20:40:27,758 - INFO - Fundamental analysis completed for HCLTECH: 58 fields
+2025-09-16 20:40:28,163 - INFO - Comprehensive data extracted for GRASIM
+2025-09-16 20:40:28,169 - INFO - Fundamental analysis completed for GRASIM: 58 fields
+2025-09-16 20:40:28,233 - INFO - Enhanced technical analysis completed for HCLTECH: 52 fields
+2025-09-16 20:40:28,383 - INFO - Completed analysis for HCLTECH: Score=62.8, Recommendation=BUY
+2025-09-16 20:40:28,777 - INFO - Enhanced technical analysis completed for GRASIM: 52 fields
+2025-09-16 20:40:28,867 - INFO - Completed analysis for GRASIM: Score=49.1, Recommendation=WEAK SELL
+2025-09-16 20:40:34,404 - INFO - Comprehensive data extracted for HDFCLIFE
+2025-09-16 20:40:34,408 - INFO - Fundamental analysis completed for HDFCLIFE: 58 fields
+2025-09-16 20:40:34,603 - INFO - Enhanced technical analysis completed for HDFCLIFE: 52 fields
+2025-09-16 20:40:34,652 - INFO - Comprehensive data extracted for HDFCAMC
+2025-09-16 20:40:34,666 - INFO - Fundamental analysis completed for HDFCAMC: 58 fields
+2025-09-16 20:40:34,724 - INFO - Comprehensive data extracted for HDFCBANK
+2025-09-16 20:40:34,760 - INFO - Fundamental analysis completed for HDFCBANK: 58 fields
+2025-09-16 20:40:34,792 - INFO - Completed analysis for HDFCLIFE: Score=43.3, Recommendation=WEAK SELL
+2025-09-16 20:40:34,905 - INFO - Enhanced technical analysis completed for HDFCAMC: 52 fields
+2025-09-16 20:40:35,062 - INFO - Completed analysis for HDFCAMC: Score=45.8, Recommendation=WEAK SELL
+2025-09-16 20:40:35,164 - INFO - Enhanced technical analysis completed for HDFCBANK: 52 fields
+2025-09-16 20:40:35,244 - INFO - Completed analysis for HDFCBANK: Score=65.6, Recommendation=BUY
+2025-09-16 20:40:35,494 - INFO - Comprehensive data extracted for HAVELLS
+2025-09-16 20:40:35,496 - INFO - Fundamental analysis completed for HAVELLS: 58 fields
+2025-09-16 20:40:35,854 - INFO - Comprehensive data extracted for HEROMOTOCO
+2025-09-16 20:40:35,854 - INFO - Fundamental analysis completed for HEROMOTOCO: 58 fields
+2025-09-16 20:40:35,917 - INFO - Enhanced technical analysis completed for HAVELLS: 52 fields
+2025-09-16 20:40:35,986 - INFO - Completed analysis for HAVELLS: Score=26.7, Recommendation=SELL
+2025-09-16 20:40:36,116 - INFO - Enhanced technical analysis completed for HEROMOTOCO: 52 fields
+2025-09-16 20:40:36,174 - INFO - Completed analysis for HEROMOTOCO: Score=36.8, Recommendation=SELL
+2025-09-16 20:40:41,710 - INFO - Comprehensive data extracted for HAL
+2025-09-16 20:40:41,712 - INFO - Fundamental analysis completed for HAL: 58 fields
+2025-09-16 20:40:41,797 - INFO - Comprehensive data extracted for HINDPETRO
+2025-09-16 20:40:41,797 - INFO - Fundamental analysis completed for HINDPETRO: 58 fields
+2025-09-16 20:40:41,891 - INFO - Comprehensive data extracted for HINDALCO
+2025-09-16 20:40:41,896 - INFO - Fundamental analysis completed for HINDALCO: 58 fields
+2025-09-16 20:40:41,950 - INFO - Enhanced technical analysis completed for HAL: 52 fields
+2025-09-16 20:40:42,009 - INFO - Completed analysis for HAL: Score=52.4, Recommendation=HOLD
+2025-09-16 20:40:42,175 - INFO - Enhanced technical analysis completed for HINDPETRO: 52 fields
+2025-09-16 20:40:42,246 - INFO - Enhanced technical analysis completed for HINDALCO: 52 fields
+2025-09-16 20:40:42,348 - INFO - Completed analysis for HINDPETRO: Score=61.2, Recommendation=BUY (VALUE)
+2025-09-16 20:40:42,365 - INFO - Completed analysis for HINDALCO: Score=72.9, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:40:42,581 - INFO - Comprehensive data extracted for HINDUNILVR
+2025-09-16 20:40:42,583 - INFO - Fundamental analysis completed for HINDUNILVR: 58 fields
+2025-09-16 20:40:42,780 - INFO - Enhanced technical analysis completed for HINDUNILVR: 52 fields
+2025-09-16 20:40:42,846 - INFO - Completed analysis for HINDUNILVR: Score=37.4, Recommendation=SELL
+2025-09-16 20:40:43,148 - INFO - Comprehensive data extracted for HINDZINC
+2025-09-16 20:40:43,149 - INFO - Fundamental analysis completed for HINDZINC: 58 fields
+2025-09-16 20:40:43,522 - INFO - Enhanced technical analysis completed for HINDZINC: 52 fields
+2025-09-16 20:40:43,592 - INFO - Completed analysis for HINDZINC: Score=58.5, Recommendation=HOLD
+2025-09-16 20:40:49,239 - INFO - Comprehensive data extracted for ICICIBANK
+2025-09-16 20:40:49,239 - INFO - Fundamental analysis completed for ICICIBANK: 58 fields
+2025-09-16 20:40:49,315 - INFO - Comprehensive data extracted for HYUNDAI
+2025-09-16 20:40:49,315 - INFO - Fundamental analysis completed for HYUNDAI: 58 fields
+2025-09-16 20:40:49,492 - INFO - Enhanced technical analysis completed for HYUNDAI: 52 fields
+2025-09-16 20:40:49,600 - INFO - Enhanced technical analysis completed for ICICIBANK: 52 fields
+2025-09-16 20:40:49,658 - INFO - Comprehensive data extracted for HUDCO
+2025-09-16 20:40:49,675 - INFO - Fundamental analysis completed for HUDCO: 58 fields
+2025-09-16 20:40:49,700 - INFO - Completed analysis for HYUNDAI: Score=31.2, Recommendation=SELL
+2025-09-16 20:40:49,749 - INFO - Completed analysis for ICICIBANK: Score=76.1, Recommendation=STRONG BUY
+2025-09-16 20:40:49,894 - INFO - Enhanced technical analysis completed for HUDCO: 52 fields
+2025-09-16 20:40:49,952 - INFO - Completed analysis for HUDCO: Score=62.4, Recommendation=BUY
+2025-09-16 20:40:50,487 - INFO - Comprehensive data extracted for ICICIPRULI
+2025-09-16 20:40:50,489 - INFO - Fundamental analysis completed for ICICIPRULI: 58 fields
+2025-09-16 20:40:50,598 - INFO - Comprehensive data extracted for ICICIGI
+2025-09-16 20:40:50,601 - INFO - Fundamental analysis completed for ICICIGI: 58 fields
+2025-09-16 20:40:50,760 - INFO - Enhanced technical analysis completed for ICICIPRULI: 52 fields
+2025-09-16 20:40:50,922 - INFO - Enhanced technical analysis completed for ICICIGI: 52 fields
+2025-09-16 20:40:51,031 - INFO - Completed analysis for ICICIPRULI: Score=43.8, Recommendation=WEAK SELL
+2025-09-16 20:40:51,053 - INFO - Completed analysis for ICICIGI: Score=65.0, Recommendation=BUY
+2025-09-16 20:40:56,711 - INFO - Comprehensive data extracted for ITC
+2025-09-16 20:40:56,711 - INFO - Fundamental analysis completed for ITC: 58 fields
+2025-09-16 20:40:56,806 - INFO - Comprehensive data extracted for IRB
+2025-09-16 20:40:56,816 - INFO - Fundamental analysis completed for IRB: 58 fields
+2025-09-16 20:40:56,816 - INFO - Comprehensive data extracted for IDFCFIRSTB
+2025-09-16 20:40:56,821 - INFO - Fundamental analysis completed for IDFCFIRSTB: 58 fields
+2025-09-16 20:40:56,951 - INFO - Enhanced technical analysis completed for ITC: 52 fields
+2025-09-16 20:40:57,279 - INFO - Enhanced technical analysis completed for IRB: 52 fields
+2025-09-16 20:40:57,292 - INFO - Enhanced technical analysis completed for IDFCFIRSTB: 52 fields
+2025-09-16 20:40:57,318 - INFO - Completed analysis for ITC: Score=52.8, Recommendation=HOLD
+2025-09-16 20:40:57,452 - INFO - Completed analysis for IDFCFIRSTB: Score=44.5, Recommendation=WEAK SELL
+2025-09-16 20:40:57,471 - INFO - Completed analysis for IRB: Score=70.9, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:40:57,852 - INFO - Comprehensive data extracted for INDHOTEL
+2025-09-16 20:40:57,852 - INFO - Fundamental analysis completed for INDHOTEL: 58 fields
+2025-09-16 20:40:58,010 - INFO - Comprehensive data extracted for INDIANB
+2025-09-16 20:40:58,013 - INFO - Fundamental analysis completed for INDIANB: 58 fields
+2025-09-16 20:40:58,340 - INFO - Enhanced technical analysis completed for INDIANB: 52 fields
+2025-09-16 20:40:58,441 - INFO - Enhanced technical analysis completed for INDHOTEL: 52 fields
+2025-09-16 20:40:58,558 - INFO - Completed analysis for INDIANB: Score=82.9, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:40:58,583 - INFO - Completed analysis for INDHOTEL: Score=52.0, Recommendation=HOLD
+2025-09-16 20:41:04,225 - INFO - Comprehensive data extracted for IRFC
+2025-09-16 20:41:04,226 - INFO - Fundamental analysis completed for IRFC: 58 fields
+2025-09-16 20:41:04,316 - INFO - Comprehensive data extracted for IRCTC
+2025-09-16 20:41:04,316 - INFO - Fundamental analysis completed for IRCTC: 58 fields
+2025-09-16 20:41:04,369 - INFO - Comprehensive data extracted for IOC
+2025-09-16 20:41:04,371 - INFO - Fundamental analysis completed for IOC: 58 fields
+2025-09-16 20:41:04,567 - INFO - Enhanced technical analysis completed for IRFC: 52 fields
+2025-09-16 20:41:04,749 - INFO - Enhanced technical analysis completed for IRCTC: 52 fields
+2025-09-16 20:41:04,755 - INFO - Enhanced technical analysis completed for IOC: 52 fields
+2025-09-16 20:41:04,839 - INFO - Completed analysis for IRFC: Score=61.0, Recommendation=BUY
+2025-09-16 20:41:04,912 - INFO - Completed analysis for IRCTC: Score=40.5, Recommendation=WEAK SELL
+2025-09-16 20:41:04,973 - INFO - Completed analysis for IOC: Score=52.4, Recommendation=HOLD
+2025-09-16 20:41:05,476 - INFO - Comprehensive data extracted for IREDA
+2025-09-16 20:41:05,491 - INFO - Fundamental analysis completed for IREDA: 58 fields
+2025-09-16 20:41:05,561 - INFO - Comprehensive data extracted for IGL
+2025-09-16 20:41:05,565 - INFO - Fundamental analysis completed for IGL: 58 fields
+2025-09-16 20:41:05,832 - INFO - Enhanced technical analysis completed for IGL: 52 fields
+2025-09-16 20:41:05,889 - INFO - Enhanced technical analysis completed for IREDA: 52 fields
+2025-09-16 20:41:05,967 - INFO - Completed analysis for IGL: Score=59.4, Recommendation=HOLD
+2025-09-16 20:41:06,022 - INFO - Completed analysis for IREDA: Score=56.3, Recommendation=HOLD
+2025-09-16 20:41:11,712 - INFO - Comprehensive data extracted for INDUSTOWER
+2025-09-16 20:41:11,713 - INFO - Fundamental analysis completed for INDUSTOWER: 58 fields
+2025-09-16 20:41:12,010 - INFO - Enhanced technical analysis completed for INDUSTOWER: 52 fields
+2025-09-16 20:41:12,041 - INFO - Comprehensive data extracted for INDUSINDBK
+2025-09-16 20:41:12,057 - INFO - Fundamental analysis completed for INDUSINDBK: 58 fields
+2025-09-16 20:41:12,072 - INFO - Comprehensive data extracted for NAUKRI
+2025-09-16 20:41:12,099 - INFO - Fundamental analysis completed for NAUKRI: 58 fields
+2025-09-16 20:41:12,116 - INFO - Completed analysis for INDUSTOWER: Score=73.5, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:41:12,273 - INFO - Enhanced technical analysis completed for INDUSINDBK: 52 fields
+2025-09-16 20:41:12,383 - INFO - Completed analysis for INDUSINDBK: Score=44.2, Recommendation=WEAK SELL
+2025-09-16 20:41:12,442 - INFO - Enhanced technical analysis completed for NAUKRI: 52 fields
+2025-09-16 20:41:12,513 - INFO - Completed analysis for NAUKRI: Score=52.9, Recommendation=HOLD
+2025-09-16 20:41:12,791 - INFO - Comprehensive data extracted for INFY
+2025-09-16 20:41:12,793 - INFO - Fundamental analysis completed for INFY: 58 fields
+2025-09-16 20:41:12,984 - INFO - Enhanced technical analysis completed for INFY: 52 fields
+2025-09-16 20:41:13,045 - INFO - Completed analysis for INFY: Score=64.8, Recommendation=BUY
+2025-09-16 20:41:13,179 - INFO - Comprehensive data extracted for INDIGO
+2025-09-16 20:41:13,180 - INFO - Fundamental analysis completed for INDIGO: 58 fields
+2025-09-16 20:41:13,698 - INFO - Enhanced technical analysis completed for INDIGO: 52 fields
+2025-09-16 20:41:13,831 - INFO - Completed analysis for INDIGO: Score=31.9, Recommendation=SELL
+2025-09-16 20:41:19,556 - INFO - Comprehensive data extracted for JSWENERGY
+2025-09-16 20:41:19,556 - INFO - Fundamental analysis completed for JSWENERGY: 58 fields
+2025-09-16 20:41:19,602 - INFO - Comprehensive data extracted for JSWSTEEL
+2025-09-16 20:41:19,605 - INFO - Fundamental analysis completed for JSWSTEEL: 58 fields
+2025-09-16 20:41:19,857 - INFO - Enhanced technical analysis completed for JSWENERGY: 52 fields
+2025-09-16 20:41:19,971 - INFO - Enhanced technical analysis completed for JSWSTEEL: 52 fields
+2025-09-16 20:41:20,030 - INFO - Completed analysis for JSWENERGY: Score=52.3, Recommendation=HOLD
+2025-09-16 20:41:20,139 - INFO - Comprehensive data extracted for JINDALSTEL
+2025-09-16 20:41:20,139 - INFO - Completed analysis for JSWSTEEL: Score=36.8, Recommendation=SELL
+2025-09-16 20:41:20,141 - INFO - Fundamental analysis completed for JINDALSTEL: 58 fields
+2025-09-16 20:41:20,408 - INFO - Enhanced technical analysis completed for JINDALSTEL: 52 fields
+2025-09-16 20:41:20,484 - INFO - Completed analysis for JINDALSTEL: Score=33.5, Recommendation=SELL
+2025-09-16 20:41:20,671 - INFO - Comprehensive data extracted for JIOFIN
+2025-09-16 20:41:20,673 - INFO - Fundamental analysis completed for JIOFIN: 58 fields
+2025-09-16 20:41:20,772 - INFO - Comprehensive data extracted for JUBLFOOD
+2025-09-16 20:41:20,774 - INFO - Fundamental analysis completed for JUBLFOOD: 58 fields
+2025-09-16 20:41:20,948 - INFO - Enhanced technical analysis completed for JIOFIN: 52 fields
+2025-09-16 20:41:21,057 - INFO - Enhanced technical analysis completed for JUBLFOOD: 52 fields
+2025-09-16 20:41:21,116 - INFO - Completed analysis for JIOFIN: Score=54.7, Recommendation=HOLD
+2025-09-16 20:41:21,156 - INFO - Completed analysis for JUBLFOOD: Score=30.5, Recommendation=SELL
+2025-09-16 20:41:26,775 - INFO - Comprehensive data extracted for KALYANKJIL
+2025-09-16 20:41:26,777 - INFO - Fundamental analysis completed for KALYANKJIL: 58 fields
+2025-09-16 20:41:26,980 - INFO - Enhanced technical analysis completed for KALYANKJIL: 52 fields
+2025-09-16 20:41:26,988 - INFO - Comprehensive data extracted for KPITTECH
+2025-09-16 20:41:26,990 - INFO - Fundamental analysis completed for KPITTECH: 58 fields
+2025-09-16 20:41:27,043 - INFO - Completed analysis for KALYANKJIL: Score=40.3, Recommendation=WEAK SELL
+2025-09-16 20:41:27,096 - INFO - Enhanced technical analysis completed for KPITTECH: 52 fields
+2025-09-16 20:41:27,109 - INFO - Comprehensive data extracted for KOTAKBANK
+2025-09-16 20:41:27,109 - INFO - Fundamental analysis completed for KOTAKBANK: 58 fields
+2025-09-16 20:41:27,134 - INFO - Completed analysis for KPITTECH: Score=31.4, Recommendation=SELL
+2025-09-16 20:41:27,250 - INFO - Enhanced technical analysis completed for KOTAKBANK: 52 fields
+2025-09-16 20:41:27,283 - INFO - Completed analysis for KOTAKBANK: Score=68.2, Recommendation=BUY
+2025-09-16 20:41:27,618 - INFO - Comprehensive data extracted for LTF
+2025-09-16 20:41:27,618 - INFO - Fundamental analysis completed for LTF: 58 fields
+2025-09-16 20:41:27,975 - INFO - Enhanced technical analysis completed for LTF: 52 fields
+2025-09-16 20:41:28,043 - INFO - Comprehensive data extracted for LICHSGFIN
+2025-09-16 20:41:28,049 - INFO - Fundamental analysis completed for LICHSGFIN: 58 fields
+2025-09-16 20:41:28,076 - INFO - Completed analysis for LTF: Score=57.3, Recommendation=HOLD
+2025-09-16 20:41:28,370 - INFO - Enhanced technical analysis completed for LICHSGFIN: 52 fields
+2025-09-16 20:41:28,443 - INFO - Completed analysis for LICHSGFIN: Score=70.5, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:41:34,500 - INFO - Comprehensive data extracted for LTIM
+2025-09-16 20:41:34,521 - INFO - Comprehensive data extracted for LICI
+2025-09-16 20:41:34,521 - INFO - Comprehensive data extracted for LT
+2025-09-16 20:41:34,523 - INFO - Fundamental analysis completed for LTIM: 58 fields
+2025-09-16 20:41:34,525 - INFO - Fundamental analysis completed for LICI: 58 fields
+2025-09-16 20:41:34,529 - INFO - Fundamental analysis completed for LT: 58 fields
+2025-09-16 20:41:34,721 - INFO - Enhanced technical analysis completed for LICI: 52 fields
+2025-09-16 20:41:34,961 - INFO - Enhanced technical analysis completed for LTIM: 52 fields
+2025-09-16 20:41:35,030 - INFO - Enhanced technical analysis completed for LT: 52 fields
+2025-09-16 20:41:35,037 - INFO - Completed analysis for LICI: Score=68.3, Recommendation=BUY (VALUE)
+2025-09-16 20:41:35,148 - INFO - Completed analysis for LTIM: Score=60.7, Recommendation=BUY
+2025-09-16 20:41:35,164 - INFO - Completed analysis for LT: Score=46.0, Recommendation=WEAK SELL
+2025-09-16 20:41:35,662 - INFO - Comprehensive data extracted for LUPIN
+2025-09-16 20:41:35,681 - INFO - Fundamental analysis completed for LUPIN: 58 fields
+2025-09-16 20:41:35,735 - INFO - Comprehensive data extracted for LODHA
+2025-09-16 20:41:35,738 - INFO - Fundamental analysis completed for LODHA: 58 fields
+2025-09-16 20:41:35,972 - INFO - Enhanced technical analysis completed for LUPIN: 52 fields
+2025-09-16 20:41:36,023 - INFO - Enhanced technical analysis completed for LODHA: 52 fields
+2025-09-16 20:41:36,140 - INFO - Completed analysis for LODHA: Score=51.7, Recommendation=HOLD
+2025-09-16 20:41:36,140 - INFO - Completed analysis for LUPIN: Score=48.7, Recommendation=WEAK SELL
+2025-09-16 20:41:41,902 - INFO - Comprehensive data extracted for M&M
+2025-09-16 20:41:41,905 - INFO - Fundamental analysis completed for M&M: 58 fields
+2025-09-16 20:41:42,042 - INFO - Comprehensive data extracted for MRF
+2025-09-16 20:41:42,045 - INFO - Fundamental analysis completed for MRF: 58 fields
+2025-09-16 20:41:42,107 - INFO - Comprehensive data extracted for M&MFIN
+2025-09-16 20:41:42,108 - INFO - Fundamental analysis completed for M&MFIN: 58 fields
+2025-09-16 20:41:42,220 - INFO - Enhanced technical analysis completed for M&M: 52 fields
+2025-09-16 20:41:42,359 - INFO - Enhanced technical analysis completed for MRF: 52 fields
+2025-09-16 20:41:42,375 - INFO - Completed analysis for M&M: Score=47.2, Recommendation=WEAK SELL
+2025-09-16 20:41:42,621 - INFO - Completed analysis for MRF: Score=36.9, Recommendation=SELL
+2025-09-16 20:41:42,621 - INFO - Enhanced technical analysis completed for M&MFIN: 52 fields
+2025-09-16 20:41:42,692 - INFO - Completed analysis for M&MFIN: Score=61.8, Recommendation=BUY
+2025-09-16 20:41:42,961 - INFO - Comprehensive data extracted for MANKIND
+2025-09-16 20:41:42,961 - INFO - Fundamental analysis completed for MANKIND: 58 fields
+2025-09-16 20:41:43,226 - INFO - Enhanced technical analysis completed for MANKIND: 52 fields
+2025-09-16 20:41:43,339 - INFO - Comprehensive data extracted for MARICO
+2025-09-16 20:41:43,345 - INFO - Fundamental analysis completed for MARICO: 58 fields
+2025-09-16 20:41:43,364 - INFO - Completed analysis for MANKIND: Score=35.5, Recommendation=SELL
+2025-09-16 20:41:43,652 - INFO - Enhanced technical analysis completed for MARICO: 52 fields
+2025-09-16 20:41:43,720 - INFO - Completed analysis for MARICO: Score=37.9, Recommendation=SELL
+2025-09-16 20:41:49,421 - INFO - Comprehensive data extracted for MAXHEALTH
+2025-09-16 20:41:49,438 - INFO - Fundamental analysis completed for MAXHEALTH: 58 fields
+2025-09-16 20:41:49,499 - INFO - Comprehensive data extracted for MARUTI
+2025-09-16 20:41:49,499 - INFO - Fundamental analysis completed for MARUTI: 58 fields
+2025-09-16 20:41:49,901 - INFO - Enhanced technical analysis completed for MAXHEALTH: 52 fields
+2025-09-16 20:41:49,963 - INFO - Comprehensive data extracted for MFSL
+2025-09-16 20:41:49,967 - INFO - Fundamental analysis completed for MFSL: 58 fields
+2025-09-16 20:41:49,968 - INFO - Enhanced technical analysis completed for MARUTI: 52 fields
+2025-09-16 20:41:50,090 - INFO - Completed analysis for MAXHEALTH: Score=47.0, Recommendation=WEAK SELL
+2025-09-16 20:41:50,106 - INFO - Completed analysis for MARUTI: Score=47.0, Recommendation=WEAK SELL
+2025-09-16 20:41:50,234 - INFO - Enhanced technical analysis completed for MFSL: 52 fields
+2025-09-16 20:41:50,313 - INFO - Completed analysis for MFSL: Score=19.6, Recommendation=SELL
+2025-09-16 20:41:50,544 - INFO - Comprehensive data extracted for MAZDOCK
+2025-09-16 20:41:50,546 - INFO - Fundamental analysis completed for MAZDOCK: 58 fields
+2025-09-16 20:41:50,653 - INFO - Comprehensive data extracted for MOTILALOFS
+2025-09-16 20:41:50,653 - INFO - Fundamental analysis completed for MOTILALOFS: 58 fields
+2025-09-16 20:41:50,885 - INFO - Enhanced technical analysis completed for MAZDOCK: 52 fields
+2025-09-16 20:41:50,958 - INFO - Enhanced technical analysis completed for MOTILALOFS: 52 fields
+2025-09-16 20:41:51,024 - INFO - Completed analysis for MAZDOCK: Score=53.3, Recommendation=HOLD
+2025-09-16 20:41:51,087 - INFO - Completed analysis for MOTILALOFS: Score=56.2, Recommendation=HOLD
+2025-09-16 20:41:56,894 - INFO - Comprehensive data extracted for NHPC
+2025-09-16 20:41:56,894 - INFO - Fundamental analysis completed for NHPC: 58 fields
+2025-09-16 20:41:57,005 - INFO - Comprehensive data extracted for MPHASIS
+2025-09-16 20:41:57,023 - INFO - Fundamental analysis completed for MPHASIS: 58 fields
+2025-09-16 20:41:57,082 - INFO - Comprehensive data extracted for MUTHOOTFIN
+2025-09-16 20:41:57,093 - INFO - Fundamental analysis completed for MUTHOOTFIN: 58 fields
+2025-09-16 20:41:57,143 - INFO - Enhanced technical analysis completed for NHPC: 52 fields
+2025-09-16 20:41:57,190 - INFO - Completed analysis for NHPC: Score=51.7, Recommendation=HOLD
+2025-09-16 20:41:57,344 - INFO - Enhanced technical analysis completed for MPHASIS: 52 fields
+2025-09-16 20:41:57,471 - INFO - Enhanced technical analysis completed for MUTHOOTFIN: 52 fields
+2025-09-16 20:41:57,475 - INFO - Completed analysis for MPHASIS: Score=51.6, Recommendation=HOLD
+2025-09-16 20:41:57,532 - INFO - Completed analysis for MUTHOOTFIN: Score=74.6, Recommendation=STRONG BUY
+2025-09-16 20:41:57,698 - INFO - Comprehensive data extracted for NMDC
+2025-09-16 20:41:57,698 - INFO - Fundamental analysis completed for NMDC: 58 fields
+2025-09-16 20:41:57,954 - INFO - Enhanced technical analysis completed for NMDC: 52 fields
+2025-09-16 20:41:58,012 - INFO - Completed analysis for NMDC: Score=70.3, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:41:58,192 - INFO - Comprehensive data extracted for NTPCGREEN
+2025-09-16 20:41:58,192 - INFO - Fundamental analysis completed for NTPCGREEN: 58 fields
+2025-09-16 20:41:58,445 - INFO - Enhanced technical analysis completed for NTPCGREEN: 52 fields
+2025-09-16 20:41:58,493 - INFO - Completed analysis for NTPCGREEN: Score=38.3, Recommendation=SELL
+2025-09-16 20:42:04,087 - INFO - Comprehensive data extracted for NESTLEIND
+2025-09-16 20:42:04,105 - INFO - Fundamental analysis completed for NESTLEIND: 58 fields
+2025-09-16 20:42:04,143 - INFO - Comprehensive data extracted for NTPC
+2025-09-16 20:42:04,145 - INFO - Fundamental analysis completed for NTPC: 58 fields
+2025-09-16 20:42:04,350 - INFO - Enhanced technical analysis completed for NESTLEIND: 52 fields
+2025-09-16 20:42:04,429 - INFO - Comprehensive data extracted for NATIONALUM
+2025-09-16 20:42:04,443 - INFO - Fundamental analysis completed for NATIONALUM: 58 fields
+2025-09-16 20:42:04,537 - INFO - Enhanced technical analysis completed for NTPC: 52 fields
+2025-09-16 20:42:04,550 - INFO - Completed analysis for NESTLEIND: Score=34.0, Recommendation=SELL
+2025-09-16 20:42:04,612 - INFO - Completed analysis for NTPC: Score=53.3, Recommendation=HOLD
+2025-09-16 20:42:04,796 - INFO - Enhanced technical analysis completed for NATIONALUM: 52 fields
+2025-09-16 20:42:04,859 - INFO - Completed analysis for NATIONALUM: Score=68.5, Recommendation=BUY (VALUE)
+2025-09-16 20:42:05,186 - INFO - Comprehensive data extracted for OBEROIRLTY
+2025-09-16 20:42:05,186 - INFO - Fundamental analysis completed for OBEROIRLTY: 58 fields
+2025-09-16 20:42:05,376 - INFO - Enhanced technical analysis completed for OBEROIRLTY: 52 fields
+2025-09-16 20:42:05,488 - INFO - Comprehensive data extracted for ONGC
+2025-09-16 20:42:05,490 - INFO - Fundamental analysis completed for ONGC: 58 fields
+2025-09-16 20:42:05,494 - INFO - Completed analysis for OBEROIRLTY: Score=30.7, Recommendation=SELL
+2025-09-16 20:42:05,748 - INFO - Enhanced technical analysis completed for ONGC: 52 fields
+2025-09-16 20:42:05,822 - INFO - Completed analysis for ONGC: Score=57.2, Recommendation=HOLD
+2025-09-16 20:42:11,265 - INFO - Comprehensive data extracted for OLAELEC
+2025-09-16 20:42:11,265 - INFO - Fundamental analysis completed for OLAELEC: 58 fields
+2025-09-16 20:42:11,428 - INFO - Comprehensive data extracted for OIL
+2025-09-16 20:42:11,438 - INFO - Fundamental analysis completed for OIL: 58 fields
+2025-09-16 20:42:11,731 - INFO - Comprehensive data extracted for PAYTM
+2025-09-16 20:42:11,747 - INFO - Fundamental analysis completed for PAYTM: 58 fields
+2025-09-16 20:42:11,791 - INFO - Enhanced technical analysis completed for OIL: 52 fields
+2025-09-16 20:42:11,801 - INFO - Enhanced technical analysis completed for OLAELEC: 52 fields
+2025-09-16 20:42:11,854 - INFO - Completed analysis for OLAELEC: Score=23.2, Recommendation=SELL
+2025-09-16 20:42:11,867 - INFO - Completed analysis for OIL: Score=59.3, Recommendation=HOLD
+2025-09-16 20:42:11,997 - INFO - Enhanced technical analysis completed for PAYTM: 52 fields
+2025-09-16 20:42:12,033 - INFO - Completed analysis for PAYTM: Score=30.7, Recommendation=SELL
+2025-09-16 20:42:12,419 - INFO - Comprehensive data extracted for POLICYBZR
+2025-09-16 20:42:12,422 - INFO - Fundamental analysis completed for POLICYBZR: 58 fields
+2025-09-16 20:42:12,518 - INFO - Enhanced technical analysis completed for POLICYBZR: 52 fields
+2025-09-16 20:42:12,562 - INFO - Completed analysis for POLICYBZR: Score=35.0, Recommendation=SELL
+2025-09-16 20:42:12,628 - INFO - Comprehensive data extracted for OFSS
+2025-09-16 20:42:12,630 - INFO - Fundamental analysis completed for OFSS: 58 fields
+2025-09-16 20:42:12,904 - INFO - Enhanced technical analysis completed for OFSS: 52 fields
+2025-09-16 20:42:12,949 - INFO - Completed analysis for OFSS: Score=72.3, Recommendation=STRONG BUY
+2025-09-16 20:42:18,478 - INFO - Comprehensive data extracted for PATANJALI
+2025-09-16 20:42:18,478 - INFO - Fundamental analysis completed for PATANJALI: 58 fields
+2025-09-16 20:42:18,513 - INFO - Comprehensive data extracted for PAGEIND
+2025-09-16 20:42:18,513 - INFO - Fundamental analysis completed for PAGEIND: 58 fields
+2025-09-16 20:42:18,739 - INFO - Enhanced technical analysis completed for PATANJALI: 52 fields
+2025-09-16 20:42:18,792 - INFO - Enhanced technical analysis completed for PAGEIND: 52 fields
+2025-09-16 20:42:18,823 - INFO - Comprehensive data extracted for PIIND
+2025-09-16 20:42:18,853 - INFO - Fundamental analysis completed for PIIND: 58 fields
+2025-09-16 20:42:18,871 - INFO - Completed analysis for PATANJALI: Score=31.1, Recommendation=SELL
+2025-09-16 20:42:18,907 - INFO - Completed analysis for PAGEIND: Score=44.2, Recommendation=WEAK SELL
+2025-09-16 20:42:19,090 - INFO - Enhanced technical analysis completed for PIIND: 52 fields
+2025-09-16 20:42:19,120 - INFO - Completed analysis for PIIND: Score=27.9, Recommendation=SELL
+2025-09-16 20:42:19,233 - INFO - Comprehensive data extracted for PERSISTENT
+2025-09-16 20:42:19,235 - INFO - Fundamental analysis completed for PERSISTENT: 58 fields
+2025-09-16 20:42:19,361 - INFO - Enhanced technical analysis completed for PERSISTENT: 52 fields
+2025-09-16 20:42:19,410 - INFO - Completed analysis for PERSISTENT: Score=66.9, Recommendation=BUY
+2025-09-16 20:42:19,533 - INFO - Comprehensive data extracted for PETRONET
+2025-09-16 20:42:19,537 - INFO - Fundamental analysis completed for PETRONET: 58 fields
+2025-09-16 20:42:19,774 - INFO - Enhanced technical analysis completed for PETRONET: 52 fields
+2025-09-16 20:42:19,817 - INFO - Completed analysis for PETRONET: Score=50.4, Recommendation=HOLD
+2025-09-16 20:42:25,287 - INFO - Comprehensive data extracted for PHOENIXLTD
+2025-09-16 20:42:25,289 - INFO - Fundamental analysis completed for PHOENIXLTD: 58 fields
+2025-09-16 20:42:25,437 - INFO - Enhanced technical analysis completed for PHOENIXLTD: 52 fields
+2025-09-16 20:42:25,460 - INFO - Comprehensive data extracted for POLYCAB
+2025-09-16 20:42:25,461 - INFO - Fundamental analysis completed for POLYCAB: 58 fields
+2025-09-16 20:42:25,507 - INFO - Completed analysis for PHOENIXLTD: Score=41.8, Recommendation=WEAK SELL
+2025-09-16 20:42:25,594 - INFO - Enhanced technical analysis completed for POLYCAB: 52 fields
+2025-09-16 20:42:25,618 - INFO - Comprehensive data extracted for PIDILITIND
+2025-09-16 20:42:25,620 - INFO - Fundamental analysis completed for PIDILITIND: 58 fields
+2025-09-16 20:42:25,664 - INFO - Completed analysis for POLYCAB: Score=67.2, Recommendation=BUY
+2025-09-16 20:42:25,766 - INFO - Enhanced technical analysis completed for PIDILITIND: 52 fields
+2025-09-16 20:42:25,811 - INFO - Completed analysis for PIDILITIND: Score=36.3, Recommendation=SELL
+2025-09-16 20:42:25,982 - INFO - Comprehensive data extracted for PFC
+2025-09-16 20:42:25,983 - INFO - Fundamental analysis completed for PFC: 58 fields
+2025-09-16 20:42:26,291 - INFO - Comprehensive data extracted for POWERGRID
+2025-09-16 20:42:26,295 - INFO - Fundamental analysis completed for POWERGRID: 58 fields
+2025-09-16 20:42:26,331 - INFO - Enhanced technical analysis completed for PFC: 52 fields
+2025-09-16 20:42:26,380 - INFO - Completed analysis for PFC: Score=75.9, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:42:26,534 - INFO - Enhanced technical analysis completed for POWERGRID: 52 fields
+2025-09-16 20:42:26,578 - INFO - Completed analysis for POWERGRID: Score=50.1, Recommendation=HOLD
+2025-09-16 20:42:32,127 - INFO - Comprehensive data extracted for PRESTIGE
+2025-09-16 20:42:32,130 - INFO - Fundamental analysis completed for PRESTIGE: 58 fields
+2025-09-16 20:42:32,150 - INFO - Comprehensive data extracted for PNB
+2025-09-16 20:42:32,154 - INFO - Fundamental analysis completed for PNB: 58 fields
+2025-09-16 20:42:32,300 - INFO - Enhanced technical analysis completed for PRESTIGE: 52 fields
+2025-09-16 20:42:32,337 - INFO - Completed analysis for PRESTIGE: Score=45.8, Recommendation=WEAK SELL
+2025-09-16 20:42:32,401 - INFO - Enhanced technical analysis completed for PNB: 52 fields
+2025-09-16 20:42:32,454 - INFO - Completed analysis for PNB: Score=84.7, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:42:32,554 - INFO - Comprehensive data extracted for PREMIERENE
+2025-09-16 20:42:32,554 - INFO - Fundamental analysis completed for PREMIERENE: 58 fields
+2025-09-16 20:42:32,756 - INFO - Enhanced technical analysis completed for PREMIERENE: 52 fields
+2025-09-16 20:42:32,804 - INFO - Completed analysis for PREMIERENE: Score=49.1, Recommendation=WEAK SELL
+2025-09-16 20:42:32,830 - INFO - Comprehensive data extracted for RVNL
+2025-09-16 20:42:32,831 - INFO - Fundamental analysis completed for RVNL: 58 fields
+2025-09-16 20:42:32,857 - INFO - Comprehensive data extracted for RECLTD
+2025-09-16 20:42:32,857 - INFO - Fundamental analysis completed for RECLTD: 58 fields
+2025-09-16 20:42:32,990 - INFO - Enhanced technical analysis completed for RECLTD: 52 fields
+2025-09-16 20:42:33,033 - INFO - Completed analysis for RECLTD: Score=79.8, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:42:33,082 - INFO - Enhanced technical analysis completed for RVNL: 52 fields
+2025-09-16 20:42:33,115 - INFO - Completed analysis for RVNL: Score=30.8, Recommendation=SELL
+2025-09-16 20:42:38,602 - INFO - Comprehensive data extracted for SBILIFE
+2025-09-16 20:42:38,602 - INFO - Fundamental analysis completed for SBILIFE: 58 fields
+2025-09-16 20:42:38,738 - INFO - Enhanced technical analysis completed for SBILIFE: 52 fields
+2025-09-16 20:42:38,790 - INFO - Completed analysis for SBILIFE: Score=56.8, Recommendation=HOLD
+2025-09-16 20:42:38,822 - INFO - Comprehensive data extracted for SBICARD
+2025-09-16 20:42:38,823 - INFO - Fundamental analysis completed for SBICARD: 58 fields
+2025-09-16 20:42:38,987 - INFO - Comprehensive data extracted for RELIANCE
+2025-09-16 20:42:38,987 - INFO - Fundamental analysis completed for RELIANCE: 58 fields
+2025-09-16 20:42:39,048 - INFO - Enhanced technical analysis completed for SBICARD: 52 fields
+2025-09-16 20:42:39,088 - INFO - Completed analysis for SBICARD: Score=37.7, Recommendation=SELL
+2025-09-16 20:42:39,283 - INFO - Enhanced technical analysis completed for RELIANCE: 52 fields
+2025-09-16 20:42:39,327 - INFO - Completed analysis for RELIANCE: Score=56.1, Recommendation=HOLD
+2025-09-16 20:42:39,407 - INFO - Comprehensive data extracted for SJVN
+2025-09-16 20:42:39,407 - INFO - Fundamental analysis completed for SJVN: 58 fields
+2025-09-16 20:42:39,636 - INFO - Enhanced technical analysis completed for SJVN: 52 fields
+2025-09-16 20:42:39,686 - INFO - Completed analysis for SJVN: Score=47.2, Recommendation=WEAK SELL
+2025-09-16 20:42:39,803 - INFO - Comprehensive data extracted for SRF
+2025-09-16 20:42:39,803 - INFO - Fundamental analysis completed for SRF: 58 fields
+2025-09-16 20:42:40,103 - INFO - Enhanced technical analysis completed for SRF: 52 fields
+2025-09-16 20:42:40,142 - INFO - Completed analysis for SRF: Score=40.1, Recommendation=WEAK SELL
+2025-09-16 20:42:45,564 - INFO - Comprehensive data extracted for MOTHERSON
+2025-09-16 20:42:45,564 - INFO - Fundamental analysis completed for MOTHERSON: 58 fields
+2025-09-16 20:42:45,597 - INFO - Comprehensive data extracted for SHRIRAMFIN
+2025-09-16 20:42:45,597 - INFO - Fundamental analysis completed for SHRIRAMFIN: 58 fields
+2025-09-16 20:42:45,679 - INFO - Comprehensive data extracted for SHREECEM
+2025-09-16 20:42:45,679 - INFO - Fundamental analysis completed for SHREECEM: 58 fields
+2025-09-16 20:42:45,793 - INFO - Enhanced technical analysis completed for SHRIRAMFIN: 52 fields
+2025-09-16 20:42:45,799 - INFO - Enhanced technical analysis completed for MOTHERSON: 52 fields
+2025-09-16 20:42:45,872 - INFO - Completed analysis for MOTHERSON: Score=33.2, Recommendation=SELL
+2025-09-16 20:42:45,935 - INFO - Enhanced technical analysis completed for SHREECEM: 52 fields
+2025-09-16 20:42:45,940 - INFO - Completed analysis for SHRIRAMFIN: Score=70.1, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:42:45,973 - INFO - Completed analysis for SHREECEM: Score=31.8, Recommendation=SELL
+2025-09-16 20:42:46,418 - INFO - Comprehensive data extracted for SIEMENS
+2025-09-16 20:42:46,418 - INFO - Fundamental analysis completed for SIEMENS: 58 fields
+2025-09-16 20:42:46,544 - INFO - Comprehensive data extracted for SOLARINDS
+2025-09-16 20:42:46,544 - INFO - Fundamental analysis completed for SOLARINDS: 58 fields
+2025-09-16 20:42:46,652 - INFO - Enhanced technical analysis completed for SIEMENS: 52 fields
+2025-09-16 20:42:46,694 - INFO - Completed analysis for SIEMENS: Score=30.0, Recommendation=SELL
+2025-09-16 20:42:46,753 - INFO - Enhanced technical analysis completed for SOLARINDS: 52 fields
+2025-09-16 20:42:46,786 - INFO - Completed analysis for SOLARINDS: Score=44.8, Recommendation=WEAK SELL
+2025-09-16 20:42:52,404 - INFO - Comprehensive data extracted for SAIL
+2025-09-16 20:42:52,412 - INFO - Fundamental analysis completed for SAIL: 58 fields
+2025-09-16 20:42:52,426 - INFO - Comprehensive data extracted for SONACOMS
+2025-09-16 20:42:52,450 - INFO - Comprehensive data extracted for SBIN
+2025-09-16 20:42:52,450 - INFO - Fundamental analysis completed for SONACOMS: 58 fields
+2025-09-16 20:42:52,452 - INFO - Fundamental analysis completed for SBIN: 58 fields
+2025-09-16 20:42:52,695 - INFO - Enhanced technical analysis completed for SAIL: 52 fields
+2025-09-16 20:42:52,729 - INFO - Enhanced technical analysis completed for SONACOMS: 52 fields
+2025-09-16 20:42:52,733 - INFO - Enhanced technical analysis completed for SBIN: 52 fields
+2025-09-16 20:42:52,845 - INFO - Completed analysis for SONACOMS: Score=20.9, Recommendation=SELL
+2025-09-16 20:42:52,853 - INFO - Completed analysis for SBIN: Score=85.3, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:42:52,859 - INFO - Completed analysis for SAIL: Score=59.3, Recommendation=HOLD
+2025-09-16 20:42:53,358 - INFO - Comprehensive data extracted for SUPREMEIND
+2025-09-16 20:42:53,362 - INFO - Fundamental analysis completed for SUPREMEIND: 58 fields
+2025-09-16 20:42:53,383 - INFO - Comprehensive data extracted for SUNPHARMA
+2025-09-16 20:42:53,385 - INFO - Fundamental analysis completed for SUNPHARMA: 58 fields
+2025-09-16 20:42:53,680 - INFO - Enhanced technical analysis completed for SUNPHARMA: 52 fields
+2025-09-16 20:42:53,680 - INFO - Enhanced technical analysis completed for SUPREMEIND: 52 fields
+2025-09-16 20:42:53,767 - INFO - Completed analysis for SUPREMEIND: Score=29.4, Recommendation=SELL
+2025-09-16 20:42:53,770 - INFO - Completed analysis for SUNPHARMA: Score=35.3, Recommendation=SELL
+2025-09-16 20:42:59,502 - INFO - Comprehensive data extracted for SWIGGY
+2025-09-16 20:42:59,522 - INFO - Comprehensive data extracted for TVSMOTOR
+2025-09-16 20:42:59,522 - INFO - Fundamental analysis completed for SWIGGY: 58 fields
+2025-09-16 20:42:59,550 - INFO - Comprehensive data extracted for SUZLON
+2025-09-16 20:42:59,550 - INFO - Fundamental analysis completed for TVSMOTOR: 58 fields
+2025-09-16 20:42:59,552 - INFO - Fundamental analysis completed for SUZLON: 58 fields
+2025-09-16 20:42:59,794 - INFO - Enhanced technical analysis completed for TVSMOTOR: 52 fields
+2025-09-16 20:42:59,794 - INFO - Enhanced technical analysis completed for SUZLON: 52 fields
+2025-09-16 20:42:59,853 - INFO - Enhanced technical analysis completed for SWIGGY: 52 fields
+2025-09-16 20:42:59,969 - INFO - Completed analysis for SUZLON: Score=37.3, Recommendation=SELL
+2025-09-16 20:42:59,982 - INFO - Completed analysis for SWIGGY: Score=32.2, Recommendation=SELL
+2025-09-16 20:42:59,989 - INFO - Completed analysis for TVSMOTOR: Score=36.4, Recommendation=SELL
+2025-09-16 20:43:00,578 - INFO - Comprehensive data extracted for TATACOMM
+2025-09-16 20:43:00,578 - INFO - Fundamental analysis completed for TATACOMM: 58 fields
+2025-09-16 20:43:00,714 - INFO - Comprehensive data extracted for TCS
+2025-09-16 20:43:00,735 - INFO - Fundamental analysis completed for TCS: 58 fields
+2025-09-16 20:43:00,783 - INFO - Enhanced technical analysis completed for TATACOMM: 52 fields
+2025-09-16 20:43:00,851 - INFO - Completed analysis for TATACOMM: Score=32.0, Recommendation=SELL
+2025-09-16 20:43:00,947 - INFO - Enhanced technical analysis completed for TCS: 52 fields
+2025-09-16 20:43:01,000 - INFO - Completed analysis for TCS: Score=65.9, Recommendation=BUY
+2025-09-16 20:43:06,599 - INFO - Comprehensive data extracted for TATAELXSI
+2025-09-16 20:43:06,615 - INFO - Fundamental analysis completed for TATAELXSI: 58 fields
+2025-09-16 20:43:06,628 - INFO - Comprehensive data extracted for TATAMOTORS
+2025-09-16 20:43:06,635 - INFO - Fundamental analysis completed for TATAMOTORS: 58 fields
+2025-09-16 20:43:06,885 - INFO - Comprehensive data extracted for TATACONSUM
+2025-09-16 20:43:06,920 - INFO - Fundamental analysis completed for TATACONSUM: 58 fields
+2025-09-16 20:43:06,990 - INFO - Enhanced technical analysis completed for TATAMOTORS: 52 fields
+2025-09-16 20:43:06,992 - INFO - Enhanced technical analysis completed for TATAELXSI: 52 fields
+2025-09-16 20:43:07,048 - INFO - Completed analysis for TATAMOTORS: Score=48.9, Recommendation=WEAK SELL
+2025-09-16 20:43:07,081 - INFO - Completed analysis for TATAELXSI: Score=29.3, Recommendation=SELL
+2025-09-16 20:43:07,194 - INFO - Enhanced technical analysis completed for TATACONSUM: 52 fields
+2025-09-16 20:43:07,260 - INFO - Completed analysis for TATACONSUM: Score=37.9, Recommendation=SELL
+2025-09-16 20:43:07,623 - INFO - Comprehensive data extracted for TATASTEEL
+2025-09-16 20:43:07,623 - INFO - Fundamental analysis completed for TATASTEEL: 58 fields
+2025-09-16 20:43:07,647 - INFO - Comprehensive data extracted for TATAPOWER
+2025-09-16 20:43:07,647 - INFO - Fundamental analysis completed for TATAPOWER: 58 fields
+2025-09-16 20:43:08,004 - INFO - Enhanced technical analysis completed for TATAPOWER: 52 fields
+2025-09-16 20:43:08,027 - INFO - Enhanced technical analysis completed for TATASTEEL: 52 fields
+2025-09-16 20:43:08,092 - INFO - Completed analysis for TATASTEEL: Score=37.0, Recommendation=SELL
+2025-09-16 20:43:08,128 - INFO - Completed analysis for TATAPOWER: Score=37.3, Recommendation=SELL
+2025-09-16 20:43:13,736 - INFO - Comprehensive data extracted for TECHM
+2025-09-16 20:43:13,760 - INFO - Fundamental analysis completed for TECHM: 58 fields
+2025-09-16 20:43:13,762 - INFO - Comprehensive data extracted for TITAN
+2025-09-16 20:43:13,779 - INFO - Fundamental analysis completed for TITAN: 58 fields
+2025-09-16 20:43:13,794 - INFO - Comprehensive data extracted for TATATECH
+2025-09-16 20:43:13,794 - INFO - Fundamental analysis completed for TATATECH: 58 fields
+2025-09-16 20:43:14,067 - INFO - Enhanced technical analysis completed for TATATECH: 52 fields
+2025-09-16 20:43:14,067 - INFO - Enhanced technical analysis completed for TITAN: 52 fields
+2025-09-16 20:43:14,095 - INFO - Enhanced technical analysis completed for TECHM: 52 fields
+2025-09-16 20:43:14,133 - INFO - Completed analysis for TITAN: Score=39.4, Recommendation=SELL
+2025-09-16 20:43:14,173 - INFO - Completed analysis for TATATECH: Score=36.1, Recommendation=SELL
+2025-09-16 20:43:14,211 - INFO - Completed analysis for TECHM: Score=39.3, Recommendation=SELL
+2025-09-16 20:43:14,661 - INFO - Comprehensive data extracted for TORNTPOWER
+2025-09-16 20:43:14,668 - INFO - Fundamental analysis completed for TORNTPOWER: 58 fields
+2025-09-16 20:43:14,695 - INFO - Comprehensive data extracted for TORNTPHARM
+2025-09-16 20:43:14,697 - INFO - Fundamental analysis completed for TORNTPHARM: 58 fields
+2025-09-16 20:43:14,964 - INFO - Enhanced technical analysis completed for TORNTPHARM: 52 fields
+2025-09-16 20:43:14,980 - INFO - Enhanced technical analysis completed for TORNTPOWER: 52 fields
+2025-09-16 20:43:15,091 - INFO - Completed analysis for TORNTPHARM: Score=35.7, Recommendation=SELL
+2025-09-16 20:43:15,100 - INFO - Completed analysis for TORNTPOWER: Score=33.6, Recommendation=SELL
+2025-09-16 20:43:20,745 - INFO - Comprehensive data extracted for UPL
+2025-09-16 20:43:20,747 - INFO - Comprehensive data extracted for TIINDIA
+2025-09-16 20:43:20,749 - INFO - Fundamental analysis completed for UPL: 58 fields
+2025-09-16 20:43:20,768 - INFO - Comprehensive data extracted for TRENT
+2025-09-16 20:43:20,768 - INFO - Fundamental analysis completed for TIINDIA: 58 fields
+2025-09-16 20:43:20,773 - INFO - Fundamental analysis completed for TRENT: 58 fields
+2025-09-16 20:43:21,054 - INFO - Enhanced technical analysis completed for UPL: 52 fields
+2025-09-16 20:43:21,054 - INFO - Enhanced technical analysis completed for TRENT: 52 fields
+2025-09-16 20:43:21,087 - INFO - Enhanced technical analysis completed for TIINDIA: 52 fields
+2025-09-16 20:43:21,175 - INFO - Completed analysis for UPL: Score=34.1, Recommendation=SELL
+2025-09-16 20:43:21,185 - INFO - Completed analysis for TRENT: Score=30.6, Recommendation=SELL
+2025-09-16 20:43:21,224 - INFO - Completed analysis for TIINDIA: Score=31.2, Recommendation=SELL
+2025-09-16 20:43:21,714 - INFO - Comprehensive data extracted for UNIONBANK
+2025-09-16 20:43:21,717 - INFO - Fundamental analysis completed for UNIONBANK: 58 fields
+2025-09-16 20:43:21,763 - INFO - Comprehensive data extracted for ULTRACEMCO
+2025-09-16 20:43:21,768 - INFO - Fundamental analysis completed for ULTRACEMCO: 58 fields
+2025-09-16 20:43:21,910 - INFO - Enhanced technical analysis completed for UNIONBANK: 52 fields
+2025-09-16 20:43:22,013 - INFO - Completed analysis for UNIONBANK: Score=88.5, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-16 20:43:22,013 - INFO - Enhanced technical analysis completed for ULTRACEMCO: 52 fields
+2025-09-16 20:43:22,081 - INFO - Completed analysis for ULTRACEMCO: Score=37.3, Recommendation=SELL
+2025-09-16 20:43:27,728 - INFO - Comprehensive data extracted for VBL
+2025-09-16 20:43:27,731 - INFO - Fundamental analysis completed for VBL: 58 fields
+2025-09-16 20:43:27,938 - INFO - Enhanced technical analysis completed for VBL: 52 fields
+2025-09-16 20:43:28,003 - INFO - Completed analysis for VBL: Score=44.1, Recommendation=WEAK SELL
+2025-09-16 20:43:28,137 - INFO - Comprehensive data extracted for VEDL
+2025-09-16 20:43:28,138 - INFO - Fundamental analysis completed for VEDL: 58 fields
+2025-09-16 20:43:28,189 - INFO - Comprehensive data extracted for UNITDSPR
+2025-09-16 20:43:28,191 - INFO - Fundamental analysis completed for UNITDSPR: 58 fields
+2025-09-16 20:43:28,352 - INFO - Enhanced technical analysis completed for UNITDSPR: 52 fields
+2025-09-16 20:43:28,422 - INFO - Completed analysis for UNITDSPR: Score=30.9, Recommendation=SELL
+2025-09-16 20:43:28,673 - INFO - Comprehensive data extracted for VMM
+2025-09-16 20:43:28,677 - INFO - Enhanced technical analysis completed for VEDL: 52 fields
+2025-09-16 20:43:28,677 - INFO - Fundamental analysis completed for VMM: 58 fields
+2025-09-16 20:43:28,739 - INFO - Completed analysis for VEDL: Score=49.0, Recommendation=WEAK SELL
+2025-09-16 20:43:28,853 - INFO - Enhanced technical analysis completed for VMM: 52 fields
+2025-09-16 20:43:28,910 - INFO - Completed analysis for VMM: Score=34.3, Recommendation=SELL
+2025-09-16 20:43:28,923 - INFO - Comprehensive data extracted for IDEA
+2025-09-16 20:43:28,923 - INFO - Fundamental analysis completed for IDEA: 58 fields
+2025-09-16 20:43:29,086 - INFO - Enhanced technical analysis completed for IDEA: 52 fields
+2025-09-16 20:43:29,142 - INFO - Completed analysis for IDEA: Score=66.6, Recommendation=BUY (VALUE)
+2025-09-16 20:43:34,720 - INFO - Comprehensive data extracted for WIPRO
+2025-09-16 20:43:34,722 - INFO - Fundamental analysis completed for WIPRO: 58 fields
+2025-09-16 20:43:34,915 - INFO - Comprehensive data extracted for VOLTAS
+2025-09-16 20:43:34,942 - INFO - Fundamental analysis completed for VOLTAS: 58 fields
+2025-09-16 20:43:34,942 - INFO - Enhanced technical analysis completed for WIPRO: 52 fields
+2025-09-16 20:43:35,003 - INFO - Completed analysis for WIPRO: Score=70.1, Recommendation=STRONG BUY
+2025-09-16 20:43:35,129 - INFO - Enhanced technical analysis completed for VOLTAS: 52 fields
+2025-09-16 20:43:35,178 - INFO - Completed analysis for VOLTAS: Score=24.9, Recommendation=SELL
+2025-09-16 20:43:35,258 - INFO - Comprehensive data extracted for WAAREEENER
+2025-09-16 20:43:35,261 - INFO - Fundamental analysis completed for WAAREEENER: 58 fields
+2025-09-16 20:43:35,412 - INFO - Enhanced technical analysis completed for WAAREEENER: 52 fields
+2025-09-16 20:43:35,471 - INFO - Completed analysis for WAAREEENER: Score=42.5, Recommendation=WEAK SELL
+2025-09-16 20:43:35,568 - INFO - Comprehensive data extracted for YESBANK
+2025-09-16 20:43:35,569 - INFO - Fundamental analysis completed for YESBANK: 58 fields
+2025-09-16 20:43:35,682 - INFO - Comprehensive data extracted for ZYDUSLIFE
+2025-09-16 20:43:35,682 - INFO - Fundamental analysis completed for ZYDUSLIFE: 58 fields
+2025-09-16 20:43:35,747 - INFO - Enhanced technical analysis completed for YESBANK: 52 fields
+2025-09-16 20:43:35,781 - INFO - Completed analysis for YESBANK: Score=76.0, Recommendation=STRONG BUY
+2025-09-16 20:43:35,895 - INFO - Enhanced technical analysis completed for ZYDUSLIFE: 52 fields
+2025-09-16 20:43:35,947 - INFO - Completed analysis for ZYDUSLIFE: Score=43.2, Recommendation=WEAK SELL
+2025-09-16 20:43:35,947 - INFO - Batch analysis completed: 200 results, 0 failures
+2025-09-16 20:43:36,157 - INFO - Calculated sector rankings for 11 sectors
+2025-09-16 20:44:14,079 - INFO - Completed risk-return analysis
+2025-09-16 20:44:14,109 - INFO - Generated portfolio allocation for 15 stocks
+2025-09-16 20:44:17,560 - ERROR - Enhanced Excel generation error: No module named 'xlsxwriter'
+2025-09-16 20:44:23,376 - INFO - Comprehensive Excel report saved: reports\Stock_Report_2025-09-16.xlsx
+2025-09-16 20:44:23,379 - INFO - Enhanced Excel report generated: reports\Stock_Report_2025-09-16.xlsx, Size: 425816 bytes

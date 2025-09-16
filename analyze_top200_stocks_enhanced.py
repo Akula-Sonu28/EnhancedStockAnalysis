@@ -1920,6 +1920,53 @@ def main():
             print(f"📊 Report file: {report_file}")
             print(f"📝 Log file: {analyzer.log_filename}")
             print(f"\n💡 TIP: Check the TOP 10 categories above for quick investment insights!")
+            
+            # Auto-run report comparison if multiple reports exist
+            try:
+                import glob
+                from pathlib import Path
+                
+                # Check if we have multiple Enhanced Stock Reports for comparison
+                reports_pattern = "reports/Enhanced_Stock_Report_*.xlsx"
+                available_reports = glob.glob(reports_pattern)
+                
+                if len(available_reports) >= 2:
+                    print(f"\n🔄 Auto-running report comparison analysis...")
+                    
+                    # Import and run comparison
+                    sys.path.insert(0, str(Path(__file__).parent))
+                    
+                    try:
+                        from report_comparison.analyzer import ReportComparator
+                        from report_comparison.reporter import ComparisonReportGenerator
+                        
+                        # Run comparison
+                        comparator = ReportComparator()
+                        comparison_results = comparator.compare_reports()
+                        
+                        # Display console insights
+                        comparator.display_console_insights(comparison_results)
+                        
+                        # Generate Excel comparison report
+                        generator = ComparisonReportGenerator()
+                        comparison_report = generator.generate_comparison_report(comparison_results)
+                        
+                        print(f"\n🎉 Comparison analysis completed!")
+                        print(f"📊 Comparison Report: {os.path.basename(comparison_report)}")
+                        
+                    except ImportError as ie:
+                        print(f"\n💡 Report comparison module not available: {ie}")
+                        print("   Run 'python compare_reports.py' manually for detailed comparison")
+                    except Exception as ce:
+                        print(f"\n⚠️ Report comparison failed: {ce}")
+                        print("   You can run 'python compare_reports.py' manually")
+                else:
+                    print(f"\n💡 Generate another report to enable automatic comparison analysis")
+                    
+            except Exception as e:
+                # Don't fail the main analysis if comparison fails
+                pass
+                
         else:
             print(f"\n⚠️  Analysis completed but report generation failed")
     else:
