@@ -1,0 +1,5 @@
+2025-09-17 20:31:25,866 - INFO - Portfolio Analysis Initialized
+2025-09-17 20:31:25,866 - WARNING - No portfolio file provided or default file not found
+2025-09-17 20:31:25,866 - INFO - Loading portfolio from: Holding/holdings (17).csv
+2025-09-17 20:31:25,871 - INFO - Detected Zerodha holdings format, converting...
+2025-09-17 20:31:25,882 - INFO - Loaded portfolio with 40 positions
