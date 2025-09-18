@@ -822,13 +822,13 @@ Expected Impact:
                         trading_df.to_excel(writer, sheet_name='Trading_Sheet', index=False)
                         self.logger.info(f"Trading sheet added with {len(trading_df)} entries")
                 
-                # Performance Analysis
-                performance_df = pd.DataFrame([self.analyzer.portfolio_metrics])
-                performance_df.to_excel(writer, sheet_name='Performance_Metrics', index=False)
+                # Performance Analysis - REMOVED per user request
+                # performance_df = pd.DataFrame([self.analyzer.portfolio_metrics])
+                # performance_df.to_excel(writer, sheet_name='Performance_Metrics', index=False)
                 
-                # Sector Analysis
-                if self.analyzer.sector_data is not None:
-                    self.analyzer.sector_data.to_excel(writer, sheet_name='Sector_Analysis', index=False)
+                # Sector Analysis - REMOVED per user request  
+                # if self.analyzer.sector_data is not None:
+                #     self.analyzer.sector_data.to_excel(writer, sheet_name='Sector_Analysis', index=False)
                 
                 # Exit Recommendations
                 exit_analysis = self.insights.analyze_exit_strategies()
@@ -893,8 +893,9 @@ Expected Impact:
                         'Total_Rotation_Strategies': len(rotation_strategies),
                         'Analysis_Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     }
-                    sell_summary_df = pd.DataFrame([sell_summary])
-                    sell_summary_df.to_excel(writer, sheet_name='Enhanced_Sell_Summary', index=False)
+                    # Enhanced_Sell_Summary sheet - REMOVED per user request
+                    # sell_summary_df = pd.DataFrame([sell_summary])
+                    # sell_summary_df.to_excel(writer, sheet_name='Enhanced_Sell_Summary', index=False)
                     
                 except Exception as e:
                     self.logger.warning(f"Could not add enhanced sell signals to Excel: {str(e)}")
@@ -943,8 +944,9 @@ Expected Impact:
                         
                         'Available_Funds': self.analyzer.available_funds
                     }
-                    summary_df = pd.DataFrame([summary_data])
-                    summary_df.to_excel(writer, sheet_name='Trading_Summary', index=False)
+                    # Trading_Summary sheet - REMOVED per user request
+                    # summary_df = pd.DataFrame([summary_data])
+                    # summary_df.to_excel(writer, sheet_name='Trading_Summary', index=False)
             
             self.logger.info(f"Excel report with trading sheet saved to: {filepath}")
             return filepath

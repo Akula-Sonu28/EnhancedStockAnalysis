@@ -18,6 +18,7 @@ import argparse
 import sys
 import os
 import warnings
+import pandas as pd
 from datetime import datetime
 
 # Suppress pandas RuntimeWarnings for cleaner output
@@ -32,6 +33,8 @@ from portfolio.reporter import PortfolioReporter
 from portfolio.utils import PortfolioUtils
 from portfolio.consolidation import PortfolioConsolidation
 from portfolio.executor import PortfolioExecutor
+from gtt.generator import GTTOrderGenerator
+from gtt.config import GTTConfig
 
 
 def main():
@@ -58,8 +61,16 @@ def main():
                        help='Execute consolidation sell recommendations')
     parser.add_argument('--execute-all-buys', action='store_true',
                        help='Execute all buy recommendations')
+    parser.add_argument('--gtt', action='store_true',
+                       help='Generate GTT (Good Till Triggered) orders for all holdings')
+    parser.add_argument('--fast', action='store_true',
+                       help='Fast execution mode - skip trading sheet and detailed calculations')
     
     args = parser.parse_args()
+    
+    # Fast mode auto-enables no-trading-sheet
+    if args.fast:
+        args.no_trading_sheet = True
     
     print("="*60)
     print("🏦 PORTFOLIO ANALYSIS SYSTEM")
@@ -229,12 +240,128 @@ def main():
                 else:
                     print(f"📊 Excel report saved to: {excel_path}")
         
-        # Always generate basic trading sheet if not disabled
-        elif not args.no_trading_sheet:
+        # Always generate basic trading sheet if not disabled and GTT not requested (for faster execution)
+        elif not args.no_trading_sheet and not args.gtt:
             print("📊 Generating basic trading sheet...")
             excel_path = reporter.generate_excel_report(include_trading_sheet=True)
             if excel_path:
                 print(f"📊 Portfolio analysis with trading sheet saved to: {excel_path}")
+        elif args.gtt:
+            print("📊 Skipping trading sheet generation for faster GTT processing...")
+            # Generate basic Excel report for GTT integration
+            excel_path = reporter.generate_excel_report(include_trading_sheet=False)
+        else:
+            # Default case - initialize excel_path to None
+            excel_path = None
+        
+        # Step 6.5: Generate GTT Orders if requested
+        if args.gtt:
+            try:
+                print("\n🎯 GENERATING GTT ORDERS")
+                print("="*50)
+                
+                # Initialize GTT generator
+                gtt_config = GTTConfig()
+                
+                # Get the main enhanced data from Complete Data sheet
+                enhanced_data = analyzer.enhanced_report_df.get('Complete Data')
+                if enhanced_data is None:
+                    # Try alternative sheet names
+                    for sheet_name in analyzer.enhanced_report_df.keys():
+                        if 'complete' in sheet_name.lower() or 'data' in sheet_name.lower():
+                            enhanced_data = analyzer.enhanced_report_df[sheet_name]
+                            break
+                    
+                    if enhanced_data is None:
+                        # Use the first available sheet
+                        enhanced_data = next(iter(analyzer.enhanced_report_df.values()))
+                
+                # Get all trading recommendations for GTT
+                buy_analysis = insights.analyze_buy_recommendations()
+                buy_recommendations = buy_analysis.get('top_buy_recommendations', [])
+                
+                # Get consolidation sells
+                consolidation_sells = []
+                if hasattr(reporter, 'consolidation_data') and reporter.consolidation_data:
+                    consolidation_sells = reporter.consolidation_data.get('sell_recommendations', [])
+                
+                # Get capital rotation plan
+                capital_rotation = []
+                if hasattr(reporter, 'consolidation_data') and reporter.consolidation_data:
+                    rotation_data = reporter.consolidation_data.get('capital_rotation', {})
+                    allocation_plan = rotation_data.get('allocation_plan', [])
+                    
+                    # Convert allocation plan to GTT-friendly format
+                    for allocation in allocation_plan:
+                        capital_rotation.append({
+                            'action': 'strengthen_position',
+                            'symbol': allocation.get('symbol'),
+                            'amount': allocation.get('allocation_amount', 0),
+                            'percentage': allocation.get('allocation_percentage', 0),
+                            'rationale': allocation.get('rationale', 'Capital rotation strengthening')
+                        })
+                
+                # Get profit booking recommendations
+                profit_booking = []
+                enhanced_sells = insights.get_enhanced_sell_recommendations()
+                profit_booking = enhanced_sells.get('profit_booking', [])
+                
+                gtt_generator = GTTOrderGenerator(
+                    holdings_data=analyzer.holdings_df,
+                    enhanced_report_data=enhanced_data,
+                    config=gtt_config,
+                    buy_recommendations=buy_recommendations,
+                    consolidation_sells=consolidation_sells,
+                    capital_rotation=capital_rotation,
+                    profit_booking=profit_booking
+                )
+                
+                # Generate GTT orders
+                gtt_orders = gtt_generator.generate_gtt_orders()
+                
+                if not gtt_orders.empty:
+                    # Show preview
+                    gtt_generator.print_orders_preview()
+                    
+                    # Always add GTT to main portfolio Excel report
+                    if excel_path:
+                        try:
+                            # Add GTT sheet to existing portfolio Excel
+                            with pd.ExcelWriter(excel_path, mode='a', engine='openpyxl') as writer:
+                                gtt_orders[['type', 'status', 'tradingsymbol', 'exchange', 
+                                           'trigger_values', 'transaction_type', 'quantity', 'last_price']].to_excel(
+                                    writer, sheet_name='GTT_Orders', index=False)
+                            print(f"📊 GTT Orders added to portfolio report: {excel_path}")
+                        except Exception as e:
+                            print(f"⚠️ Could not add GTT sheet to main report: {e}")
+                            # Fallback: Export to separate file
+                            gtt_excel_path = gtt_generator.export_to_excel()
+                    else:
+                        # No main Excel file, create dedicated GTT file
+                        print("📊 No main Excel file found, creating dedicated GTT report...")
+                        excel_path = reporter.generate_excel_report(include_trading_sheet=False)
+                        if excel_path:
+                            # Add GTT sheet to new Excel file
+                            with pd.ExcelWriter(excel_path, mode='a', engine='openpyxl') as writer:
+                                gtt_orders[['type', 'status', 'tradingsymbol', 'exchange', 
+                                           'trigger_values', 'transaction_type', 'quantity', 'last_price']].to_excel(
+                                    writer, sheet_name='GTT_Orders', index=False)
+                            print(f"📊 Portfolio report with GTT orders saved to: {excel_path}")
+                    
+                    # Summary
+                    summary = gtt_generator.get_orders_summary()
+                    print(f"\n✅ GTT Orders Generated Successfully!")
+                    print(f"   ├─ Total Orders: {summary['total_orders']}")
+                    print(f"   ├─ Buy Orders: {summary['buy_orders']}")
+                    print(f"   ├─ Sell Orders: {summary['sell_orders']}")
+                    print(f"   └─ Unique Stocks: {summary['unique_stocks']}")
+                else:
+                    print("⚠️ No GTT orders could be generated")
+                    
+            except Exception as e:
+                print(f"❌ Error generating GTT orders: {e}")
+                import traceback
+                print(f"📋 GTT Error details: {traceback.format_exc()}")
         
         # Step 7: Summary of Actions
         print("\n" + "="*60)

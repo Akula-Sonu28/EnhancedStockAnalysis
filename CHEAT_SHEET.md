@@ -12,11 +12,14 @@ python main.py --interactive      # Interactive mode
 ```
 python portfolio_analysis.py                    # Full portfolio analysis
 python portfolio_analysis.py --excel            # Generate Excel report
+python portfolio_analysis.py --gtt              # Generate GTT orders (fast mode)
+python portfolio_analysis.py --excel --gtt      # Excel report + GTT orders
+python portfolio_analysis.py --fast --gtt       # Super fast GTT generation
+python portfolio_analysis.py --no-trading-sheet # Skip trading sheet for speed
 python portfolio_analysis.py --execute-sells    # Execute sell recommendations
 python portfolio_analysis.py --execute-buys     # Execute top 5 buy recommendations
 python portfolio_analysis.py --execute-all-buys # Execute all buy recommendations
-python portfolio_analysis.py --funds 50000      # Set available funds
-python portfolio_analysis.py --funds 114130 --excel 
+python portfolio_analysis.py --funds 114130 --excel --gtt  # Complete analysis with dynamic GTT orders
 ```
 
 ### 3. Stock Analysis
