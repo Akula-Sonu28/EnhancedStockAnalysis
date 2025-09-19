@@ -11,10 +11,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 class PortfolioConsolidation:
-    def __init__(self, analyzer):
+    def __init__(self, analyzer, target_min_stocks=25, target_max_stocks=30):
         self.analyzer = analyzer
-        self.target_min_stocks = 25
-        self.target_max_stocks = 30
+        self.target_min_stocks = target_min_stocks
+        self.target_max_stocks = target_max_stocks
         
     def analyze_consolidation_opportunities(self) -> Dict:
         """

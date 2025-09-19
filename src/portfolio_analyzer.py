@@ -78,13 +78,16 @@ class PortfolioAnalyzer:
             
     def load_portfolio(self, file_path):
         """
-        Load portfolio data from a CSV file
+        Load portfolio data from a CSV file and merge with orders if available
         
         Supports standard format:
         Symbol,Company Name,Quantity,Buy Price,Current Price,Date Purchased
         
         Also supports Zerodha Holdings export format:
         Instrument,Qty.,Avg. cost,LTP,Invested,Cur. val,P&L,Net chg.,Day chg.
+        
+        Additionally checks for orders files in the same directory and merges them:
+        - orders.csv or orders (X).csv files containing recent transactions
         """
         try:
             logging.info(f"Loading portfolio from: {file_path}")
@@ -159,13 +162,206 @@ class PortfolioAnalyzer:
                 
             # Remove any rows with zero quantity
             self.portfolio_data = self.portfolio_data[self.portfolio_data['Quantity'] > 0].reset_index(drop=True)
+            
+            # Check for and merge orders files
+            self._merge_orders_with_holdings(file_path)
                 
-            logging.info(f"Loaded portfolio with {len(self.portfolio_data)} positions")
+            logging.info(f"Final portfolio loaded with {len(self.portfolio_data)} positions")
             return True
             
         except Exception as e:
             logging.error(f"Error loading portfolio: {e}")
             return False
+
+    def _merge_orders_with_holdings(self, holdings_file_path):
+        """
+        Check for orders files in the same directory as holdings and merge them
+        """
+        try:
+            import glob
+            
+            # Get the directory of the holdings file
+            holdings_dir = os.path.dirname(holdings_file_path) if os.path.dirname(holdings_file_path) else "."
+            
+            # Look for orders files (orders.csv or orders (X).csv)
+            orders_patterns = [
+                os.path.join(holdings_dir, "orders.csv"),
+                os.path.join(holdings_dir, "orders (*.csv"),
+                os.path.join(holdings_dir, "orders*.csv")
+            ]
+            
+            orders_files = []
+            for pattern in orders_patterns:
+                orders_files.extend(glob.glob(pattern))
+            
+            if not orders_files:
+                logging.info("No orders files found to merge")
+                return
+            
+            # Use the most recent orders file
+            latest_orders_file = max(orders_files, key=os.path.getmtime)
+            logging.info(f"Found orders file: {latest_orders_file}")
+            
+            # Load and process orders
+            orders_df = pd.read_csv(latest_orders_file)
+            
+            # Check if it's Zerodha orders format
+            if 'Instrument' in orders_df.columns and 'Type' in orders_df.columns:
+                processed_orders = self._process_zerodha_orders(orders_df)
+                
+                if not processed_orders.empty:
+                    # Merge orders with existing holdings
+                    original_count = len(self.portfolio_data)
+                    self.portfolio_data = self._merge_orders_into_portfolio(processed_orders)
+                    
+                    new_count = len(self.portfolio_data)
+                    logging.info(f"Merged {len(processed_orders)} orders. Portfolio updated: {original_count} → {new_count} positions")
+                    print(f"✅ Merged orders from {os.path.basename(latest_orders_file)}")
+                    print(f"   📊 Portfolio positions updated: {original_count} → {new_count}")
+                else:
+                    logging.info("No valid completed orders found to merge")
+            else:
+                logging.warning(f"Unknown orders file format in {latest_orders_file}")
+                
+        except Exception as e:
+            logging.error(f"Error merging orders with holdings: {e}")
+            print(f"⚠️ Could not merge orders: {e}")
+
+    def _process_zerodha_orders(self, orders_df):
+        """
+        Process Zerodha orders file to extract completed transactions
+        """
+        try:
+            # Filter for completed orders only
+            completed_orders = orders_df[orders_df['Status'] == 'COMPLETE'].copy()
+            
+            if completed_orders.empty:
+                return pd.DataFrame()
+            
+            # Extract quantity (handle "28/28" format)
+            completed_orders['Executed_Qty'] = completed_orders['Qty.'].apply(
+                lambda x: float(str(x).split('/')[0]) if '/' in str(x) else float(x)
+            )
+            
+            # Group by instrument and transaction type, sum quantities
+            order_summary = completed_orders.groupby(['Instrument', 'Type']).agg({
+                'Executed_Qty': 'sum',
+                'Avg. price': 'mean'  # Average price across multiple orders
+            }).reset_index()
+            
+            # Calculate net position changes
+            net_changes = []
+            for instrument in order_summary['Instrument'].unique():
+                instrument_orders = order_summary[order_summary['Instrument'] == instrument]
+                
+                buy_qty = instrument_orders[instrument_orders['Type'] == 'BUY']['Executed_Qty'].sum()
+                sell_qty = instrument_orders[instrument_orders['Type'] == 'SELL']['Executed_Qty'].sum()
+                net_qty_change = buy_qty - sell_qty
+                
+                if net_qty_change != 0:
+                    # Determine the effective transaction
+                    if net_qty_change > 0:
+                        # Net buying
+                        avg_price = instrument_orders[instrument_orders['Type'] == 'BUY']['Avg. price'].mean()
+                        transaction_type = 'BUY'
+                        quantity = net_qty_change
+                    else:
+                        # Net selling
+                        avg_price = instrument_orders[instrument_orders['Type'] == 'SELL']['Avg. price'].mean()
+                        transaction_type = 'SELL'
+                        quantity = abs(net_qty_change)
+                    
+                    net_changes.append({
+                        'Symbol': instrument,
+                        'Transaction_Type': transaction_type,
+                        'Quantity': quantity,
+                        'Price': avg_price
+                    })
+            
+            return pd.DataFrame(net_changes)
+            
+        except Exception as e:
+            logging.error(f"Error processing Zerodha orders: {e}")
+            return pd.DataFrame()
+
+    def _merge_orders_into_portfolio(self, orders_df):
+        """
+        Merge processed orders into the existing portfolio
+        """
+        try:
+            updated_portfolio = self.portfolio_data.copy()
+            
+            for _, order in orders_df.iterrows():
+                symbol = order['Symbol']
+                transaction_type = order['Transaction_Type']
+                quantity = order['Quantity']
+                price = order['Price']
+                
+                # Check if symbol exists in portfolio
+                existing_position = updated_portfolio[updated_portfolio['Symbol'] == symbol]
+                
+                if not existing_position.empty:
+                    # Update existing position
+                    idx = existing_position.index[0]
+                    current_qty = updated_portfolio.loc[idx, 'Quantity']
+                    current_avg_price = updated_portfolio.loc[idx, 'Buy Price']
+                    
+                    if transaction_type == 'BUY':
+                        # Add to position
+                        new_qty = current_qty + quantity
+                        new_avg_price = ((current_qty * current_avg_price) + (quantity * price)) / new_qty
+                        
+                        updated_portfolio.loc[idx, 'Quantity'] = new_qty
+                        updated_portfolio.loc[idx, 'Buy Price'] = new_avg_price
+                        updated_portfolio.loc[idx, 'Invested'] = new_qty * new_avg_price
+                        
+                        logging.info(f"Updated {symbol}: +{quantity} shares @ ₹{price:.2f} (New qty: {new_qty}, Avg: ₹{new_avg_price:.2f})")
+                        
+                    elif transaction_type == 'SELL':
+                        # Reduce position
+                        new_qty = max(0, current_qty - quantity)
+                        
+                        if new_qty > 0:
+                            # Partial sell - keep same average price
+                            updated_portfolio.loc[idx, 'Quantity'] = new_qty
+                            updated_portfolio.loc[idx, 'Invested'] = new_qty * current_avg_price
+                            logging.info(f"Reduced {symbol}: -{quantity} shares (New qty: {new_qty})")
+                        else:
+                            # Complete sell - remove from portfolio
+                            updated_portfolio = updated_portfolio.drop(idx)
+                            logging.info(f"Removed {symbol}: Completely sold out")
+                            
+                else:
+                    # New position from orders
+                    if transaction_type == 'BUY':
+                        new_position = {
+                            'Symbol': symbol,
+                            'Company Name': symbol,  # Will be updated later
+                            'Quantity': quantity,
+                            'Buy Price': price,
+                            'Invested': quantity * price,
+                            'Date Purchased': None
+                        }
+                        
+                        # Add other columns if they exist in the original portfolio
+                        for col in updated_portfolio.columns:
+                            if col not in new_position:
+                                new_position[col] = None
+                        
+                        # Convert to DataFrame and append
+                        new_row = pd.DataFrame([new_position])
+                        updated_portfolio = pd.concat([updated_portfolio, new_row], ignore_index=True)
+                        
+                        logging.info(f"Added new position {symbol}: {quantity} shares @ ₹{price:.2f}")
+            
+            # Remove any zero quantity positions
+            updated_portfolio = updated_portfolio[updated_portfolio['Quantity'] > 0].reset_index(drop=True)
+            
+            return updated_portfolio
+            
+        except Exception as e:
+            logging.error(f"Error merging orders into portfolio: {e}")
+            return self.portfolio_data
             
     def create_portfolio_template(self, output_path="portfolio_template.csv"):
         """

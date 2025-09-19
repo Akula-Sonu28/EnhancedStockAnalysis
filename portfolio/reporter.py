@@ -22,6 +22,8 @@ except ImportError:
     YFINANCE_AVAILABLE = False
     logging.warning("yfinance not available. Trading sheet will have limited functionality.")
 
+from .allocation_analyzer import PortfolioAllocationAnalyzer
+
 class PortfolioReporter:
     """Comprehensive Portfolio Report Generator"""
     
@@ -813,6 +815,39 @@ Expected Impact:
                 # Holdings Summary
                 holdings_summary = self.analyzer.holdings_df.copy()
                 holdings_summary.to_excel(writer, sheet_name='Holdings_Summary', index=False)
+                
+                # INTELLIGENT PORTFOLIO ALLOCATION SHEET - NEW ENHANCEMENT
+                try:
+                    self.logger.info("Generating intelligent portfolio allocation analysis...")
+                    allocation_analyzer = PortfolioAllocationAnalyzer(self.analyzer, self.analyzer.available_funds)
+                    
+                    # Generate fund allocation plan
+                    allocation_plan_data = allocation_analyzer.generate_fund_allocation_plan()
+                    if allocation_plan_data and not allocation_plan_data.get('allocation_plan', pd.DataFrame()).empty:
+                        # 1. Fund Allocation Plan Sheet
+                        allocation_plan_df = allocation_plan_data['allocation_plan']
+                        allocation_plan_df.to_excel(writer, sheet_name='Fund_Allocation_Plan', index=False)
+                        self.logger.info(f"Added fund allocation plan with {len(allocation_plan_df)} recommendations")
+                        
+                        # 2. Sector Analysis Sheet
+                        sector_analysis_df = allocation_plan_data['sector_analysis']
+                        sector_analysis_df.to_excel(writer, sheet_name='Sector_Allocation_Analysis', index=False)
+                        self.logger.info(f"Added sector allocation analysis for {len(sector_analysis_df)} sectors")
+                        
+                        # 3. Allocation Summary Sheet
+                        allocation_summary = allocation_plan_data['allocation_summary']
+                        summary_df = pd.DataFrame([allocation_summary])
+                        summary_df.to_excel(writer, sheet_name='Allocation_Summary', index=False)
+                        self.logger.info("Added allocation summary")
+                    
+                    # 4. Position Sizing Analysis
+                    position_sizing_df = allocation_analyzer.analyze_position_sizing()
+                    if not position_sizing_df.empty:
+                        position_sizing_df.to_excel(writer, sheet_name='Position_Sizing_Analysis', index=False)
+                        self.logger.info(f"Added position sizing analysis for {len(position_sizing_df)} positions")
+                    
+                except Exception as e:
+                    self.logger.warning(f"Could not generate intelligent allocation analysis: {str(e)}")
                 
                 # Comprehensive Trading Sheet - ADD THIS AS THE MAIN FEATURE
                 if include_trading_sheet:

@@ -65,6 +65,10 @@ def main():
                        help='Generate GTT (Good Till Triggered) orders for all holdings')
     parser.add_argument('--fast', action='store_true',
                        help='Fast execution mode - skip trading sheet and detailed calculations')
+    parser.add_argument('--target-min', type=int, default=25,
+                       help='Minimum target number of stocks for portfolio consolidation (default: 25)')
+    parser.add_argument('--target-max', type=int, default=30,
+                       help='Maximum target number of stocks for portfolio consolidation (default: 30)')
     
     args = parser.parse_args()
     
@@ -84,8 +88,10 @@ def main():
         print("📊 Initializing Portfolio Analyzer...")
         analyzer = PortfolioAnalyzer(available_funds=args.funds)
         
-        # Initialize consolidation engine
-        analyzer.consolidation_engine = PortfolioConsolidation(analyzer)
+        # Initialize consolidation engine with target range parameters
+        analyzer.consolidation_engine = PortfolioConsolidation(analyzer, 
+                                                              target_min_stocks=args.target_min,
+                                                              target_max_stocks=args.target_max)
         
         # Step 2: Load Portfolio Data
         print("📁 Loading portfolio data...")
@@ -161,7 +167,7 @@ def main():
             print(f"💰 Potential proceeds from sales: ₹{total_proceeds:,.0f}")
         
         # Portfolio Consolidation Analysis
-        print("📊 Analyzing portfolio consolidation (target: 25-30 stocks)...")
+        print(f"📊 Analyzing portfolio consolidation (target: {args.target_min}-{args.target_max} stocks)...")
         consolidation_analysis = analyzer.consolidation_engine.analyze_consolidation_opportunities()
         
         if consolidation_analysis.get('action_needed', False):

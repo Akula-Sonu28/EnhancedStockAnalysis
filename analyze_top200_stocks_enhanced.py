@@ -871,136 +871,243 @@ class EnhancedTop200StockAnalyzer:
         except:
             return 1.0
     
-    def generate_portfolio_allocation_suggestions(self, results_df, target_amount=100000):
+    def _load_current_holdings(self):
+        """Load current portfolio holdings from portfolio.csv or holdings file"""
+        try:
+            import glob
+            
+            # First priority: Check for recent merged portfolio files (most accurate)
+            merged_files = glob.glob('reports/merged_portfolio_*.xlsx')
+            if merged_files:
+                # Get the most recent merged file
+                latest_merged = max(merged_files, key=os.path.getmtime)
+                try:
+                    holdings_df = pd.read_excel(latest_merged)
+                    print(f"   📁 Loaded holdings from: {latest_merged} (merged portfolio)")
+                    
+                    # Filter out zero quantity stocks if any
+                    if 'Qty.' in holdings_df.columns:
+                        initial_count = len(holdings_df)
+                        holdings_df = holdings_df[holdings_df['Qty.'] > 0]
+                        if len(holdings_df) < initial_count:
+                            print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
+                    
+                    return holdings_df
+                except Exception as e:
+                    print(f"   ⚠️  Could not read merged file {latest_merged}: {e}")
+            
+            # Fallback: Try multiple possible locations and names for holdings file
+            possible_paths = [
+                'portfolio.csv',
+                'holdings.csv',
+                'Holding/holdings*.csv',
+                'Holding/portfolio*.csv'
+            ]
+            
+            for pattern in possible_paths:
+                files = glob.glob(pattern)
+                if files:
+                    # Get the most recent file
+                    latest_file = max(files, key=os.path.getmtime)
+                    holdings_df = pd.read_csv(latest_file)
+                    print(f"   📁 Loaded holdings from: {latest_file}")
+                    
+                    # Standardize column names
+                    if 'Current Value' in holdings_df.columns and 'Cur. val' not in holdings_df.columns:
+                        holdings_df['Cur. val'] = holdings_df['Current Value']
+                    
+                    # Filter out zero quantity stocks
+                    if 'Qty.' in holdings_df.columns:
+                        initial_count = len(holdings_df)
+                        holdings_df = holdings_df[holdings_df['Qty.'] > 0]
+                        if len(holdings_df) < initial_count:
+                            print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
+                    
+                    return holdings_df
+            
+            print("   ⚠️  No holdings file found - using allocation without current portfolio")
+            return None
+            
+        except Exception as e:
+            print(f"   ⚠️  Could not load holdings: {str(e)}")
+            return None
+    
+    def generate_portfolio_allocation_suggestions(self, results_df, target_amount=100000, max_stocks=35):
         """
-        ENHANCEMENT 4: Portfolio Allocation Suggestions
-        Generate optimized portfolio allocation based on risk-return analysis
+        ENHANCEMENT 4: Complete Portfolio Allocation
+        Shows complete target portfolio including current holdings + new recommendations
+        Distributes funds across entire portfolio (existing + new) up to max_stocks limit
         """
         try:
-            # Filter for investment-worthy stocks
-            investment_candidates = results_df[
-                (results_df['final_recommendation'].str.contains('BUY', na=False)) &
-                (results_df['overall_score_with_value'] >= 60) &
-                (results_df['risk_category'].isin(['LOW', 'MODERATE'])) &
-                (results_df['undervaluation_score'] >= 55)
-            ].copy()
+            # Load current holdings
+            current_holdings = self._load_current_holdings()
+            current_portfolio_value = 0
+            current_sectors = {}
             
-            if len(investment_candidates) == 0:
-                logging.warning("No suitable investment candidates found")
-                return None
+            if current_holdings is not None and not current_holdings.empty:
+                current_portfolio_value = current_holdings['Cur. val'].sum()
+                if 'Sector' in current_holdings.columns:
+                    sector_values = current_holdings.groupby('Sector')['Cur. val'].sum()
+                    current_sectors = {sector: value/current_portfolio_value for sector, value in sector_values.items()}
+                
+                print(f"   📊 Current Portfolio: ₹{current_portfolio_value:,.0f} across {len(current_holdings)} stocks")
+                print(f"   💰 Available Funds: ₹{target_amount:,.0f}")
+                print(f"   🎯 Total Target Portfolio: ₹{current_portfolio_value + target_amount:,.0f}")
+                print(f"   📈 Max Portfolio Size: {max_stocks} stocks")
             
-            # Sort by risk-adjusted score
-            investment_candidates = investment_candidates.sort_values('risk_adjusted_score', ascending=False)
-            
-            # Portfolio construction rules
-            max_positions = min(15, len(investment_candidates))  # Maximum 15 positions
-            top_candidates = investment_candidates.head(max_positions)
-            
-            # Calculate allocation weights based on multiple factors
             allocation_data = []
             
-            for idx, stock in top_candidates.iterrows():
-                # Base weight from risk-adjusted score
-                base_weight = stock['risk_adjusted_score'] / 100
-                
-                # Sector diversification adjustment
-                sector = stock.get('sector', 'Unknown')
-                sector_count = len(top_candidates[top_candidates['sector'] == sector])
-                sector_adjustment = 1.0 if sector_count <= 2 else 0.8  # Reduce weight if too many from same sector
-                
-                # Risk adjustment
-                risk_cat = stock.get('risk_category', 'UNKNOWN')
-                # If risk category is still unknown, calculate it based on volatility and profile
-                if risk_cat in ['UNKNOWN', None, '']:
-                    volatility = stock.get('volatility_6m', 0)
-                    if volatility > 0:
-                        # Apply same logic as risk calculation
-                        if self.risk_profile == "conservative":
-                            if volatility <= 10:
-                                risk_cat = "LOW"
-                            elif volatility <= 18:
-                                risk_cat = "MODERATE"
-                            elif volatility <= 28:
-                                risk_cat = "HIGH"
-                            else:
-                                risk_cat = "VERY HIGH"
-                        elif self.risk_profile == "aggressive":
-                            if volatility <= 20:
-                                risk_cat = "LOW"
-                            elif volatility <= 35:
-                                risk_cat = "MODERATE"
-                            elif volatility <= 50:
-                                risk_cat = "HIGH"
-                            else:
-                                risk_cat = "VERY HIGH"
-                        else:  # moderate
-                            if volatility <= 15:
-                                risk_cat = "LOW"
-                            elif volatility <= 25:
-                                risk_cat = "MODERATE"
-                            elif volatility <= 35:
-                                risk_cat = "HIGH"
-                            else:
-                                risk_cat = "VERY HIGH"
-                    else:
-                        # Default based on risk profile when no volatility data
-                        if self.risk_profile == "conservative":
-                            risk_cat = "LOW"
-                        elif self.risk_profile == "aggressive":
-                            risk_cat = "HIGH"
+            # STEP 1: Add current holdings to allocation
+            if current_holdings is not None and not current_holdings.empty:
+                for idx, holding in current_holdings.iterrows():
+                    symbol = holding['Instrument'].upper()
+                    
+                    # Find this stock in analysis results
+                    stock_analysis = results_df[results_df['symbol'].str.upper() == symbol]
+                    
+                    if not stock_analysis.empty:
+                        stock_data = stock_analysis.iloc[0]
+                        recommendation = stock_data.get('final_recommendation', 'HOLD')
+                        
+                        # Determine action based on recommendation
+                        if 'SELL' in recommendation:
+                            action_type = "CONSIDER SELLING"
+                            priority = "HIGH"
+                        elif 'BUY' in recommendation:
+                            action_type = "INCREASE POSITION"
+                            priority = "MEDIUM"
                         else:
-                            risk_cat = "MODERATE"
-                if risk_cat == 'LOW':
-                    risk_adjustment = 1.2
-                elif risk_cat == 'MODERATE':
-                    risk_adjustment = 1.0
-                else:
-                    risk_adjustment = 0.8
-                
-                # Undervaluation bonus
-                underval_score = stock.get('undervaluation_score', 50)
-                underval_bonus = 1.0 + (max(0, underval_score - 60) / 100)
-                
-                # Final weight calculation
-                final_weight = base_weight * sector_adjustment * risk_adjustment * underval_bonus
-                
-                allocation_data.append({
-                    'symbol': stock['symbol'],
-                    'company_name': stock.get('company_name', stock['symbol']),
-                    'sector': sector,
-                    'overall_score': stock['overall_score_with_value'],
-                    'risk_adjusted_score': stock['risk_adjusted_score'],
-                    'undervaluation_score': stock['undervaluation_score'],
-                    'risk_category': risk_cat,  # Now properly calculated above
-                    'raw_weight': final_weight,
-                    'current_price': stock.get('current_price', 0),
-                    'recommendation': stock.get('final_recommendation', ''),
-                    'volatility_6m': stock.get('volatility_6m', 0)  # Include volatility for reference
-                })
+                            action_type = "HOLD CURRENT"
+                            priority = "LOW"
+                        
+                        allocation_data.append({
+                            'symbol': symbol,
+                            'company_name': stock_data.get('company_name', symbol),
+                            'sector': stock_data.get('sector', 'Unknown'),
+                            'current_value': holding['Cur. val'],
+                            'current_quantity': holding.get('Qty.', 0),
+                            'current_price': stock_data.get('current_price', holding.get('LTP', 0)),
+                            'overall_score': stock_data.get('overall_score_with_value', 0),
+                            'risk_adjusted_score': stock_data.get('risk_adjusted_score', 0),
+                            'undervaluation_score': stock_data.get('undervaluation_score', 50),
+                            'risk_category': stock_data.get('risk_category', 'MODERATE'),
+                            'recommendation': recommendation,
+                            'action_type': action_type,
+                            'priority': priority,
+                            'is_current_holding': True,
+                            'volatility_6m': stock_data.get('volatility_6m', 0)
+                        })
+                    else:
+                        # Holdings not in analysis - default to HOLD
+                        allocation_data.append({
+                            'symbol': symbol,
+                            'company_name': symbol,  # Use symbol as company name fallback
+                            'sector': 'Unknown',  # No analysis data available
+                            'current_value': holding['Cur. val'],
+                            'current_quantity': holding.get('Qty.', 0),  # Fixed column name
+                            'current_price': holding.get('LTP', 0),
+                            'overall_score': 0,
+                            'risk_adjusted_score': 0,
+                            'undervaluation_score': 0,
+                            'risk_category': 'UNKNOWN',
+                            'recommendation': 'HOLD (NOT ANALYZED)',
+                            'action_type': "HOLD CURRENT",
+                            'priority': 'LOW',
+                            'is_current_holding': True,
+                            'volatility_6m': 0
+                        })
             
-            # Normalize weights to sum to 100%
+            # STEP 2: Find new investment candidates (not currently held)
+            holding_symbols = set()
+            if current_holdings is not None and not current_holdings.empty:
+                holding_symbols = set(current_holdings['Instrument'].str.upper())
+            
+            # Get BUY candidates not currently held
+            new_candidates = results_df[
+                (results_df['final_recommendation'].str.contains('BUY', na=False)) &
+                (~results_df['symbol'].str.upper().isin(holding_symbols)) &
+                (results_df['overall_score_with_value'] >= 55) &
+                (results_df['undervaluation_score'] >= 40)
+            ].copy()
+            
+            # Sort by risk-adjusted score and limit to remaining slots
+            current_holdings_count = len(allocation_data)
+            remaining_slots = max_stocks - current_holdings_count
+            
+            if remaining_slots > 0 and not new_candidates.empty:
+                new_candidates = new_candidates.sort_values('risk_adjusted_score', ascending=False).head(remaining_slots)
+                
+                for idx, stock in new_candidates.iterrows():
+                    allocation_data.append({
+                        'symbol': stock['symbol'],
+                        'company_name': stock.get('company_name', stock['symbol']),
+                        'sector': stock.get('sector', 'Unknown'),
+                        'current_value': 0,
+                        'current_quantity': 0,
+                        'current_price': stock.get('current_price', 0),
+                        'overall_score': stock['overall_score_with_value'],
+                        'risk_adjusted_score': stock['risk_adjusted_score'],
+                        'undervaluation_score': stock['undervaluation_score'],
+                        'risk_category': stock.get('risk_category', 'MODERATE'),
+                        'recommendation': stock.get('final_recommendation', ''),
+                        'action_type': "NEW POSITION",
+                        'priority': 'HIGH',
+                        'is_current_holding': False,
+                        'volatility_6m': stock.get('volatility_6m', 0)
+                    })
+            
+            # STEP 3: Calculate fund allocation for new positions only
             allocation_df = pd.DataFrame(allocation_data)
-            total_weight = allocation_df['raw_weight'].sum()
-            allocation_df['allocation_percentage'] = (allocation_df['raw_weight'] / total_weight * 100).round(2)
             
-            # Calculate investment amounts
-            allocation_df['investment_amount'] = (allocation_df['allocation_percentage'] / 100 * target_amount).round(0)
-            allocation_df['suggested_quantity'] = (
-                allocation_df['investment_amount'] / allocation_df['current_price']
-            ).round(0)
+            # Initialize allocation columns for all rows
+            allocation_df['allocation_percentage'] = 0.0
+            allocation_df['investment_amount'] = 0.0
+            allocation_df['suggested_quantity'] = 0.0
             
-            # Sort by allocation percentage
-            allocation_df = allocation_df.sort_values('allocation_percentage', ascending=False)
+            new_positions = allocation_df[allocation_df['action_type'] == 'NEW POSITION'].copy()
             
-            # Portfolio summary statistics
+            if not new_positions.empty and target_amount > 0:
+                # Calculate weights based on scores for new positions
+                new_positions['raw_weight'] = new_positions['risk_adjusted_score'] / 100
+                total_weight = new_positions['raw_weight'].sum()
+                
+                if total_weight > 0:
+                    new_positions['allocation_percentage'] = (new_positions['raw_weight'] / total_weight * 100).round(2)
+                    new_positions['investment_amount'] = (new_positions['allocation_percentage'] / 100 * target_amount).round(0)
+                    new_positions['suggested_quantity'] = (
+                        new_positions['investment_amount'] / new_positions['current_price'].replace(0, 1)
+                    ).round(0)
+                    
+                    # Update the main dataframe with allocation info
+                    for idx, row in new_positions.iterrows():
+                        symbol = row['symbol']
+                        mask = allocation_df['symbol'] == symbol
+                        allocation_df.loc[mask, 'allocation_percentage'] = row['allocation_percentage']
+                        allocation_df.loc[mask, 'investment_amount'] = row['investment_amount']
+                        allocation_df.loc[mask, 'suggested_quantity'] = row['suggested_quantity']
+            
+            # Sort by priority and score
+            allocation_df['priority_rank'] = allocation_df['priority'].map({'HIGH': 1, 'MEDIUM': 2, 'LOW': 3})
+            allocation_df = allocation_df.sort_values(['priority_rank', 'risk_adjusted_score'], ascending=[True, False])
+            allocation_df = allocation_df.drop('priority_rank', axis=1)
+            
+            # Enhanced portfolio summary statistics
             portfolio_summary = {
                 'total_stocks': len(allocation_df),
-                'target_amount': target_amount,
-                'avg_score': allocation_df['overall_score'].mean(),
-                'avg_undervaluation': allocation_df['undervaluation_score'].mean(),
+                'current_holdings': len(allocation_df[allocation_df['is_current_holding'] == True]),
+                'new_positions': len(allocation_df[allocation_df['action_type'] == 'NEW POSITION']),
+                'positions_to_sell': len(allocation_df[allocation_df['action_type'] == 'CONSIDER SELLING']),
+                'positions_to_increase': len(allocation_df[allocation_df['action_type'] == 'INCREASE POSITION']),
+                'available_funds': target_amount,
+                'current_portfolio_value': current_portfolio_value,
+                'total_target_portfolio_value': current_portfolio_value + target_amount,
+                'avg_score': allocation_df[allocation_df['overall_score'] > 0]['overall_score'].mean() if len(allocation_df[allocation_df['overall_score'] > 0]) > 0 else 0,
+                'avg_undervaluation': allocation_df[allocation_df['undervaluation_score'] > 0]['undervaluation_score'].mean() if len(allocation_df[allocation_df['undervaluation_score'] > 0]) > 0 else 0,
                 'sector_count': allocation_df['sector'].nunique(),
-                'low_risk_percentage': len(allocation_df[allocation_df['risk_category'] == 'LOW']) / len(allocation_df) * 100,
-                'high_conviction_percentage': len(allocation_df[allocation_df['allocation_percentage'] >= 8]) / len(allocation_df) * 100
+                'high_priority_count': len(allocation_df[allocation_df['priority'] == 'HIGH']),
+                'funds_utilization': (allocation_df['investment_amount'].sum() / target_amount) * 100 if target_amount > 0 else 0,
+                'max_portfolio_size': max_stocks,
+                'portfolio_utilization': (len(allocation_df) / max_stocks) * 100
             }
             
             self.portfolio_allocation = {
@@ -1008,7 +1115,7 @@ class EnhancedTop200StockAnalyzer:
                 'summary': portfolio_summary
             }
             
-            logging.info(f"Generated portfolio allocation for {len(allocation_df)} stocks")
+            logging.info(f"Generated complete portfolio allocation: {len(allocation_df)} total stocks (Current: {portfolio_summary['current_holdings']}, New: {portfolio_summary['new_positions']})")
             return self.portfolio_allocation
             
         except Exception as e:
@@ -1328,7 +1435,17 @@ Trading Plan ({risk_tolerance} RISK):
             
             print("   3️⃣ Generating portfolio allocation...")
             target_amount = getattr(self, 'portfolio_amount', 100000)
-            portfolio_allocation = self.generate_portfolio_allocation_suggestions(df, target_amount)
+            
+            # Dynamic portfolio size based on current holdings + buffer
+            current_holdings = self._load_current_holdings()
+            if current_holdings is not None and not current_holdings.empty:
+                current_holdings_count = len(current_holdings)
+                max_stocks = max(current_holdings_count + 5, 35)  # Current + 5 buffer, minimum 35
+            else:
+                max_stocks = 35  # Default if no holdings
+                
+            print(f"   📊 Dynamic Max Portfolio Size: {max_stocks} stocks")
+            portfolio_allocation = self.generate_portfolio_allocation_suggestions(df, target_amount, max_stocks)
             
             # Sort by risk-adjusted score (new primary metric)
             df = df.sort_values('risk_adjusted_score', ascending=False, na_position='last')
@@ -1517,13 +1634,8 @@ Trading Plan ({risk_tolerance} RISK):
             
         except Exception as e:
             logging.error(f"Enhanced Excel generation error: {e}")
-            # Fallback to basic Excel generation
-            try:
-                excel_generator = ExcelReportGenerator()
-                return excel_generator.generate_daily_report(df)
-            except:
-                print(f"   ⚠️ Fallback Excel generation also failed: {e}")
-                return None
+            print(f"❌ Enhanced Excel generation failed: {e}")
+            return None
     
     def generate_enhanced_summary_stats(self, df):
         """Enhanced summary statistics with new metrics"""
@@ -1574,10 +1686,15 @@ Trading Plan ({risk_tolerance} RISK):
         if hasattr(self, 'portfolio_allocation') and self.portfolio_allocation:
             alloc_summary = self.portfolio_allocation['summary']
             print(f"\n💼 PORTFOLIO ALLOCATION SUMMARY:")
-            print(f"   Recommended Stocks        : {alloc_summary['total_stocks']}")
+            print(f"   Total Portfolio Stocks    : {alloc_summary['total_stocks']}")
+            print(f"   Current Holdings          : {alloc_summary['current_holdings']}")
+            print(f"   New Positions             : {alloc_summary['new_positions']}")
+            print(f"   Current Portfolio Value   : ₹{alloc_summary['current_portfolio_value']:,.0f}")
+            print(f"   Available Funds           : ₹{alloc_summary['available_funds']:,.0f}")
             print(f"   Average Overall Score     : {alloc_summary['avg_score']:.1f}")
             print(f"   Sector Diversification    : {alloc_summary['sector_count']} sectors")
-            print(f"   Low Risk Allocation       : {alloc_summary['low_risk_percentage']:.1f}%")
+            print(f"   Portfolio Utilization     : {alloc_summary['portfolio_utilization']:.1f}%")
+            print(f"   Funds Utilization         : {alloc_summary['funds_utilization']:.1f}%")
     
     def generate_summary_stats(self, df):
         """Generate and display summary statistics"""
@@ -1797,6 +1914,82 @@ def generate_top_10_categories(results_df, analyzer=None):
     print(f"   • Strong fundamental + undervalued: {len(strong_undervalued) if 'strong_undervalued' in locals() else 0}")
     print("="*80)
 
+def merge_holdings_and_orders():
+    """
+    Auto-merge holdings and orders files if they exist
+    """
+    try:
+        # Check for holdings files
+        holdings_patterns = ['Holding/holdings*.csv', 'holding*.csv', 'Holdings*.csv']
+        holdings_file = None
+        
+        for pattern in holdings_patterns:
+            files = glob.glob(pattern)
+            if files:
+                holdings_file = max(files, key=os.path.getctime)  # Get latest file
+                break
+        
+        if not holdings_file:
+            print("ℹ️ No holdings file found - continuing without portfolio data")
+            return
+        
+        # Check for orders files  
+        orders_patterns = ['Holding/orders*.csv', 'order*.csv', 'Orders*.csv']
+        orders_file = None
+        
+        for pattern in orders_patterns:
+            files = glob.glob(pattern)
+            if files:
+                orders_file = max(files, key=os.path.getctime)  # Get latest file
+                break
+        
+        print(f"📁 Found holdings file: {holdings_file}")
+        if orders_file:
+            print(f"📁 Found orders file: {orders_file}")
+        else:
+            print("ℹ️ No orders file found - merging holdings only")
+        
+        # Import and run the merger
+        from merge_holdings_orders import HoldingsOrdersMerger
+        
+        merger = HoldingsOrdersMerger()
+        
+        # Load holdings data
+        if not merger.load_holdings_data(holdings_file):
+            print(f"❌ Failed to load holdings from {holdings_file}")
+            return
+        
+        # Load orders data if available
+        if orders_file:
+            merger.load_orders_data(orders_file)
+        
+        # Merge data
+        if merger.merge_data():
+            # Save merged data
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f'merged_portfolio_{timestamp}.xlsx'
+            
+            if merger.save_merged_data(output_file):
+                print(f"✅ Portfolio data merged and saved to: reports/{output_file}")
+                
+                # Print quick summary
+                total_invested = merger.merged_data['Invested'].sum()
+                current_value = merger.merged_data['Cur. val'].sum()
+                total_pnl = merger.merged_data['P&L'].sum()
+                
+                print(f"💼 Portfolio Summary: ₹{current_value:,.0f} current value, ₹{total_pnl:+,.0f} P&L ({(total_pnl/total_invested*100):+.1f}%)")
+            else:
+                print("❌ Failed to save merged portfolio data")
+        else:
+            print("❌ Failed to merge holdings and orders data")
+            
+    except ImportError:
+        print("⚠️ Holdings merger not available - continuing without portfolio integration")
+    except Exception as e:
+        print(f"⚠️ Error during holdings/orders merge: {e}")
+        print("Continuing with stock analysis...")
+
+
 def main():
     """Main execution function"""
     print("🎯 ENHANCED NSE STOCK ANALYSIS - COMPREHENSIVE ANALYSIS WITH AI INSIGHTS")
@@ -1827,6 +2020,9 @@ def main():
                         help='Minimum volatility threshold for high-risk investors (default: 0.0)')
     
     args = parser.parse_args()
+    
+    # Auto-merge holdings and orders files if they exist
+    merge_holdings_and_orders()
     
     # Handle export request
     if args.export:
@@ -1878,12 +2074,89 @@ def main():
         # Create a new list with just the requested symbol
         analyzer.stock_list = [args.symbol]
     elif args.num > 0:
-        # Limit the number of stocks (only if num > 0)
-        analyzer.stock_list = analyzer.stock_list[:args.num]
-        print(f"🔍 Limited to {args.num} stocks")
+        # ENHANCEMENT: Ensure all portfolio holdings are included in analysis
+        # Load current holdings to ensure they're analyzed
+        current_holdings = analyzer._load_current_holdings()
+        portfolio_symbols = []
+        if current_holdings is not None and not current_holdings.empty:
+            # Handle different possible column names for stock symbols
+            symbol_col = None
+            for col in ['Symbol', 'Instrument', 'Stock', 'symbol', 'instrument']:
+                if col in current_holdings.columns:
+                    symbol_col = col
+                    break
+            
+            if symbol_col:
+                portfolio_symbols = current_holdings[symbol_col].tolist()
+                logging.info(f"Found {len(portfolio_symbols)} current holdings to include in analysis")
+            else:
+                logging.warning("No recognizable symbol column found in holdings file")
+        
+        # Create final stock list: portfolio holdings + additional stocks up to limit
+        final_stock_list = []
+        
+        # Step 1: Add ALL current holdings (these MUST be analyzed regardless of template)
+        for symbol in portfolio_symbols:
+            if symbol not in final_stock_list:
+                final_stock_list.append(symbol)
+        
+        print(f"   📊 Added all {len(portfolio_symbols)} holdings to analysis (regardless of template)")
+        
+        # Step 2: Add other stocks from template up to the limit
+        remaining_slots = args.num - len(final_stock_list) if args.num > 0 else float('inf')
+        if remaining_slots > 0:
+            for symbol in analyzer.stock_list:
+                if symbol not in final_stock_list and (args.num == 0 or len(final_stock_list) < args.num):
+                    final_stock_list.append(symbol)
+        
+        analyzer.stock_list = final_stock_list
+        
+        if portfolio_symbols:
+            print(f"🔍 Analysis will include:")
+            print(f"   📊 Current Holdings: {len([s for s in portfolio_symbols if s in final_stock_list])}/{len(portfolio_symbols)}")
+            print(f"   🔍 Additional Stocks: {len(final_stock_list) - len([s for s in portfolio_symbols if s in final_stock_list])}")
+            print(f"   📈 Total to analyze: {len(final_stock_list)} stocks")
+        else:
+            print(f"🔍 Limited to {args.num} stocks (no portfolio holdings found)")
     else:
-        # args.num == 0 means analyze all stocks
-        print(f"🔍 Analyzing all {len(analyzer.stock_list)} stocks from CSV")
+        # args.num == 0 means analyze all stocks - BUT still prioritize holdings
+        # Load current holdings to ensure they're analyzed even with num=0
+        current_holdings = analyzer._load_current_holdings()
+        portfolio_symbols = []
+        if current_holdings is not None and not current_holdings.empty:
+            # Handle different possible column names for stock symbols
+            symbol_col = None
+            for col in ['Symbol', 'Instrument', 'Stock', 'symbol', 'instrument']:
+                if col in current_holdings.columns:
+                    symbol_col = col
+                    break
+            
+            if symbol_col:
+                portfolio_symbols = current_holdings[symbol_col].tolist()
+                logging.info(f"Found {len(portfolio_symbols)} current holdings to include in analysis")
+        
+        # Create final stock list: portfolio holdings + ALL template stocks
+        final_stock_list = []
+        
+        # Step 1: Add ALL current holdings (these MUST be analyzed)
+        for symbol in portfolio_symbols:
+            if symbol not in final_stock_list:
+                final_stock_list.append(symbol)
+        
+        # Step 2: Add ALL other stocks from template  
+        for symbol in analyzer.stock_list:
+            if symbol not in final_stock_list:
+                final_stock_list.append(symbol)
+        
+        analyzer.stock_list = final_stock_list
+        
+        if portfolio_symbols:
+            print(f"🔍 Analysis will include:")
+            print(f"   📊 Current Holdings: {len(portfolio_symbols)} stocks (ALL)")
+            print(f"   🔍 Additional Template Stocks: {len(final_stock_list) - len(portfolio_symbols)}")
+            print(f"   � Total to analyze: {len(final_stock_list)} stocks (Holdings + Full Template)")
+        else:
+            print(f"�🔍 Analyzing all {len(analyzer.stock_list)} stocks from CSV template")
         
     # Display info about CSV if used
     if hasattr(analyzer, '_csv_path') and analyzer._csv_path:
