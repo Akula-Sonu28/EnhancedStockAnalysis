@@ -20,6 +20,11 @@ python portfolio_analysis.py --execute-sells    # Execute sell recommendations
 python portfolio_analysis.py --execute-buys     # Execute top 5 buy recommendations
 python portfolio_analysis.py --execute-all-buys # Execute all buy recommendations
 python portfolio_analysis.py --funds 114130 --excel --gtt  # Complete analysis with dynamic GTT orders
+python portfolio_analysis.py --target-min 20 --target-max 25  # Custom consolidation target (20-25 stocks)
+python portfolio_analysis.py --target-min 30 --target-max 40  # Larger portfolio target (30-40 stocks)
+python portfolio_analysis.py --funds 114130 --target-min 15 --target-max 20 --excel  # Aggressive consolidation
+python portfolio_analysis.py --funds 88780 --target-min 30 --target-max 40 --excel
+
 ```
 
 ### 3. Stock Analysis
