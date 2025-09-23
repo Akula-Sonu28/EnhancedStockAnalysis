@@ -56,8 +56,9 @@ class ReportComparator:
             # Read all sheets
             excel_data = pd.read_excel(file_path, sheet_name=None, engine='openpyxl')
             
-            self.logger.info(f"Loaded report: {os.path.basename(file_path)}")
-            self.logger.info(f"Available sheets: {list(excel_data.keys())}")
+            # Use print instead of logger to avoid Unicode issues on Windows
+            print(f"📊 Loaded report: {os.path.basename(file_path)}")
+            print(f"📋 Available sheets: {len(excel_data.keys())} sheets found")
             
             return excel_data
             

@@ -49,8 +49,109 @@ class PortfolioAllocationAnalyzer:
         
         self.min_position_size = 5000    # Minimum ₹5,000 per position
         self.max_position_size = 50000   # Maximum ₹50,000 per position
-        self.max_single_stock_weight = 0.05  # Max 5% in single stock
+        self.max_single_stock_weight = 0.07  # Max 7% in single stock (Enhanced Rule)
         
+        # Defence stock allocation parameters (Enhanced Rule)
+        self.min_defence_allocation = 0.10  # Minimum 10% in defence stocks
+        self.max_defence_allocation = 0.15  # Maximum 15% in defence stocks
+        
+        # Defence sectors classification
+        self.defence_sectors = {
+            'Defense',
+            'Utilities', 
+            'Consumer Defensive',
+            'Consumer Staples',
+            'Healthcare',
+            'Real Estate Investment Trusts (REITs)',
+            'Telecommunications'
+        }
+        
+        # Defence stock keywords for identification
+        self.defence_keywords = {
+            'HAL', 'BEL', 'BEML', 'COCHINSHIP', 'GRSE', 'MDL', 'MIDHANI',  # Defense
+            'POWERGRID', 'NTPC', 'PGCIL', 'SJVN', 'NHPC', 'IRCON',  # Utilities/Infrastructure
+            'ITC', 'NESTLEIND', 'BRITANNIA', 'DABUR', 'MARICO', 'GODREJCP',  # Consumer Staples
+            'DRREDDY', 'SUNPHARMA', 'CIPLA', 'LUPIN', 'BIOCON', 'TORNTPHARM',  # Healthcare/Pharma
+            'AIRTEL', 'INDUSINDBK', 'RCOM', 'IDEA'  # Telecom (some defensive characteristics)
+        }
+    
+    def classify_stock_type(self, symbol: str, sector: str, pe_ratio: float = None, 
+                           growth_rate: float = None, dividend_yield: float = None) -> str:
+        """
+        Classify stock as Defence, Growth, or Value based on multiple criteria
+        
+        Args:
+            symbol: Stock symbol
+            sector: Stock sector
+            pe_ratio: Price-to-Earnings ratio
+            growth_rate: Revenue/earnings growth rate
+            dividend_yield: Dividend yield percentage
+            
+        Returns:
+            str: 'DEFENCE', 'GROWTH', or 'VALUE'
+        """
+        # Check if it's a defence stock
+        if (sector in self.defence_sectors or 
+            symbol in self.defence_keywords or
+            any(keyword in symbol for keyword in ['HAL', 'BEL', 'POWERGRID', 'NTPC'])):
+            return 'DEFENCE'
+        
+        # Growth stock characteristics: High PE, High growth, Low dividend
+        if (pe_ratio and pe_ratio > 25 and 
+            growth_rate and growth_rate > 15 and 
+            (dividend_yield is None or dividend_yield < 2)):
+            return 'GROWTH'
+        
+        # Value stock characteristics: Low PE, Reasonable dividend, Mature companies
+        if (pe_ratio and pe_ratio < 15 and 
+            dividend_yield and dividend_yield > 2):
+            return 'VALUE'
+        
+        # Default classification based on sector
+        growth_sectors = {'Technology', 'Consumer Cyclical', 'Communication Services'}
+        value_sectors = {'Financial Services', 'Basic Materials', 'Energy', 'Industrials'}
+        
+        if sector in growth_sectors:
+            return 'GROWTH'
+        elif sector in value_sectors:
+            return 'VALUE'
+        else:
+            return 'VALUE'  # Default to value for safety
+    
+    def validate_portfolio_weight_limits(self, allocation_plan: List[Dict], 
+                                       current_holdings_value: float) -> List[Dict]:
+        """
+        Validate and adjust allocations to ensure 7% weight limit per stock
+        
+        Args:
+            allocation_plan: List of allocation dictionaries
+            current_holdings_value: Current portfolio value
+            
+        Returns:
+            List[Dict]: Adjusted allocation plan
+        """
+        total_portfolio_value = current_holdings_value + self.available_funds
+        max_stock_value = total_portfolio_value * self.max_single_stock_weight
+        
+        validated_plan = []
+        for allocation in allocation_plan:
+            original_amount = allocation['Allocation_Amount']
+            
+            # Check if allocation exceeds 7% limit
+            if original_amount > max_stock_value:
+                # Cap the allocation at 7%
+                allocation['Allocation_Amount'] = max_stock_value
+                allocation['Weight_Capped'] = True
+                allocation['Original_Amount'] = original_amount
+                allocation['Rationale'] += f" (Capped at 7% weight limit: Rs.{max_stock_value:,.0f})"
+                self.logger.info(f"Capped {allocation['Stock']} allocation from Rs.{original_amount:,.0f} to Rs.{max_stock_value:,.0f} (7% limit)")
+            else:
+                allocation['Weight_Capped'] = False
+            
+            validated_plan.append(allocation)
+        
+        return validated_plan
+
     def analyze_current_allocation(self) -> Dict:
         """Analyze current portfolio allocation and identify gaps"""
         try:
@@ -233,15 +334,49 @@ class PortfolioAllocationAnalyzer:
                         })
                         remaining_funds -= suggested_amount
             
-            # Calculate allocation summary
+            # Enhanced Rules Implementation
+            
+            # Step 1: Apply 7% weight limit validation
+            current_portfolio_value = allocation_analysis['total_portfolio_value']
+            allocation_plan = self.validate_portfolio_weight_limits(allocation_plan, current_portfolio_value)
+            
+            # Step 2: Ensure defence stock allocation (10-15%)
+            allocation_plan = self.ensure_defence_stock_allocation(
+                allocation_plan, buy_recommendations, current_portfolio_value
+            )
+            
+            # Step 3: Classify and balance growth vs value stocks
+            allocation_plan = self.classify_and_balance_stocks(allocation_plan)
+            
+            # Calculate final allocation summary
             total_allocated = sum(plan['Allocation_Amount'] for plan in allocation_plan)
+            
+            # Analyze allocation by stock type
+            defence_allocation = sum(plan['Allocation_Amount'] for plan in allocation_plan 
+                                   if plan.get('Stock_Type') == 'DEFENCE')
+            growth_allocation = sum(plan['Allocation_Amount'] for plan in allocation_plan 
+                                  if plan.get('Stock_Type') == 'GROWTH')
+            value_allocation = sum(plan['Allocation_Amount'] for plan in allocation_plan 
+                                 if plan.get('Stock_Type') == 'VALUE')
+            
+            total_target_portfolio = current_portfolio_value + total_allocated
+            
             allocation_summary = {
                 'total_funds_available': self.available_funds,
                 'total_allocated': total_allocated,
                 'remaining_cash': self.available_funds - total_allocated,
                 'allocation_efficiency': (total_allocated / self.available_funds) * 100,
                 'new_sectors_count': len(set(plan['Sector'] for plan in allocation_plan if plan['Action_Type'] == 'NEW_SECTOR')),
-                'total_stocks_to_add': len(allocation_plan)
+                'total_stocks_to_add': len(allocation_plan),
+                'defence_allocation': defence_allocation,
+                'defence_percentage': (defence_allocation / total_target_portfolio) * 100,
+                'growth_allocation': growth_allocation,
+                'growth_percentage': (growth_allocation / total_target_portfolio) * 100,
+                'value_allocation': value_allocation,
+                'value_percentage': (value_allocation / total_target_portfolio) * 100,
+                'max_single_stock_weight': max((plan['Allocation_Amount'] / total_target_portfolio) * 100 
+                                              for plan in allocation_plan) if allocation_plan else 0,
+                'weight_cap_violations': sum(1 for plan in allocation_plan if plan.get('Weight_Capped', False))
             }
             
             return {
@@ -298,6 +433,125 @@ class PortfolioAllocationAnalyzer:
         except Exception as e:
             self.logger.error(f"Error getting buy recommendations: {str(e)}")
             return []
+    
+    def ensure_defence_stock_allocation(self, allocation_plan: List[Dict], 
+                                      buy_recommendations: List[Dict], 
+                                      current_portfolio_value: float) -> List[Dict]:
+        """
+        Ensure 10-15% of portfolio is allocated to defence stocks
+        
+        Args:
+            allocation_plan: Current allocation plan
+            buy_recommendations: Available buy recommendations
+            current_portfolio_value: Current portfolio value
+            
+        Returns:
+            List[Dict]: Updated allocation plan with defence stocks
+        """
+        try:
+            total_target_value = current_portfolio_value + self.available_funds
+            min_defence_value = total_target_value * self.min_defence_allocation
+            max_defence_value = total_target_value * self.max_defence_allocation
+            
+            # Calculate current defence allocation in plan
+            current_defence_allocation = sum(
+                plan['Allocation_Amount'] for plan in allocation_plan 
+                if self.classify_stock_type(plan['Stock'], plan['Sector']) == 'DEFENCE'
+            )
+            
+            # Add defence classification to existing plan
+            for plan in allocation_plan:
+                plan['Stock_Type'] = self.classify_stock_type(plan['Stock'], plan['Sector'])
+            
+            # Check if we need more defence stocks
+            defence_gap = min_defence_value - current_defence_allocation
+            
+            if defence_gap > self.min_position_size:
+                # Find available defence stocks in recommendations
+                defence_recommendations = [
+                    stock for stock in buy_recommendations 
+                    if self.classify_stock_type(stock.get('Symbol', ''), stock.get('Sector', '')) == 'DEFENCE'
+                ]
+                
+                # Sort by score and add defence stocks
+                defence_recommendations.sort(key=lambda x: x.get('Score', 0), reverse=True)
+                
+                remaining_defence_needed = min(defence_gap, max_defence_value - current_defence_allocation)
+                
+                for defence_stock in defence_recommendations[:3]:  # Max 3 defence stocks
+                    if remaining_defence_needed < self.min_position_size:
+                        break
+                    
+                    # Check if already in plan
+                    if any(plan['Stock'] == defence_stock.get('Symbol') for plan in allocation_plan):
+                        continue
+                    
+                    suggested_amount = min(
+                        remaining_defence_needed / 2,  # Split among available defence stocks
+                        total_target_value * self.max_single_stock_weight,  # 7% limit
+                        self.max_position_size
+                    )
+                    
+                    if suggested_amount >= self.min_position_size:
+                        allocation_plan.append({
+                            'Stock': defence_stock.get('Symbol', 'Unknown'),
+                            'Company': defence_stock.get('Company', 'Unknown'),
+                            'Sector': defence_stock.get('Sector', 'Unknown'),
+                            'Allocation_Amount': suggested_amount,
+                            'Priority': 'HIGH',
+                            'Action_Type': 'DEFENCE_ALLOCATION',
+                            'Rationale': f"Defence stock for portfolio stability (Min 10% rule)",
+                            'Score': defence_stock.get('Score', 0),
+                            'Current_Price': defence_stock.get('Current_Price', 0),
+                            'Stock_Type': 'DEFENCE',
+                            'Weight_Capped': False
+                        })
+                        remaining_defence_needed -= suggested_amount
+                        
+                        self.logger.info(f"Added defence stock {defence_stock.get('Symbol')} with Rs.{suggested_amount:,.0f}")
+            
+            return allocation_plan
+            
+        except Exception as e:
+            self.logger.error(f"Error ensuring defence stock allocation: {str(e)}")
+            return allocation_plan
+    
+    def classify_and_balance_stocks(self, allocation_plan: List[Dict]) -> List[Dict]:
+        """
+        Classify stocks and ensure balanced growth/value allocation
+        
+        Args:
+            allocation_plan: Current allocation plan
+            
+        Returns:
+            List[Dict]: Updated allocation plan with stock classifications
+        """
+        try:
+            # Classify any remaining stocks that don't have classification
+            for plan in allocation_plan:
+                if 'Stock_Type' not in plan or not plan['Stock_Type']:
+                    plan['Stock_Type'] = self.classify_stock_type(
+                        plan['Stock'], 
+                        plan['Sector']
+                    )
+            
+            # Log classification summary
+            type_summary = {}
+            for plan in allocation_plan:
+                stock_type = plan['Stock_Type']
+                type_summary[stock_type] = type_summary.get(stock_type, 0) + plan['Allocation_Amount']
+            
+            total_allocation = sum(type_summary.values())
+            if total_allocation > 0:
+                for stock_type, amount in type_summary.items():
+                    percentage = (amount / total_allocation) * 100
+                    self.logger.info(f"{stock_type} stocks: Rs.{amount:,.0f} ({percentage:.1f}%)")
+            
+            return allocation_plan
+            
+        except Exception as e:
+            self.logger.error(f"Error classifying and balancing stocks: {str(e)}")
+            return allocation_plan
     
     def analyze_position_sizing(self) -> pd.DataFrame:
         """Analyze current position sizing and suggest optimizations"""
