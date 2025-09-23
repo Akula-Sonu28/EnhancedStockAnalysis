@@ -1,0 +1,67 @@
+{
+  "timestamp": "2025-09-23T14:33:30.864577",
+  "tests": [
+    {
+      "test": "Batch Analysis",
+      "status": "FAIL",
+      "details": "Command failed with exit code 1: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "duration": 0,
+      "timestamp": "2025-09-23T14:33:33.679248"
+    },
+    {
+      "test": "Single Stock Analysis",
+      "status": "FAIL",
+      "details": "Command failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "duration": 0,
+      "timestamp": "2025-09-23T14:33:36.164001"
+    },
+    {
+      "test": "Accuracy Improvements",
+      "status": "FAIL",
+      "details": "Analysis failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "duration": 0,
+      "timestamp": "2025-09-23T14:33:38.920159"
+    },
+    {
+      "test": "Error Handling",
+      "status": "PASS",
+      "details": "System terminated gracefully without crashes",
+      "duration": 2.4803199768066406,
+      "timestamp": "2025-09-23T14:33:41.400479"
+    },
+    {
+      "test": "Excel Generation",
+      "status": "FAIL",
+      "details": "Analysis failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "duration": 0,
+      "timestamp": "2025-09-23T14:33:43.864913"
+    },
+    {
+      "test": "Portfolio Integration",
+      "status": "FAIL",
+      "details": "Portfolio analysis failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "duration": 0,
+      "timestamp": "2025-09-23T14:33:46.333015"
+    },
+    {
+      "test": "Performance",
+      "status": "FAIL",
+      "details": "Performance test failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "duration": 0,
+      "timestamp": "2025-09-23T14:33:48.781919"
+    }
+  ],
+  "summary": {
+    "total": 7,
+    "passed": 1,
+    "failed": 6,
+    "issues": [
+      "Batch Analysis: Command failed with exit code 1: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "Single Stock Analysis: Command failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "Accuracy Improvements: Analysis failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "Excel Generation: Analysis failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "Portfolio Integration: Portfolio analysis failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F",
+      "Performance: Performance test failed: Traceback (most recent call last):\n  File \"C:\\Users\\A KAVYA SHREE\\OneDrive\\Documents\\Sanji\\Stock Analyis\\Stock_Analysis - Copy\\analyze_top200_stocks_enhanced.py\", line 5420, in <module>\n    main()\n  F"
+    ]
+  }
+}

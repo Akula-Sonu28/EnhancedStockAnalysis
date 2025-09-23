@@ -1,0 +1,129 @@
+2025-09-19 13:01:09,051 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-19 13:01:09,051 - INFO - Risk profile set to: moderate
+2025-09-19 13:01:09,054 - INFO - Using default stock list from stock_list_template.csv
+2025-09-19 13:01:09,054 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-19 13:01:09,064 - INFO - Loaded 200 stocks with company names
+2025-09-19 13:01:09,064 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-19 13:01:09,073 - INFO - Found 34 current holdings to include in analysis
+2025-09-19 13:01:09,080 - INFO - Starting batch analysis of 28 stocks
+2025-09-19 13:01:10,910 - INFO - Comprehensive data extracted for AXISBANK
+2025-09-19 13:01:10,912 - INFO - Fundamental analysis completed for AXISBANK: 58 fields
+2025-09-19 13:01:11,125 - INFO - Enhanced technical analysis completed for AXISBANK: 52 fields
+2025-09-19 13:01:11,195 - INFO - Completed analysis for AXISBANK: Score=75.6, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:01:11,293 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-09-19 13:01:11,293 - INFO - Fundamental analysis completed for BAJAJ-AUTO: 58 fields
+2025-09-19 13:01:11,502 - INFO - Enhanced technical analysis completed for BAJAJ-AUTO: 52 fields
+2025-09-19 13:01:11,562 - INFO - Completed analysis for BAJAJ-AUTO: Score=39.6, Recommendation=SELL
+2025-09-19 13:01:11,694 - INFO - Comprehensive data extracted for BANKBARODA
+2025-09-19 13:01:11,700 - INFO - Fundamental analysis completed for BANKBARODA: 58 fields
+2025-09-19 13:01:12,161 - INFO - Enhanced technical analysis completed for BANKBARODA: 52 fields
+2025-09-19 13:01:12,228 - INFO - Completed analysis for BANKBARODA: Score=79.1, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:01:17,877 - INFO - Comprehensive data extracted for BANKINDIA
+2025-09-19 13:01:17,877 - INFO - Fundamental analysis completed for BANKINDIA: 58 fields
+2025-09-19 13:01:17,897 - INFO - Comprehensive data extracted for CANBK
+2025-09-19 13:01:17,900 - INFO - Fundamental analysis completed for CANBK: 58 fields
+2025-09-19 13:01:18,164 - INFO - Enhanced technical analysis completed for BANKINDIA: 52 fields
+2025-09-19 13:01:18,164 - INFO - Enhanced technical analysis completed for CANBK: 52 fields
+2025-09-19 13:01:18,259 - INFO - Completed analysis for BANKINDIA: Score=78.9, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:01:18,259 - INFO - Completed analysis for CANBK: Score=85.2, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:01:18,864 - INFO - Comprehensive data extracted for DMART
+2025-09-19 13:01:18,864 - INFO - Fundamental analysis completed for DMART: 58 fields
+2025-09-19 13:01:19,033 - INFO - Enhanced technical analysis completed for DMART: 52 fields
+2025-09-19 13:01:19,101 - INFO - Completed analysis for DMART: Score=26.6, Recommendation=SELL
+2025-09-19 13:01:24,590 - INFO - Comprehensive data extracted for ETERNAL
+2025-09-19 13:01:24,593 - INFO - Fundamental analysis completed for ETERNAL: 58 fields
+2025-09-19 13:01:24,764 - INFO - Enhanced technical analysis completed for ETERNAL: 52 fields
+2025-09-19 13:01:24,818 - INFO - Completed analysis for ETERNAL: Score=32.7, Recommendation=SELL
+2025-09-19 13:01:25,617 - INFO - Comprehensive data extracted for DRREDDY
+2025-09-19 13:01:25,622 - INFO - Fundamental analysis completed for DRREDDY: 58 fields
+2025-09-19 13:01:25,787 - INFO - Comprehensive data extracted for HAL
+2025-09-19 13:01:25,787 - INFO - Fundamental analysis completed for HAL: 58 fields
+2025-09-19 13:01:25,855 - INFO - Enhanced technical analysis completed for DRREDDY: 52 fields
+2025-09-19 13:01:25,919 - INFO - Completed analysis for DRREDDY: Score=69.8, Recommendation=BUY
+2025-09-19 13:01:26,033 - INFO - Enhanced technical analysis completed for HAL: 52 fields
+2025-09-19 13:01:26,108 - INFO - Completed analysis for HAL: Score=49.0, Recommendation=WEAK SELL
+2025-09-19 13:01:31,850 - INFO - Comprehensive data extracted for HDFCLIFE
+2025-09-19 13:01:31,852 - INFO - Fundamental analysis completed for HDFCLIFE: 58 fields
+2025-09-19 13:01:31,938 - INFO - Comprehensive data extracted for HDFCBANK
+2025-09-19 13:01:31,956 - INFO - Fundamental analysis completed for HDFCBANK: 58 fields
+2025-09-19 13:01:32,030 - INFO - Enhanced technical analysis completed for HDFCLIFE: 52 fields
+2025-09-19 13:01:32,090 - INFO - Completed analysis for HDFCLIFE: Score=44.7, Recommendation=WEAK SELL
+2025-09-19 13:01:32,166 - INFO - Enhanced technical analysis completed for HDFCBANK: 52 fields
+2025-09-19 13:01:32,227 - INFO - Completed analysis for HDFCBANK: Score=64.1, Recommendation=BUY
+2025-09-19 13:01:32,856 - INFO - Comprehensive data extracted for HEROMOTOCO
+2025-09-19 13:01:32,856 - INFO - Fundamental analysis completed for HEROMOTOCO: 58 fields
+2025-09-19 13:01:33,062 - INFO - Enhanced technical analysis completed for HEROMOTOCO: 52 fields
+2025-09-19 13:01:33,112 - INFO - Completed analysis for HEROMOTOCO: Score=45.9, Recommendation=WEAK SELL
+2025-09-19 13:01:38,875 - INFO - Comprehensive data extracted for HINDUNILVR
+2025-09-19 13:01:38,879 - INFO - Fundamental analysis completed for HINDUNILVR: 58 fields
+2025-09-19 13:01:38,985 - INFO - Comprehensive data extracted for ICICIBANK
+2025-09-19 13:01:38,987 - INFO - Fundamental analysis completed for ICICIBANK: 58 fields
+2025-09-19 13:01:39,114 - INFO - Enhanced technical analysis completed for HINDUNILVR: 52 fields
+2025-09-19 13:01:39,261 - INFO - Enhanced technical analysis completed for ICICIBANK: 52 fields
+2025-09-19 13:01:39,277 - INFO - Completed analysis for HINDUNILVR: Score=32.5, Recommendation=SELL
+2025-09-19 13:01:39,355 - INFO - Completed analysis for ICICIBANK: Score=74.3, Recommendation=STRONG BUY
+2025-09-19 13:01:40,489 - INFO - Comprehensive data extracted for IDFCFIRSTB
+2025-09-19 13:01:40,489 - INFO - Fundamental analysis completed for IDFCFIRSTB: 58 fields
+2025-09-19 13:01:40,681 - INFO - Enhanced technical analysis completed for IDFCFIRSTB: 52 fields
+2025-09-19 13:01:40,745 - INFO - Completed analysis for IDFCFIRSTB: Score=49.1, Recommendation=WEAK SELL
+2025-09-19 13:01:46,594 - INFO - Comprehensive data extracted for KOTAKBANK
+2025-09-19 13:01:46,600 - INFO - Fundamental analysis completed for KOTAKBANK: 58 fields
+2025-09-19 13:01:46,680 - INFO - Comprehensive data extracted for INDIANB
+2025-09-19 13:01:46,680 - INFO - Fundamental analysis completed for INDIANB: 58 fields
+2025-09-19 13:01:46,794 - INFO - Enhanced technical analysis completed for KOTAKBANK: 52 fields
+2025-09-19 13:01:46,933 - INFO - Completed analysis for KOTAKBANK: Score=67.8, Recommendation=BUY
+2025-09-19 13:01:47,004 - INFO - Enhanced technical analysis completed for INDIANB: 52 fields
+2025-09-19 13:01:47,102 - INFO - Completed analysis for INDIANB: Score=83.4, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:01:49,294 - INFO - Comprehensive data extracted for LICHSGFIN
+2025-09-19 13:01:49,297 - INFO - Fundamental analysis completed for LICHSGFIN: 58 fields
+2025-09-19 13:01:49,526 - INFO - Enhanced technical analysis completed for LICHSGFIN: 52 fields
+2025-09-19 13:01:49,592 - INFO - Completed analysis for LICHSGFIN: Score=69.0, Recommendation=BUY (VALUE)
+2025-09-19 13:01:55,076 - INFO - Comprehensive data extracted for MOTILALOFS
+2025-09-19 13:01:55,076 - INFO - Fundamental analysis completed for MOTILALOFS: 58 fields
+2025-09-19 13:01:55,492 - INFO - Enhanced technical analysis completed for MOTILALOFS: 52 fields
+2025-09-19 13:01:55,573 - INFO - Completed analysis for MOTILALOFS: Score=55.9, Recommendation=HOLD
+2025-09-19 13:01:56,528 - INFO - Comprehensive data extracted for MUTHOOTFIN
+2025-09-19 13:01:56,530 - INFO - Fundamental analysis completed for MUTHOOTFIN: 58 fields
+2025-09-19 13:01:56,645 - INFO - Comprehensive data extracted for MAHABANK
+2025-09-19 13:01:56,647 - INFO - Fundamental analysis completed for MAHABANK: 58 fields
+2025-09-19 13:01:56,744 - INFO - Enhanced technical analysis completed for MUTHOOTFIN: 52 fields
+2025-09-19 13:01:56,799 - INFO - Completed analysis for MUTHOOTFIN: Score=72.6, Recommendation=STRONG BUY
+2025-09-19 13:01:56,845 - INFO - Enhanced technical analysis completed for MAHABANK: 52 fields
+2025-09-19 13:01:56,917 - INFO - Completed analysis for MAHABANK: Score=87.1, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:02:02,590 - INFO - Comprehensive data extracted for NESTLEIND
+2025-09-19 13:02:02,596 - INFO - Fundamental analysis completed for NESTLEIND: 58 fields
+2025-09-19 13:02:02,661 - INFO - Comprehensive data extracted for PFC
+2025-09-19 13:02:02,673 - INFO - Fundamental analysis completed for PFC: 58 fields
+2025-09-19 13:02:02,814 - INFO - Enhanced technical analysis completed for NESTLEIND: 52 fields
+2025-09-19 13:02:02,863 - INFO - Enhanced technical analysis completed for PFC: 52 fields
+2025-09-19 13:02:02,906 - INFO - Completed analysis for NESTLEIND: Score=28.1, Recommendation=SELL
+2025-09-19 13:02:02,968 - INFO - Completed analysis for PFC: Score=73.4, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:02:04,040 - INFO - Comprehensive data extracted for PNB
+2025-09-19 13:02:04,042 - INFO - Fundamental analysis completed for PNB: 58 fields
+2025-09-19 13:02:04,302 - INFO - Enhanced technical analysis completed for PNB: 52 fields
+2025-09-19 13:02:04,362 - INFO - Completed analysis for PNB: Score=85.8, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:02:09,979 - INFO - Comprehensive data extracted for SBIN
+2025-09-19 13:02:09,979 - INFO - Fundamental analysis completed for SBIN: 58 fields
+2025-09-19 13:02:10,236 - INFO - Comprehensive data extracted for RECLTD
+2025-09-19 13:02:10,236 - INFO - Fundamental analysis completed for RECLTD: 58 fields
+2025-09-19 13:02:10,429 - INFO - Enhanced technical analysis completed for SBIN: 52 fields
+2025-09-19 13:02:10,482 - INFO - Enhanced technical analysis completed for RECLTD: 52 fields
+2025-09-19 13:02:10,565 - INFO - Completed analysis for SBIN: Score=85.8, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:02:10,586 - INFO - Completed analysis for RECLTD: Score=75.7, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:02:11,100 - INFO - Comprehensive data extracted for UNIONBANK
+2025-09-19 13:02:11,103 - INFO - Fundamental analysis completed for UNIONBANK: 58 fields
+2025-09-19 13:02:11,312 - INFO - Enhanced technical analysis completed for UNIONBANK: 52 fields
+2025-09-19 13:02:11,377 - INFO - Completed analysis for UNIONBANK: Score=86.0, Recommendation=STRONG BUY (UNDERVALUED)
+2025-09-19 13:02:17,251 - INFO - Comprehensive data extracted for YESBANK
+2025-09-19 13:02:17,253 - INFO - Fundamental analysis completed for YESBANK: 58 fields
+2025-09-19 13:02:17,446 - INFO - Enhanced technical analysis completed for YESBANK: 52 fields
+2025-09-19 13:02:17,496 - INFO - Completed analysis for YESBANK: Score=75.8, Recommendation=STRONG BUY
+2025-09-19 13:02:17,510 - INFO - Batch analysis completed: 28 results, 0 failures
+2025-09-19 13:02:17,562 - INFO - Calculated sector rankings for 5 sectors
+2025-09-19 13:02:23,730 - INFO - Completed risk-return analysis
+2025-09-19 13:02:23,798 - ERROR - Error generating portfolio allocation: 'allocation_percentage'
+2025-09-19 13:02:25,605 - INFO - Enhanced Excel report generated: reports/Enhanced_Stock_Report_20250919_130223.xlsx, Size: 55776 bytes
+2025-09-19 13:02:26,105 - INFO - Loaded report: Enhanced_Stock_Report_20250919_124854.xlsx
+2025-09-19 13:02:26,105 - INFO - Available sheets: ['Top Picks', 'Trading Plans', 'Undervalued', 'Sector Analysis', 'Risk Analysis', 'Portfolio Allocation', 'Portfolio Summary', 'Complete Data']
+2025-09-19 13:02:26,257 - INFO - Loaded report: Enhanced_Stock_Report_20250919_130223.xlsx
+2025-09-19 13:02:26,257 - INFO - Available sheets: ['Top Picks', 'Trading Plans', 'Undervalued', 'Sector Analysis', 'Risk Analysis', 'Complete Data']
