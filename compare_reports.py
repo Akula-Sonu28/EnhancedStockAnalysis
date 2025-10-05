@@ -1,35 +1,39 @@
 #!/usr/bin/env python3
 """
-Stock Report Comparison Tool - Main Script
-=========================================
-
-Compare Enhanced Stock Reports to identify market trends, stock performance 
-changes, and generate actionable insights.
-
-Usage:
-    python compare_reports.py [options]
-
-Examples:
-    # Compare latest two reports
-    python compare_reports.py
-    
-    # Compare specific reports
-    python compare_reports.py --old reports/Enhanced_Stock_Report_20250915.xlsx --new reports/Enhanced_Stock_Report_20250916.xlsx
-    
-    # Generate console output only
-    python compare_reports.py --console-only
-    
-    # Auto-run after new analysis
-    python compare_reports.py --auto
-
-Author: Enhanced Stock Analysis System
-Version: 1.0.0
+# COMMENTED OUT - MOSTLY NOT NEEDED
+# Stock Report Comparison Tool - Main Script
+# =========================================
+# 
+# Compare Enhanced Stock Reports to identify market trends, stock performance 
+# changes, and generate actionable insights.
+# 
+# NOT ESSENTIAL: Excel can do comparisons. Nice-to-have but not core feature.
+# 
+# Usage:
+#     python compare_reports.py [options]
+# 
+# Examples:
+#     # Compare latest two reports
+#     python compare_reports.py
+#     
+#     # Compare specific reports
+#     python compare_reports.py --old reports/Enhanced_Stock_Report_20250915.xlsx --new reports/Enhanced_Stock_Report_20250916.xlsx
+#     
+#     # Generate console output only
+#     python compare_reports.py --console-only
+#     
+#     # Auto-run after new analysis
+#     python compare_reports.py --auto
+# 
+# Author: Enhanced Stock Analysis System
+# Version: 1.0.0
 """
 
-import argparse
-import sys
-import os
-from pathlib import Path
+# COMMENTED OUT - NOT ESSENTIAL
+# import argparse
+# import sys
+# import os
+# from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent

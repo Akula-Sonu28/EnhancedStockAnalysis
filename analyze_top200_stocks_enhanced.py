@@ -39,6 +39,7 @@ from enhanced_technical_analyzer import get_short_term_technical_analysis
 from src.technical_analyzer import get_ohlcv, calculate_indicators, compute_technical_score
 from src.excel_exporter import ExcelExporter, ExcelReportGenerator
 from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
+from corrected_scoring_engine import CorrectedScoringEngine
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -47,6 +48,7 @@ class EnhancedTop200StockAnalyzer:
     def __init__(self, max_workers=5, csv_file=None, risk_profile="moderate", 
                  focus_growth=False, focus_momentum=False, min_volatility=0.0):
         self.max_workers = max_workers
+        self.corrected_scoring_engine = CorrectedScoringEngine()  # 🔧 NEW: Corrected scoring based on backtest
         self.setup_logging()
         self.results = []
         self.failed_stocks = []
@@ -240,33 +242,199 @@ class EnhancedTop200StockAnalyzer:
     
     def classify_market_cap(self, market_cap):
         """
-        Classify stocks by market cap and return appropriate allocation percentage
-        
-        Args:
-            market_cap: Market capitalization value
-            
-        Returns:
-            tuple: (category, max_allocation_percentage)
+        # COMMENTED OUT - OVERCOMPLICATED ALLOCATION LIMITS
+        # Classify stocks by market cap and return appropriate allocation percentage
+        # 
+        # SIMPLIFIED: Just use equal weight or score-based allocation instead
+        # 
+        # Args:
+        #     market_cap: Market capitalization value
+        #     
+        # Returns:
+        #     tuple: (category, max_allocation_percentage)
         """
         if not market_cap or market_cap <= 0:
-            return "Unknown", 0.04  # Default to mid-cap allocation
+            return "Unknown", 0.05  # Simplified: Default equal allocation
         
         market_cap_cr = market_cap / 10000  # Convert to crores
         
-        # Market cap classification based on Indian market standards:
-        # Small Cap: < ₹5,000 crores
-        # Mid Cap: ₹5,000 - ₹20,000 crores  
-        # Large Cap: > ₹20,000 crores
-        # Nifty 50 (mega cap): > ₹50,000 crores
-        
+        # SIMPLIFIED Market cap classification:
         if market_cap_cr >= 50000:  # Nifty 50 / Mega Cap
-            return "Large Cap (Nifty 50)", 0.07  # 7% max
+            return "Large Cap (Nifty 50)", 0.05  # SIMPLIFIED: Equal 5% max
         elif market_cap_cr >= 20000:  # Large Cap
-            return "Large Cap", 0.05  # 5% max
+            return "Large Cap", 0.05  # SIMPLIFIED: Equal 5% max
         elif market_cap_cr >= 5000:  # Mid Cap
-            return "Mid Cap", 0.04  # 4% max
+            return "Mid Cap", 0.05  # SIMPLIFIED: Equal 5% max
         else:  # Small Cap
-            return "Small Cap", 0.035  # 3.5% max
+            return "Small Cap", 0.05  # SIMPLIFIED: Equal 5% max (instead of complex 3.5%)
+    
+    def calculate_momentum_score(self, stock_data, historical_data=None):
+        """🚀 MOMENTUM DETECTION - Calculate momentum score for predictive analysis"""
+        try:
+            momentum_score = 0
+            momentum_flags = []
+            
+            # Volume momentum (30% weight)
+            volume_ratio = stock_data.get('enhanced_volume_ratio', 1.0)
+            if volume_ratio > 2.0:
+                momentum_score += 30
+                momentum_flags.append("🚀 VOLUME SURGE")
+            elif volume_ratio > 1.5:
+                momentum_score += 20
+                momentum_flags.append("📈 HIGH VOLUME")
+            
+            # Price momentum (40% weight)
+            price_change_5d = stock_data.get('enhanced_price_change_5d', 0)
+            if price_change_5d > 10:
+                momentum_score += 40
+                momentum_flags.append("🚀 PRICE MOMENTUM")
+            elif price_change_5d > 5:
+                momentum_score += 25
+                momentum_flags.append("📈 POSITIVE TREND")
+            
+            # Technical momentum (30% weight)
+            rsi = stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', 50))
+            if 60 <= rsi <= 75:  # Sweet spot for momentum
+                momentum_score += 30
+                momentum_flags.append("⚡ TECHNICAL MOMENTUM")
+            elif 50 <= rsi <= 60:
+                momentum_score += 15
+            
+            return min(momentum_score, 100), momentum_flags
+            
+        except Exception as e:
+            return 0, []
+    
+    def calculate_profit_booking_strategy(self, current_value, invested_amount, symbol, stock_data=None):
+        """💰 ADVANCED SMART BOOKING - AI-powered profit booking with market intelligence"""
+        try:
+            if current_value <= 0 or invested_amount <= 0:
+                return "HOLD", 0, "No profit to book"
+            
+            # Calculate base profit percentage
+            profit_pct = ((current_value - invested_amount) / invested_amount) * 100
+            
+            # 🧠 SMART BOOKING INTELLIGENCE - Dynamic thresholds based on stock characteristics
+            
+            # 1. Determine stock category and risk profile
+            sector = stock_data.get('sector', 'Unknown') if stock_data else 'Unknown'
+            overall_score = stock_data.get('overall_score_with_value', 50) if stock_data else 50
+            momentum_score = self.calculate_momentum_score(stock_data)[0] if stock_data else 0
+            rsi = stock_data.get('real_rsi', 50) if stock_data else 50
+            
+            # 2. Adaptive thresholds based on stock quality and type (REFINED VERSION 2.0)
+            if 'BANK' in symbol or 'Financial' in sector:
+                # Banking stocks - CONSERVATIVE after backtest (mature, dividend-paying)
+                mega_threshold = 40  # More conservative: 40% instead of 50%
+                big_threshold = 25   # More conservative: 25% instead of 30%
+                good_threshold = 12  # More conservative: 12% instead of 15%
+                stop_loss = -15      # Same as standard after backtest analysis
+                category = "🏦 BANKING"
+            elif overall_score >= 80:
+                # High-quality stocks - can hold longer for bigger gains
+                mega_threshold = 80
+                big_threshold = 60
+                good_threshold = 35
+                stop_loss = -18
+                category = "⭐ HIGH QUALITY"
+            elif 'GROWTH' in self.classify_stock_type(symbol, sector) if hasattr(self, 'classify_stock_type') else False:
+                # Growth stocks - higher risk, higher reward
+                mega_threshold = 100
+                big_threshold = 70
+                good_threshold = 40
+                stop_loss = -20
+                category = "🚀 GROWTH"
+            else:
+                # Standard stocks - balanced approach
+                mega_threshold = 60
+                big_threshold = 40
+                good_threshold = 20
+                stop_loss = -15
+                category = "📊 STANDARD"
+            
+            # 3. Technical analysis adjustments
+            if momentum_score >= 70:
+                # Strong momentum - hold longer for bigger gains
+                mega_threshold *= 1.2
+                big_threshold *= 1.15
+                good_threshold *= 1.1
+                technical_signal = "🚀 MOMENTUM+"
+            elif rsi >= 75:
+                # Overbought - book profits earlier
+                mega_threshold *= 0.85
+                big_threshold *= 0.9
+                good_threshold *= 0.95
+                technical_signal = "⚠️ OVERBOUGHT"
+            elif rsi <= 30:
+                # Oversold - hold longer if recovering
+                mega_threshold *= 1.1
+                big_threshold *= 1.05
+                stop_loss *= 0.8  # Wider stop loss
+                technical_signal = "💎 OVERSOLD"
+            else:
+                technical_signal = "📊 NEUTRAL"
+            
+            # 4. Apply smart booking logic with dynamic thresholds
+            if profit_pct >= mega_threshold:
+                booking_pct = min(80, max(60, int(70 + (profit_pct - mega_threshold) / 10)))
+                return f"BOOK {booking_pct}% PROFITS", booking_pct, f"🎯 MEGA GAINS (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+            
+            elif profit_pct >= big_threshold:
+                booking_pct = min(60, max(40, int(50 + (profit_pct - big_threshold) / 20)))
+                return f"BOOK {booking_pct}% PROFITS", booking_pct, f"💰 BIG GAINS (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+            
+            elif profit_pct >= good_threshold:
+                booking_pct = min(40, max(25, int(30 + (profit_pct - good_threshold) / 15)))
+                return f"BOOK {booking_pct}% PROFITS", booking_pct, f"📈 GOOD GAINS (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+            
+            elif profit_pct >= 5:
+                trail_pct = max(5, min(12, int(8 + profit_pct / 10)))
+                return f"TRAILING STOP {trail_pct}%", 0, f"🔒 MODERATE GAINS (+{profit_pct:.1f}%) | {category} | Trail: {trail_pct}%"
+            
+            elif profit_pct <= stop_loss:
+                return "STOP LOSS", 100, f"🛑 CUT LOSSES ({profit_pct:.1f}%) | {category} | Exit now"
+            
+            elif profit_pct <= -10:  # Changed from -8% to -10% after backtest
+                return "REDUCE 25%", 25, f"⚠️ REDUCE RISK ({profit_pct:.1f}%) | {category} | Partial exit"
+            
+            else:
+                if momentum_score >= 60:
+                    return "HOLD & ADD", 0, f"💎 HOLD STRONG (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+                else:
+                    return "HOLD & MONITOR", 0, f"📊 HOLD STEADY ({profit_pct:+.1f}%) | {category} | {technical_signal}"
+                
+        except Exception as e:
+            return "HOLD", 0, f"Unable to calculate: {str(e)}"
+    
+    def detect_breakout_patterns(self, stock_data):
+        """📈 BREAKOUT DETECTION - Detect potential breakout patterns"""
+        try:
+            patterns = []
+            breakout_score = 0
+            
+            # Volume breakout
+            volume_ratio = stock_data.get('enhanced_volume_ratio', 1.0)
+            if volume_ratio > 2.5:
+                patterns.append("🚀 VOLUME BREAKOUT")
+                breakout_score += 40
+            
+            # Price breakout above resistance
+            rsi = stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', 50))
+            price_change = stock_data.get('enhanced_price_change_5d', 0)
+            
+            if rsi > 65 and price_change > 8:
+                patterns.append("📈 RESISTANCE BREAK")
+                breakout_score += 35
+            
+            # Momentum consolidation
+            if 55 <= rsi <= 65 and 3 <= price_change <= 7:
+                patterns.append("⚡ MOMENTUM BUILD")
+                breakout_score += 25
+            
+            return patterns, min(breakout_score, 100)
+            
+        except Exception as e:
+            return [], 0
     
     def _validate_and_clean_data(self, stock_data: dict, symbol: str) -> dict:
         """
@@ -559,26 +727,54 @@ class EnhancedTop200StockAnalyzer:
                 'status': 'completed'
             })
             
-            # Enhanced recommendation with undervaluation consideration
+            # 🔧 NEW: Apply corrected scoring algorithm based on backtest analysis
+            corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
+            
+            # Add corrected scores to stock data
+            stock_data.update({
+                'corrected_overall_score': corrected_results['corrected_overall_score'],
+                'contrarian_technical_score': corrected_results['contrarian_technical'],
+                'contrarian_momentum_score': corrected_results['contrarian_momentum'],
+                'fundamental_quality_score': corrected_results['fundamental_quality'],
+                'value_opportunity_score': corrected_results['value_opportunity'],
+                'sector_classification': corrected_results['sector'],
+                'timing_factor': corrected_results['timing_factor']
+            })
+            
+            # Generate corrected recommendation
+            corrected_recommendation = self.corrected_scoring_engine.generate_corrected_recommendation(
+                symbol, stock_data, corrected_results
+            )
+            
+            # Enhanced recommendation with BOTH old and corrected logic
             best_score = stock_data['overall_score_with_value']
+            corrected_score = corrected_results['corrected_overall_score']
             is_undervalued = undervaluation_score >= 65
             
+            # Original recommendation logic (for comparison)
             if best_score >= 70 and is_undervalued:
-                recommendation = "🟢 STRONG BUY (UNDERVALUED)"
+                original_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
             elif best_score >= 70:
-                recommendation = "🟢 STRONG BUY"
+                original_recommendation = "🟢 STRONG BUY"
             elif best_score >= 60 and is_undervalued:
-                recommendation = "🟢 BUY (VALUE)"
+                original_recommendation = "🟢 BUY (VALUE)"
             elif best_score >= 60:
-                recommendation = "🟢 BUY"
+                original_recommendation = "🟢 BUY"
             elif best_score >= 50:
-                recommendation = "🟡 HOLD"
+                original_recommendation = "🟡 HOLD"
             elif best_score >= 40:
-                recommendation = "🟠 WEAK SELL"
+                original_recommendation = "🟠 WEAK SELL"
             else:
-                recommendation = "🔴 SELL"
+                original_recommendation = "🔴 SELL"
             
-            stock_data['final_recommendation'] = recommendation
+            # Store both recommendations for comparison
+            stock_data['original_recommendation'] = original_recommendation
+            stock_data['corrected_recommendation'] = corrected_recommendation
+            stock_data['final_recommendation'] = corrected_recommendation  # Use corrected as primary
+            
+            # Add score comparison info
+            stock_data['score_adjustment'] = corrected_score - best_score
+            stock_data['recommendation_changed'] = original_recommendation != corrected_recommendation
             
             # Convert complex objects to strings for Excel compatibility
             for key, value in stock_data.items():
@@ -594,12 +790,12 @@ class EnhancedTop200StockAnalyzer:
                     stock_data[key] = ''
             
             # Remove emojis from logging to avoid encoding issues in Windows console
-            clean_recommendation = recommendation
+            clean_recommendation = corrected_recommendation
             for emoji in ['🔵', '🟢', '🟡', '🟠', '🔴']:
                 if emoji in clean_recommendation:
                     clean_recommendation = clean_recommendation.replace(emoji, '')
             
-            logging.info(f"Completed analysis for {symbol}: Score={best_score:.1f}, Recommendation={clean_recommendation.strip()}")
+            logging.info(f"Completed analysis for {symbol}: Score={corrected_score:.1f}, Recommendation={clean_recommendation.strip()}")
             return stock_data
             
         except Exception as e:
@@ -2631,25 +2827,45 @@ class EnhancedTop200StockAnalyzer:
         try:
             import glob
             
-            # First priority: Check for recent merged portfolio files (most accurate)
-            merged_files = glob.glob('reports/merged_portfolio_*.xlsx')
-            if merged_files:
-                # Get the most recent merged file
-                latest_merged = max(merged_files, key=os.path.getmtime)
-                try:
-                    holdings_df = pd.read_excel(latest_merged)
-                    print(f"   📁 Loaded holdings from: {latest_merged} (merged portfolio)")
-                    
-                    # Filter out zero quantity stocks if any
-                    if 'Qty.' in holdings_df.columns:
-                        initial_count = len(holdings_df)
-                        holdings_df = holdings_df[holdings_df['Qty.'] > 0]
-                        if len(holdings_df) < initial_count:
-                            print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
-                    
-                    return holdings_df
-                except Exception as e:
-                    print(f"   ⚠️  Could not read merged file {latest_merged}: {e}")
+            # Check if we have both holdings and orders files - then use merged
+            holdings_files = glob.glob('Holding/holdings*.csv')
+            orders_files = glob.glob('Holding/orders*.csv') + glob.glob('orders*.csv')
+            
+            # If we have both holdings and orders, use merged portfolio
+            if holdings_files and orders_files:
+                merged_files = glob.glob('reports/merged_portfolio_*.xlsx')
+                if merged_files:
+                    # Get the most recent merged file
+                    latest_merged = max(merged_files, key=os.path.getmtime)
+                    try:
+                        holdings_df = pd.read_excel(latest_merged)
+                        print(f"   📁 Loaded holdings from: {latest_merged} (merged portfolio)")
+                        
+                        # Filter out zero quantity stocks if any
+                        if 'Qty.' in holdings_df.columns:
+                            initial_count = len(holdings_df)
+                            holdings_df = holdings_df[holdings_df['Qty.'] > 0]
+                            if len(holdings_df) < initial_count:
+                                print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
+                        
+                        return holdings_df
+                    except Exception as e:
+                        print(f"   ⚠️  Could not read merged file {latest_merged}: {e}")
+            
+            # If only holdings file exists, use it directly (prioritize fresh data)
+            elif holdings_files:
+                latest_holdings = max(holdings_files, key=os.path.getmtime)
+                holdings_df = pd.read_csv(latest_holdings)
+                print(f"   📁 Loaded holdings from: {latest_holdings} (direct holdings file)")
+                
+                # Filter out zero quantity stocks
+                if 'Qty.' in holdings_df.columns:
+                    initial_count = len(holdings_df)
+                    holdings_df = holdings_df[holdings_df['Qty.'] > 0]
+                    if len(holdings_df) < initial_count:
+                        print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
+                
+                return holdings_df
             
             # Fallback: Try multiple possible locations and names for holdings file
             possible_paths = [
@@ -2728,9 +2944,22 @@ class EnhancedTop200StockAnalyzer:
                         stock_data = stock_analysis.iloc[0]
                         recommendation = stock_data.get('final_recommendation', 'HOLD')
                         
-                        # Determine action based on recommendation
-                        if 'SELL' in recommendation:
+                        # Calculate enhanced metrics
+                        momentum_score, momentum_flags = self.calculate_momentum_score(stock_data)
+                        breakout_patterns, breakout_score = self.detect_breakout_patterns(stock_data)
+                        profit_action, profit_pct, profit_reason = self.calculate_profit_booking_strategy(
+                            holding['Cur. val'], holding.get('Invested', 0), symbol, stock_data
+                        )
+                        
+                        # Determine action based on recommendation + momentum + profit booking
+                        if 'BOOK' in profit_action or 'STOP LOSS' in profit_action:
+                            action_type = profit_action
+                            priority = "HIGH"
+                        elif 'SELL' in recommendation:
                             action_type = "CONSIDER SELLING"
+                            priority = "HIGH"
+                        elif momentum_score >= 70:
+                            action_type = "🚀 MOMENTUM PLAY - INCREASE"
                             priority = "HIGH"
                         elif 'BUY' in recommendation:
                             action_type = "INCREASE POSITION"
@@ -2746,6 +2975,7 @@ class EnhancedTop200StockAnalyzer:
                             'current_value': holding['Cur. val'],
                             'current_quantity': holding.get('Qty.', 0),
                             'current_price': stock_data.get('current_price', holding.get('LTP', 0)),
+                            'avg_cost': holding.get('Avg. cost', 0),
                             'holding_percentage': holding_percentage,
                             'overall_score': stock_data.get('overall_score_with_value', 0),
                             'risk_adjusted_score': stock_data.get('risk_adjusted_score', 0),
@@ -2756,7 +2986,16 @@ class EnhancedTop200StockAnalyzer:
                             'priority': priority,
                             'is_current_holding': True,
                             'volatility_6m': stock_data.get('volatility_6m', 0),
-                            'market_cap': stock_data.get('market_cap', 0)
+                            'market_cap': stock_data.get('market_cap', 0),
+                            # NEW PREDICTIVE FEATURES
+                            'momentum_score': momentum_score,
+                            'momentum_flags': ' | '.join(momentum_flags) if momentum_flags else 'NONE',
+                            'breakout_patterns': ' | '.join(breakout_patterns) if breakout_patterns else 'NONE',
+                            'breakout_score': breakout_score,
+                            'profit_booking_action': profit_action,
+                            'profit_booking_pct': profit_pct,
+                            'profit_booking_reason': profit_reason,
+                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) * 100 if holding.get('Invested', 0) > 0 else 0
                         })
                     else:
                         # Holdings not in analysis - default to HOLD
@@ -2767,6 +3006,7 @@ class EnhancedTop200StockAnalyzer:
                             'current_value': holding['Cur. val'],
                             'current_quantity': holding.get('Qty.', 0),  # Fixed column name
                             'current_price': holding.get('LTP', 0),
+                            'avg_cost': holding.get('Avg. cost', 0),
                             'holding_percentage': holding_percentage,
                             'overall_score': 0,
                             'risk_adjusted_score': 0,
@@ -2777,7 +3017,16 @@ class EnhancedTop200StockAnalyzer:
                             'priority': 'LOW',
                             'is_current_holding': True,
                             'volatility_6m': 0,
-                            'market_cap': 0  # No market cap data available for unanalyzed stocks
+                            'market_cap': 0,  # No market cap data available for unanalyzed stocks
+                            # DEFAULT PREDICTIVE FEATURES
+                            'momentum_score': 0,
+                            'momentum_flags': 'NOT ANALYZED',
+                            'breakout_patterns': 'NOT ANALYZED',
+                            'breakout_score': 0,
+                            'profit_booking_action': 'HOLD (NOT ANALYZED)',
+                            'profit_booking_pct': 0,
+                            'profit_booking_reason': 'Stock not in analysis scope',
+                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) * 100 if holding.get('Invested', 0) > 0 else 0
                         })
             
             # STEP 2: Find new investment candidates (not currently held)
@@ -2801,6 +3050,21 @@ class EnhancedTop200StockAnalyzer:
                 new_candidates = new_candidates.sort_values('risk_adjusted_score', ascending=False).head(remaining_slots)
                 
                 for idx, stock in new_candidates.iterrows():
+                    # Calculate predictive metrics for new positions
+                    momentum_score, momentum_flags = self.calculate_momentum_score(stock)
+                    breakout_patterns, breakout_score = self.detect_breakout_patterns(stock)
+                    
+                    # Determine action type based on momentum
+                    if momentum_score >= 70:
+                        action_type = "🚀 HIGH MOMENTUM NEW POSITION"
+                        priority = 'VERY HIGH'
+                    elif breakout_score >= 60:
+                        action_type = "📈 BREAKOUT NEW POSITION"
+                        priority = 'HIGH'
+                    else:
+                        action_type = "NEW POSITION"
+                        priority = 'HIGH'
+                    
                     allocation_data.append({
                         'symbol': stock['symbol'],
                         'company_name': stock.get('company_name', stock['symbol']),
@@ -2808,16 +3072,26 @@ class EnhancedTop200StockAnalyzer:
                         'current_value': 0,
                         'current_quantity': 0,
                         'current_price': stock.get('current_price', 0),
+                        'avg_cost': 0,
                         'overall_score': stock['overall_score_with_value'],
                         'risk_adjusted_score': stock['risk_adjusted_score'],
                         'undervaluation_score': stock['undervaluation_score'],
                         'risk_category': stock.get('risk_category', 'MODERATE'),
                         'recommendation': stock.get('final_recommendation', ''),
-                        'action_type': "NEW POSITION",
-                        'priority': 'HIGH',
+                        'action_type': action_type,
+                        'priority': priority,
                         'is_current_holding': False,
                         'volatility_6m': stock.get('volatility_6m', 0),
-                        'market_cap': stock.get('market_cap', 0)
+                        'market_cap': stock.get('market_cap', 0),
+                        # NEW PREDICTIVE FEATURES
+                        'momentum_score': momentum_score,
+                        'momentum_flags': ' | '.join(momentum_flags) if momentum_flags else 'NONE',
+                        'breakout_patterns': ' | '.join(breakout_patterns) if breakout_patterns else 'NONE',
+                        'breakout_score': breakout_score,
+                        'profit_booking_action': 'NEW POSITION',
+                        'profit_booking_pct': 0,
+                        'profit_booking_reason': 'Fresh investment opportunity',
+                        'current_profit_pct': 0
                     })
             
             # STEP 3: Risk Profile-Based Category Allocation
@@ -2830,6 +3104,16 @@ class EnhancedTop200StockAnalyzer:
             allocation_df['suggested_quantity'] = 0.0
             allocation_df['stock_type'] = 'VALUE'  # Default classification
             allocation_df['weight_capped'] = False
+            
+            # Calculate enhanced predictive score (combines risk-adjusted + momentum + breakout)
+            allocation_df['predictive_score'] = (
+                allocation_df['risk_adjusted_score'] * 0.7 +  # 70% traditional analysis
+                allocation_df['momentum_score'] * 0.2 +       # 20% momentum analysis
+                allocation_df['breakout_score'] * 0.1         # 10% breakout patterns
+            ).round(1)
+            
+            # Add priority ranking based on predictive score
+            allocation_df['predictive_rank'] = allocation_df['predictive_score'].rank(method='dense', ascending=False).astype(int)
             allocation_df['action_recommendation'] = 'HOLD'  # Default action
             
             # STEP 3.1: Classify all stocks by type (Defence/Growth/Value) 

@@ -48,27 +48,30 @@ def main():
                        help='Path to holdings CSV file (auto-detected if not provided)')
     parser.add_argument('--report', type=str, default=None,
                        help='Path to Enhanced Stock Report Excel file (auto-detected if not provided)')
-    parser.add_argument('--output', type=str, default='console',
-                       choices=['console', 'file', 'both'],
-                       help='Output format: console, file, or both (default: console)')
+    # COMMENTED OUT - OVERCOMPLICATED OPTIONS
+    # parser.add_argument('--output', type=str, default='console',
+    #                    choices=['console', 'file', 'both'],
+    #                    help='Output format: console, file, or both (default: console)')
     parser.add_argument('--excel', action='store_true',
                        help='Generate Excel report with comprehensive trading sheet')
-    parser.add_argument('--no-trading-sheet', action='store_true',
-                       help='Disable trading sheet generation (faster execution)')
-    parser.add_argument('--execute-buys', action='store_true',
-                       help='Execute top 5 buy recommendations by adding them to portfolio')
-    parser.add_argument('--execute-sells', action='store_true',
-                       help='Execute consolidation sell recommendations')
-    parser.add_argument('--execute-all-buys', action='store_true',
-                       help='Execute all buy recommendations')
+    # COMMENTED OUT - TOO MANY EXECUTION OPTIONS
+    # parser.add_argument('--no-trading-sheet', action='store_true',
+    #                    help='Disable trading sheet generation (faster execution)')
+    # parser.add_argument('--execute-buys', action='store_true',
+    #                    help='Execute top 5 buy recommendations by adding them to portfolio')
+    # parser.add_argument('--execute-sells', action='store_true',
+    #                    help='Execute consolidation sell recommendations')
+    # parser.add_argument('--execute-all-buys', action='store_true',
+    #                    help='Execute all buy recommendations')
     parser.add_argument('--gtt', action='store_true',
                        help='Generate GTT (Good Till Triggered) orders for all holdings')
     parser.add_argument('--fast', action='store_true',
-                       help='Fast execution mode - skip trading sheet and detailed calculations')
-    parser.add_argument('--target-min', type=int, default=25,
-                       help='Minimum target number of stocks for portfolio consolidation (default: 25)')
-    parser.add_argument('--target-max', type=int, default=30,
-                       help='Maximum target number of stocks for portfolio consolidation (default: 30)')
+                       help='Fast execution mode - skip detailed calculations')
+    # COMMENTED OUT - OVERTHINKING PORTFOLIO SIZE
+    # parser.add_argument('--target-min', type=int, default=25,
+    #                    help='Minimum target number of stocks for portfolio consolidation (default: 25)')
+    # parser.add_argument('--target-max', type=int, default=30,
+    #                    help='Maximum target number of stocks for portfolio consolidation (default: 30)')
     
     args = parser.parse_args()
     
@@ -88,10 +91,12 @@ def main():
         print("📊 Initializing Portfolio Analyzer...")
         analyzer = PortfolioAnalyzer(available_funds=args.funds)
         
-        # Initialize consolidation engine with target range parameters
+        # Initialize consolidation engine with simplified default values
+        target_min = getattr(args, 'target_min', 25)  # Default: 25 stocks
+        target_max = getattr(args, 'target_max', 30)  # Default: 30 stocks
         analyzer.consolidation_engine = PortfolioConsolidation(analyzer, 
-                                                              target_min_stocks=args.target_min,
-                                                              target_max_stocks=args.target_max)
+                                                              target_min_stocks=target_min,
+                                                              target_max_stocks=target_max)
         
         # Step 2: Load Portfolio Data
         print("📁 Loading portfolio data...")
@@ -167,7 +172,7 @@ def main():
             print(f"💰 Potential proceeds from sales: ₹{total_proceeds:,.0f}")
         
         # Portfolio Consolidation Analysis
-        print(f"📊 Analyzing portfolio consolidation (target: {args.target_min}-{args.target_max} stocks)...")
+        print(f"📊 Analyzing portfolio consolidation (target: {target_min}-{target_max} stocks)...")
         consolidation_analysis = analyzer.consolidation_engine.analyze_consolidation_opportunities()
         
         if consolidation_analysis.get('action_needed', False):
@@ -179,14 +184,19 @@ def main():
         else:
             print(f"✅ Portfolio already optimized with {consolidation_analysis.get('current_holdings', 0)} stocks")
         
-        # Execute Recommendations if requested
-        if args.execute_buys or args.execute_all_buys or args.execute_sells:
+        # COMMENTED OUT - Execute Recommendations (too complicated)
+        # Simplified: Just generate reports instead of executing
+        execute_buys = getattr(args, 'execute_buys', False)
+        execute_all_buys = getattr(args, 'execute_all_buys', False) 
+        execute_sells = getattr(args, 'execute_sells', False)
+        
+        if execute_buys or execute_all_buys or execute_sells:
             print("⚡ Executing portfolio recommendations...")
             executor = PortfolioExecutor(analyzer, insights)
             
-            if args.execute_buys or args.execute_all_buys:
+            if execute_buys or execute_all_buys:
                 print("🛒 Executing buy recommendations...")
-                buy_result = executor.execute_buy_recommendations(execute_all=args.execute_all_buys)
+                buy_result = executor.execute_buy_recommendations(execute_all=execute_all_buys)
                 
                 if buy_result['success']:
                     print(f"✅ {buy_result['message']}")
@@ -197,7 +207,7 @@ def main():
                 else:
                     print(f"❌ Buy execution failed: {buy_result['message']}")
             
-            if args.execute_sells:
+            if execute_sells:
                 print("💸 Executing sell recommendations...")
                 sell_result = executor.execute_sell_recommendations()
                 
@@ -220,11 +230,12 @@ def main():
         # Generate complete report
         complete_report = reporter.generate_complete_report()
         
-        # Output based on user preference
-        if args.output in ['console', 'both']:
+        # Output based on user preference (simplified to always console)
+        output_mode = getattr(args, 'output', 'console')
+        if output_mode in ['console', 'both']:
             print("\n" + complete_report)
         
-        if args.output in ['file', 'both']:
+        if output_mode in ['file', 'both']:
             # Save text report
             report_path = reporter.save_report_to_file(complete_report)
             if report_path:
@@ -232,7 +243,8 @@ def main():
         
         if args.excel:
             # Generate Excel report with trading sheet
-            include_trading = not args.no_trading_sheet
+            no_trading_sheet = getattr(args, 'no_trading_sheet', False)
+            include_trading = not no_trading_sheet
             if include_trading:
                 print("📊 Generating comprehensive Excel report with trading sheet...")
                 print("   ├─ Calculating Support/Resistance levels (S1, S2, R1, R2)...")
@@ -247,7 +259,7 @@ def main():
                     print(f"📊 Excel report saved to: {excel_path}")
         
         # Always generate basic trading sheet if not disabled and GTT not requested (for faster execution)
-        elif not args.no_trading_sheet and not args.gtt:
+        elif not getattr(args, 'no_trading_sheet', False) and not args.gtt:
             print("📊 Generating basic trading sheet...")
             excel_path = reporter.generate_excel_report(include_trading_sheet=True)
             if excel_path:
@@ -390,7 +402,7 @@ def main():
             for i, rec in enumerate(health_recommendations[:3], 1):
                 print(f"   {i}. {rec}")
         
-        if not args.no_trading_sheet:
+        if not getattr(args, 'no_trading_sheet', False):
             print(f"\n📊 Trading Sheet Features Generated:")
             print(f"   ├─ Support/Resistance levels (S1, S2, R1, R2) for all holdings")
             print(f"   ├─ Entry/Exit signals based on technical analysis")
