@@ -41,6 +41,7 @@ from src.excel_exporter import ExcelExporter, ExcelReportGenerator
 from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
 from corrected_scoring_engine import CorrectedScoringEngine
 from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
+from pattern_recognition import analyze_patterns  # Phase 2: Advanced Pattern Recognition
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -1028,6 +1029,61 @@ class EnhancedTop200StockAnalyzer:
                     'ml_prediction_quality': 'error'
                 })
             
+            # 3.6. PHASE 2 - TASK 5: Advanced Pattern Recognition
+            try:
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="6mo")  # 6 months for pattern detection
+                
+                if not hist.empty and len(hist) > 30:
+                    pattern_results = analyze_patterns(hist)
+                    patterns_detected = pattern_results['patterns']
+                    pattern_score = pattern_results['score']
+                    
+                    stock_data.update({
+                        'pattern_count': len(patterns_detected),
+                        'pattern_bullish_score': pattern_score['bullish_score'],
+                        'pattern_bearish_score': pattern_score['bearish_score'],
+                        'pattern_dominant_signal': pattern_score['dominant_signal'],
+                        'pattern_confidence': pattern_score['confidence'],
+                        'pattern_signal': pattern_score['dominant_signal'].upper(),
+                        'patterns_detected': ', '.join([p['type'] for p in patterns_detected])
+                    })
+                    
+                    # Add individual pattern details if detected
+                    if patterns_detected:
+                        for i, pattern in enumerate(patterns_detected[:3], 1):  # Top 3 patterns
+                            stock_data[f'pattern{i}_type'] = pattern['type']
+                            stock_data[f'pattern{i}_direction'] = pattern.get('direction', 'neutral')
+                            stock_data[f'pattern{i}_confidence'] = pattern.get('confidence', 0.0)
+                            if 'target' in pattern:
+                                stock_data[f'pattern{i}_target'] = pattern['target']
+                    
+                    stock_data['pattern_recognition_status'] = 'success'
+                    logging.info(f"Pattern Recognition for {symbol}: {len(patterns_detected)} patterns, Signal={pattern_score['dominant_signal'].upper()}, Confidence={pattern_score['confidence']:.1%}")
+                else:
+                    stock_data['pattern_recognition_status'] = 'insufficient_data'
+                    stock_data.update({
+                        'pattern_count': 0,
+                        'pattern_bullish_score': 0.0,
+                        'pattern_bearish_score': 0.0,
+                        'pattern_dominant_signal': 'neutral',
+                        'pattern_confidence': 0.0,
+                        'pattern_signal': 'NEUTRAL',
+                        'patterns_detected': 'none'
+                    })
+            except Exception as pattern_error:
+                logging.warning(f"Pattern recognition error for {symbol}: {pattern_error}")
+                stock_data['pattern_recognition_status'] = f'error: {str(pattern_error)}'
+                stock_data.update({
+                    'pattern_count': 0,
+                    'pattern_bullish_score': 0.0,
+                    'pattern_bearish_score': 0.0,
+                    'pattern_dominant_signal': 'neutral',
+                    'pattern_confidence': 0.0,
+                    'pattern_signal': 'NEUTRAL',
+                    'patterns_detected': 'error'
+                })
+            
             # 4. Calculate Comprehensive Scores with All Accuracy Improvements
             fund_score = stock_data.get('fundamental_score', 50)
             enhanced_score = enhanced_tech_data.get('short_term_score', 50) if enhanced_tech_data else 50
@@ -1036,13 +1092,27 @@ class EnhancedTop200StockAnalyzer:
             mtf_score = stock_data.get('mtf_composite_score', 50)  # Multi-timeframe score
             institutional_score = stock_data.get('institutional_score', 50)  # NEW: Institutional flow score
             ml_confidence = stock_data.get('ml_confidence', 0)  # PHASE 2: ML confidence score
+            pattern_confidence = stock_data.get('pattern_confidence', 0.0)  # PHASE 2: Pattern recognition confidence
+            
+            # Convert pattern signal to score (0-100 scale)
+            pattern_signal = stock_data.get('pattern_dominant_signal', 'neutral')
+            pattern_bullish = stock_data.get('pattern_bullish_score', 0.0)
+            pattern_bearish = stock_data.get('pattern_bearish_score', 0.0)
+            
+            # Pattern score: bullish=75-100, neutral=40-60, bearish=0-25
+            if pattern_signal == 'bullish':
+                pattern_score = 50 + (pattern_confidence * 50)  # 50-100
+            elif pattern_signal == 'bearish':
+                pattern_score = 50 - (pattern_confidence * 50)  # 0-50
+            else:
+                pattern_score = 50  # neutral
             
             # 5. ENHANCED: Undervaluation Detection  
             undervaluation_score = self.calculate_undervaluation_score(stock_data)
             
-            # ACCURACY IMPROVEMENTS #4, #5, #7: Combine Real Technical + Multi-Timeframe + Institutional Analysis
-            # Weight distribution: Real Tech (40%) + Multi-Timeframe (25%) + Institutional (20%) + Enhanced (15%)
-            advanced_tech_score = (real_tech_score * 0.4) + (mtf_score * 0.25) + (institutional_score * 0.2) + (enhanced_score * 0.15)
+            # PHASE 2 IMPROVEMENTS: Combine Real Technical + Multi-Timeframe + Institutional + Pattern Recognition
+            # Weight distribution: Real Tech (35%) + Multi-Timeframe (22%) + Institutional (18%) + Pattern (15%) + Enhanced (10%)
+            advanced_tech_score = (real_tech_score * 0.35) + (mtf_score * 0.22) + (institutional_score * 0.18) + (pattern_score * 0.15) + (enhanced_score * 0.10)
             
             # Legacy combined score for compatibility
             combined_tech_score = (real_tech_score * 0.7) + (enhanced_score * 0.3)
@@ -1054,6 +1124,7 @@ class EnhancedTop200StockAnalyzer:
                 'real_technical_score_final': real_tech_score,
                 'mtf_composite_score_final': mtf_score,
                 'institutional_score_final': institutional_score,
+                'pattern_recognition_score_final': pattern_score,
                 'advanced_technical_score_final': advanced_tech_score,
                 'combined_technical_score_final': combined_tech_score,
                 'legacy_technical_score_final': legacy_score,
