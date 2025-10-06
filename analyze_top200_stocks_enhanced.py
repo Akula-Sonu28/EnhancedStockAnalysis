@@ -40,6 +40,7 @@ from src.technical_analyzer import get_ohlcv, calculate_indicators, compute_tech
 from src.excel_exporter import ExcelExporter, ExcelReportGenerator
 from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
 from corrected_scoring_engine import CorrectedScoringEngine
+from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -49,6 +50,7 @@ class EnhancedTop200StockAnalyzer:
                  focus_growth=False, focus_momentum=False, min_volatility=0.0):
         self.max_workers = max_workers
         self.corrected_scoring_engine = CorrectedScoringEngine()  # 🔧 NEW: Corrected scoring based on backtest
+        self.ml_predictor = get_ml_predictor()  # 🤖 Phase 2: ML Price Prediction
         self.setup_logging()
         self.results = []
         self.failed_stocks = []
@@ -992,6 +994,40 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['legacy_technical_status'] = f'error: {str(e)}'
                 logging.error(f"Legacy technical analysis error for {symbol}: {e}")
             
+            # 3.5. PHASE 2 - TASK 1: ML Price Prediction Model
+            try:
+                ml_results = self.ml_predictor.predict_price_movement(stock_data)
+                if ml_results:
+                    stock_data.update({
+                        'ml_prediction': ml_results['prediction'],  # 1 (up), 0 (hold), -1 (down)
+                        'ml_confidence': ml_results['confidence'],  # 0-100
+                        'ml_signal': ml_results['signal'],  # BUY, HOLD, SELL
+                        'ml_expected_return': ml_results['expected_return'],  # Expected return %
+                        'ml_prediction_quality': 'high' if ml_results['confidence'] > 70 else 'medium' if ml_results['confidence'] > 50 else 'low',
+                        'ml_probabilities': str(ml_results.get('probabilities', {}))  # Convert to string for Excel
+                    })
+                    stock_data['ml_prediction_status'] = 'success'
+                    logging.info(f"ML Prediction for {symbol}: Signal={ml_results['signal']}, Confidence={ml_results['confidence']:.1f}%, Expected Return={ml_results['expected_return']:.2f}%")
+                else:
+                    stock_data['ml_prediction_status'] = 'no_prediction'
+                    stock_data.update({
+                        'ml_prediction': 0,
+                        'ml_confidence': 0,
+                        'ml_signal': 'HOLD',
+                        'ml_expected_return': 0.0,
+                        'ml_prediction_quality': 'none'
+                    })
+            except Exception as ml_error:
+                logging.warning(f"ML prediction error for {symbol}: {ml_error}")
+                stock_data['ml_prediction_status'] = f'error: {str(ml_error)}'
+                stock_data.update({
+                    'ml_prediction': 0,
+                    'ml_confidence': 0,
+                    'ml_signal': 'HOLD',
+                    'ml_expected_return': 0.0,
+                    'ml_prediction_quality': 'error'
+                })
+            
             # 4. Calculate Comprehensive Scores with All Accuracy Improvements
             fund_score = stock_data.get('fundamental_score', 50)
             enhanced_score = enhanced_tech_data.get('short_term_score', 50) if enhanced_tech_data else 50
@@ -999,6 +1035,7 @@ class EnhancedTop200StockAnalyzer:
             real_tech_score = stock_data.get('real_technical_score', 50)
             mtf_score = stock_data.get('mtf_composite_score', 50)  # Multi-timeframe score
             institutional_score = stock_data.get('institutional_score', 50)  # NEW: Institutional flow score
+            ml_confidence = stock_data.get('ml_confidence', 0)  # PHASE 2: ML confidence score
             
             # 5. ENHANCED: Undervaluation Detection  
             undervaluation_score = self.calculate_undervaluation_score(stock_data)
@@ -1120,9 +1157,30 @@ class EnhancedTop200StockAnalyzer:
             phase1_score = stock_data['phase1_adjusted_score']
             is_undervalued = undervaluation_score >= 65
             
-            # PHASE 1 FINAL SCORE: Blend corrected score with Phase 1 improvements
-            # 70% corrected score + 30% Phase 1 adjusted score
-            final_blended_score = (0.70 * corrected_score) + (0.30 * phase1_score)
+            # PHASE 2 ENHANCEMENT: Integrate ML Prediction into Scoring
+            # Calculate ML-adjusted score based on prediction confidence
+            ml_confidence = stock_data.get('ml_confidence', 0)
+            ml_signal = stock_data.get('ml_signal', 'HOLD')
+            ml_prediction_quality = stock_data.get('ml_prediction_quality', 'none')
+            
+            # ML score adjustment: boost/reduce score based on ML prediction
+            ml_score_adjustment = 0
+            if ml_prediction_quality in ['high', 'medium'] and ml_confidence > 40:
+                if ml_signal == 'BUY':
+                    ml_score_adjustment = (ml_confidence / 100) * 15  # Up to +15 points
+                elif ml_signal == 'SELL':
+                    ml_score_adjustment = -(ml_confidence / 100) * 12  # Up to -12 points
+                # HOLD adds 0 adjustment
+                logging.debug(f"ML adjustment for {symbol}: {ml_score_adjustment:+.1f} (Signal={ml_signal}, Confidence={ml_confidence:.0f}%)")
+            
+            stock_data['ml_score_adjustment'] = ml_score_adjustment
+            
+            # PHASE 1+2 FINAL SCORE: Blend corrected score (60%) + Phase 1 (30%) + ML adjustment (10%)
+            # Start with Phase 1 blend, then apply ML
+            phase1_blend = (0.70 * corrected_score) + (0.30 * phase1_score)
+            final_blended_score = phase1_blend + ml_score_adjustment
+            
+            stock_data['phase1_blended_score'] = phase1_blend
             stock_data['final_blended_score'] = final_blended_score
             
             # Adjust recommendation based on data quality and portfolio fit
@@ -1165,42 +1223,56 @@ class EnhancedTop200StockAnalyzer:
             else:
                 original_recommendation = "🔴 SELL"
             
-            # PHASE 1 FINAL RECOMMENDATION: Use blended score with quality gates
+            # PHASE 1+2 FINAL RECOMMENDATION: Use blended score with quality gates and ML signal
             if data_quality < 30:
                 # Very poor data quality - downgrade to HOLD at best
-                phase1_recommendation = "🟡 HOLD (LOW DATA QUALITY)"
+                phase2_recommendation = "🟡 HOLD (LOW DATA QUALITY)"
             elif final_blended_score >= 70 and is_undervalued:
-                phase1_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
+                phase2_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
             elif final_blended_score >= 70:
-                phase1_recommendation = "🟢 STRONG BUY"
+                phase2_recommendation = "🟢 STRONG BUY"
             elif final_blended_score >= 60 and is_undervalued:
-                phase1_recommendation = "🟢 BUY (VALUE)"
+                phase2_recommendation = "🟢 BUY (VALUE)"
             elif final_blended_score >= 60:
-                phase1_recommendation = "🟢 BUY"
+                phase2_recommendation = "🟢 BUY"
             elif final_blended_score >= 50:
-                phase1_recommendation = "🟡 HOLD"
+                phase2_recommendation = "🟡 HOLD"
             elif final_blended_score >= 40:
-                phase1_recommendation = "🟠 WEAK SELL"
+                phase2_recommendation = "🟠 WEAK SELL"
             else:
-                phase1_recommendation = "🔴 SELL"
+                phase2_recommendation = "🔴 SELL"
+            
+            # Add ML signal confirmation to recommendation
+            if ml_prediction_quality in ['high', 'medium'] and ml_confidence > 60:
+                if ml_signal == 'BUY' and 'BUY' in phase2_recommendation:
+                    phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
+                elif ml_signal == 'SELL' and 'SELL' in phase2_recommendation:
+                    phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
+                elif ml_signal != 'HOLD':
+                    # ML disagrees with main recommendation
+                    phase2_recommendation += f" (ML: {ml_signal})"
             
             # Add portfolio context to recommendation if relevant
             diversification = stock_data.get('diversification_benefit', 'unknown')
-            if diversification == 'high' and 'BUY' in phase1_recommendation:
-                phase1_recommendation += " (DIVERSIFIES)"
-            elif diversification == 'negative' and 'BUY' in phase1_recommendation:
-                phase1_recommendation += " (CONCENTRATION RISK)"
+            if diversification == 'high' and 'BUY' in phase2_recommendation:
+                if '(ML:' not in phase2_recommendation:  # Avoid double parentheses
+                    phase2_recommendation += " (DIVERSIFIES)"
+            elif diversification == 'negative' and 'BUY' in phase2_recommendation:
+                if '(ML:' not in phase2_recommendation:
+                    phase2_recommendation += " (CONCENTRATION RISK)"
             
             # Store all recommendations for comparison
             stock_data['original_recommendation'] = original_recommendation
             stock_data['corrected_recommendation'] = corrected_recommendation
-            stock_data['phase1_recommendation'] = phase1_recommendation
-            stock_data['final_recommendation'] = phase1_recommendation  # Use Phase 1 as primary
+            stock_data['phase1_recommendation'] = stock_data.get('phase1_recommendation', original_recommendation)
+            stock_data['phase2_recommendation'] = phase2_recommendation
+            stock_data['final_recommendation'] = phase2_recommendation  # Use Phase 2 (with ML) as primary
             
             # Add score comparison info
             stock_data['score_adjustment'] = corrected_score - best_score
-            stock_data['phase1_score_adjustment'] = final_blended_score - corrected_score
-            stock_data['recommendation_changed'] = original_recommendation != phase1_recommendation
+            stock_data['phase1_score_adjustment'] = phase1_blend - corrected_score
+            stock_data['phase2_score_adjustment'] = final_blended_score - phase1_blend
+            stock_data['recommendation_changed'] = original_recommendation != phase2_recommendation
             
             # Convert complex objects to strings for Excel compatibility
             for key, value in stock_data.items():
