@@ -1,0 +1,326 @@
+2025-10-06 12:19:02,648 - INFO - No trained model found. Using fallback predictions.
+2025-10-06 12:19:02,648 - INFO - ML Price Predictor initialized (using fallback mode - no training data yet)
+2025-10-06 12:19:02,651 - INFO - Loaded 200 stocks from stock_list_template.csv
+2025-10-06 12:19:02,651 - INFO - Collecting training data from 50 stocks...
+2025-10-06 12:19:02,651 - INFO - Processing ABB (1/50)...
+2025-10-06 12:19:03,636 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:19:03,850 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:19:04,070 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:19:04,289 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:19:04,593 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:19:05,104 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:19:05,395 - INFO - Processing ACC (2/50)...
+2025-10-06 12:19:06,061 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:19:06,268 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:19:06,459 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:19:06,651 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:19:07,286 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:19:07,609 - INFO - Processing APLAPOLLO (3/50)...
+2025-10-06 12:19:08,249 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-10-06 12:19:08,615 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-10-06 12:19:08,936 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-10-06 12:19:09,704 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-10-06 12:19:10,438 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-10-06 12:19:10,829 - INFO - Processing AUBANK (4/50)...
+2025-10-06 12:19:11,685 - INFO - Comprehensive data extracted for AUBANK
+2025-10-06 12:19:11,945 - INFO - Comprehensive data extracted for AUBANK
+2025-10-06 12:19:12,143 - INFO - Comprehensive data extracted for AUBANK
+2025-10-06 12:19:12,389 - INFO - Comprehensive data extracted for AUBANK
+2025-10-06 12:19:12,855 - INFO - Comprehensive data extracted for AUBANK
+2025-10-06 12:19:13,124 - INFO - Processing ADANIENSOL (5/50)...
+2025-10-06 12:19:14,042 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-10-06 12:19:14,241 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-10-06 12:19:14,571 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-10-06 12:19:15,226 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-10-06 12:19:15,606 - INFO - Processing ADANIENT (6/50)...
+2025-10-06 12:19:16,135 - INFO - Comprehensive data extracted for ADANIENT
+2025-10-06 12:19:16,345 - INFO - Comprehensive data extracted for ADANIENT
+2025-10-06 12:19:16,557 - INFO - Comprehensive data extracted for ADANIENT
+2025-10-06 12:19:16,779 - INFO - Comprehensive data extracted for ADANIENT
+2025-10-06 12:19:16,987 - INFO - Comprehensive data extracted for ADANIENT
+2025-10-06 12:19:17,873 - INFO - Comprehensive data extracted for ADANIENT
+2025-10-06 12:19:18,170 - INFO - Processing ADANIGREEN (7/50)...
+2025-10-06 12:19:18,921 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-10-06 12:19:19,111 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-10-06 12:19:19,294 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-10-06 12:19:19,481 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-10-06 12:19:19,878 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-10-06 12:19:20,166 - INFO - Processing ADANIPORTS (8/50)...
+2025-10-06 12:19:21,086 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-10-06 12:19:21,301 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-10-06 12:19:21,620 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-10-06 12:19:21,813 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-10-06 12:19:22,298 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-10-06 12:19:22,574 - INFO - Processing ADANIPOWER (9/50)...
+2025-10-06 12:19:23,255 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-10-06 12:19:23,438 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-10-06 12:19:23,620 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-10-06 12:19:23,803 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-10-06 12:19:24,237 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-10-06 12:19:24,469 - INFO - Processing ATGL (10/50)...
+2025-10-06 12:19:25,078 - INFO - Comprehensive data extracted for ATGL
+2025-10-06 12:19:25,288 - INFO - Comprehensive data extracted for ATGL
+2025-10-06 12:19:25,621 - INFO - Comprehensive data extracted for ATGL
+2025-10-06 12:19:25,821 - INFO - Comprehensive data extracted for ATGL
+2025-10-06 12:19:26,591 - INFO - Comprehensive data extracted for ATGL
+2025-10-06 12:19:27,098 - INFO - Processing ABCAPITAL (11/50)...
+2025-10-06 12:19:27,706 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-10-06 12:19:27,872 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-10-06 12:19:28,048 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-10-06 12:19:28,249 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-10-06 12:19:28,623 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-10-06 12:19:29,188 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-10-06 12:19:29,552 - INFO - Processing ABFRL (12/50)...
+2025-10-06 12:19:30,488 - INFO - Comprehensive data extracted for ABFRL
+2025-10-06 12:19:30,659 - INFO - Comprehensive data extracted for ABFRL
+2025-10-06 12:19:30,825 - INFO - Comprehensive data extracted for ABFRL
+2025-10-06 12:19:31,019 - INFO - Comprehensive data extracted for ABFRL
+2025-10-06 12:19:31,644 - INFO - Comprehensive data extracted for ABFRL
+2025-10-06 12:19:31,870 - INFO - Processing ALKEM (13/50)...
+2025-10-06 12:19:32,525 - INFO - Comprehensive data extracted for ALKEM
+2025-10-06 12:19:32,871 - INFO - Comprehensive data extracted for ALKEM
+2025-10-06 12:19:33,071 - INFO - Comprehensive data extracted for ALKEM
+2025-10-06 12:19:33,278 - INFO - Comprehensive data extracted for ALKEM
+2025-10-06 12:19:33,736 - INFO - Comprehensive data extracted for ALKEM
+2025-10-06 12:19:33,991 - INFO - Processing AMBUJACEM (14/50)...
+2025-10-06 12:19:34,514 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-10-06 12:19:34,869 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-10-06 12:19:35,217 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-10-06 12:19:35,440 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-10-06 12:19:35,651 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-10-06 12:19:36,149 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-10-06 12:19:36,457 - INFO - Processing APOLLOHOSP (15/50)...
+2025-10-06 12:19:37,307 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-10-06 12:19:37,527 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-10-06 12:19:37,740 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-10-06 12:19:38,099 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-10-06 12:19:38,751 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-10-06 12:19:39,249 - INFO - Processing APOLLOTYRE (16/50)...
+2025-10-06 12:19:39,988 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-10-06 12:19:40,318 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-10-06 12:19:40,695 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-10-06 12:19:41,123 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-10-06 12:19:41,836 - INFO - Comprehensive data extracted for APOLLOTYRE
+2025-10-06 12:19:42,150 - INFO - Processing ASHOKLEY (17/50)...
+2025-10-06 12:19:42,846 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-10-06 12:19:43,178 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-10-06 12:19:43,383 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-10-06 12:19:43,586 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-10-06 12:19:43,800 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-10-06 12:19:44,508 - INFO - Comprehensive data extracted for ASHOKLEY
+2025-10-06 12:19:44,931 - INFO - Processing ASIANPAINT (18/50)...
+2025-10-06 12:19:45,666 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-10-06 12:19:45,963 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-10-06 12:19:46,169 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-10-06 12:19:46,411 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-10-06 12:19:46,686 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-10-06 12:19:47,235 - INFO - Comprehensive data extracted for ASIANPAINT
+2025-10-06 12:19:47,530 - INFO - Processing ASTRAL (19/50)...
+2025-10-06 12:19:48,195 - INFO - Comprehensive data extracted for ASTRAL
+2025-10-06 12:19:48,401 - INFO - Comprehensive data extracted for ASTRAL
+2025-10-06 12:19:48,624 - INFO - Comprehensive data extracted for ASTRAL
+2025-10-06 12:19:48,947 - INFO - Comprehensive data extracted for ASTRAL
+2025-10-06 12:19:49,600 - INFO - Comprehensive data extracted for ASTRAL
+2025-10-06 12:19:49,861 - INFO - Processing AUROPHARMA (20/50)...
+2025-10-06 12:19:50,729 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-10-06 12:19:50,958 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-10-06 12:19:51,387 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-10-06 12:19:51,598 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-10-06 12:19:52,101 - INFO - Comprehensive data extracted for AUROPHARMA
+2025-10-06 12:19:52,400 - INFO - Processing DMART (21/50)...
+2025-10-06 12:19:53,232 - INFO - Comprehensive data extracted for DMART
+2025-10-06 12:19:53,406 - INFO - Comprehensive data extracted for DMART
+2025-10-06 12:19:53,605 - INFO - Comprehensive data extracted for DMART
+2025-10-06 12:19:53,914 - INFO - Comprehensive data extracted for DMART
+2025-10-06 12:19:54,621 - INFO - Comprehensive data extracted for DMART
+2025-10-06 12:19:54,853 - INFO - Processing AXISBANK (22/50)...
+2025-10-06 12:19:55,628 - INFO - Comprehensive data extracted for AXISBANK
+2025-10-06 12:19:55,877 - INFO - Comprehensive data extracted for AXISBANK
+2025-10-06 12:19:56,085 - INFO - Comprehensive data extracted for AXISBANK
+2025-10-06 12:19:56,514 - INFO - Comprehensive data extracted for AXISBANK
+2025-10-06 12:19:56,716 - INFO - Comprehensive data extracted for AXISBANK
+2025-10-06 12:19:58,409 - INFO - Comprehensive data extracted for AXISBANK
+2025-10-06 12:19:58,891 - INFO - Processing BSE (23/50)...
+2025-10-06 12:19:59,509 - INFO - Comprehensive data extracted for BSE
+2025-10-06 12:19:59,814 - INFO - Comprehensive data extracted for BSE
+2025-10-06 12:20:00,030 - INFO - Comprehensive data extracted for BSE
+2025-10-06 12:20:00,246 - INFO - Comprehensive data extracted for BSE
+2025-10-06 12:20:00,753 - INFO - Comprehensive data extracted for BSE
+2025-10-06 12:20:01,183 - INFO - Processing BAJAJ-AUTO (24/50)...
+2025-10-06 12:20:01,785 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-10-06 12:20:01,990 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-10-06 12:20:02,208 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-10-06 12:20:02,543 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-10-06 12:20:02,745 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-10-06 12:20:03,556 - INFO - Comprehensive data extracted for BAJAJ-AUTO
+2025-10-06 12:20:03,831 - INFO - Processing BAJFINANCE (25/50)...
+2025-10-06 12:20:04,452 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-10-06 12:20:04,643 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-10-06 12:20:04,873 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-10-06 12:20:05,096 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-10-06 12:20:05,579 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-10-06 12:20:06,610 - INFO - Comprehensive data extracted for BAJFINANCE
+2025-10-06 12:20:06,878 - INFO - Processing BAJAJFINSV (26/50)...
+2025-10-06 12:20:07,510 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-10-06 12:20:07,917 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-10-06 12:20:08,120 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-10-06 12:20:08,401 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-10-06 12:20:08,877 - INFO - Comprehensive data extracted for BAJAJFINSV
+2025-10-06 12:20:09,144 - INFO - Processing BAJAJHLDNG (27/50)...
+2025-10-06 12:20:09,980 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-10-06 12:20:10,205 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-10-06 12:20:10,408 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-10-06 12:20:10,633 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-10-06 12:20:11,254 - INFO - Comprehensive data extracted for BAJAJHLDNG
+2025-10-06 12:20:11,534 - INFO - Processing BAJAJHFL (28/50)...
+2025-10-06 12:20:12,108 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-10-06 12:20:12,300 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-10-06 12:20:12,501 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-10-06 12:20:12,676 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-10-06 12:20:13,484 - INFO - Comprehensive data extracted for BAJAJHFL
+2025-10-06 12:20:13,703 - INFO - Processing BANDHANBNK (29/50)...
+2025-10-06 12:20:14,306 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-10-06 12:20:14,515 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-10-06 12:20:14,721 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-10-06 12:20:14,919 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-10-06 12:20:15,523 - INFO - Comprehensive data extracted for BANDHANBNK
+2025-10-06 12:20:15,773 - INFO - Processing BANKBARODA (30/50)...
+2025-10-06 12:20:16,471 - INFO - Comprehensive data extracted for BANKBARODA
+2025-10-06 12:20:16,675 - INFO - Comprehensive data extracted for BANKBARODA
+2025-10-06 12:20:16,890 - INFO - Comprehensive data extracted for BANKBARODA
+2025-10-06 12:20:17,231 - INFO - Comprehensive data extracted for BANKBARODA
+2025-10-06 12:20:17,667 - INFO - Comprehensive data extracted for BANKBARODA
+2025-10-06 12:20:18,210 - INFO - Comprehensive data extracted for BANKBARODA
+2025-10-06 12:20:18,488 - INFO - Processing BANKINDIA (31/50)...
+2025-10-06 12:20:19,175 - INFO - Comprehensive data extracted for BANKINDIA
+2025-10-06 12:20:19,522 - INFO - Comprehensive data extracted for BANKINDIA
+2025-10-06 12:20:19,728 - INFO - Comprehensive data extracted for BANKINDIA
+2025-10-06 12:20:19,947 - INFO - Comprehensive data extracted for BANKINDIA
+2025-10-06 12:20:20,736 - INFO - Comprehensive data extracted for BANKINDIA
+2025-10-06 12:20:21,059 - INFO - Processing MAHABANK (32/50)...
+2025-10-06 12:20:21,912 - INFO - Comprehensive data extracted for MAHABANK
+2025-10-06 12:20:22,149 - INFO - Comprehensive data extracted for MAHABANK
+2025-10-06 12:20:22,452 - INFO - Comprehensive data extracted for MAHABANK
+2025-10-06 12:20:22,782 - INFO - Comprehensive data extracted for MAHABANK
+2025-10-06 12:20:23,551 - INFO - Comprehensive data extracted for MAHABANK
+2025-10-06 12:20:23,860 - INFO - Processing BDL (33/50)...
+2025-10-06 12:20:24,554 - INFO - Comprehensive data extracted for BDL
+2025-10-06 12:20:24,804 - INFO - Comprehensive data extracted for BDL
+2025-10-06 12:20:25,000 - INFO - Comprehensive data extracted for BDL
+2025-10-06 12:20:25,200 - INFO - Comprehensive data extracted for BDL
+2025-10-06 12:20:26,001 - INFO - Comprehensive data extracted for BDL
+2025-10-06 12:20:26,383 - INFO - Processing BEL (34/50)...
+2025-10-06 12:20:27,272 - INFO - Comprehensive data extracted for BEL
+2025-10-06 12:20:27,499 - INFO - Comprehensive data extracted for BEL
+2025-10-06 12:20:27,745 - INFO - Comprehensive data extracted for BEL
+2025-10-06 12:20:27,990 - INFO - Comprehensive data extracted for BEL
+2025-10-06 12:20:28,648 - INFO - Comprehensive data extracted for BEL
+2025-10-06 12:20:28,987 - INFO - Processing BHARATFORG (35/50)...
+2025-10-06 12:20:29,603 - INFO - Comprehensive data extracted for BHARATFORG
+2025-10-06 12:20:29,837 - INFO - Comprehensive data extracted for BHARATFORG
+2025-10-06 12:20:30,058 - INFO - Comprehensive data extracted for BHARATFORG
+2025-10-06 12:20:30,288 - INFO - Comprehensive data extracted for BHARATFORG
+2025-10-06 12:20:30,723 - INFO - Comprehensive data extracted for BHARATFORG
+2025-10-06 12:20:31,563 - INFO - Comprehensive data extracted for BHARATFORG
+2025-10-06 12:20:31,857 - INFO - Processing BHEL (36/50)...
+2025-10-06 12:20:32,858 - INFO - Comprehensive data extracted for BHEL
+2025-10-06 12:20:33,057 - INFO - Comprehensive data extracted for BHEL
+2025-10-06 12:20:33,251 - INFO - Comprehensive data extracted for BHEL
+2025-10-06 12:20:33,550 - INFO - Comprehensive data extracted for BHEL
+2025-10-06 12:20:34,035 - INFO - Comprehensive data extracted for BHEL
+2025-10-06 12:20:34,337 - INFO - Processing BPCL (37/50)...
+2025-10-06 12:20:34,899 - INFO - Comprehensive data extracted for BPCL
+2025-10-06 12:20:35,115 - INFO - Comprehensive data extracted for BPCL
+2025-10-06 12:20:35,433 - INFO - Comprehensive data extracted for BPCL
+2025-10-06 12:20:35,641 - INFO - Comprehensive data extracted for BPCL
+2025-10-06 12:20:35,889 - INFO - Comprehensive data extracted for BPCL
+2025-10-06 12:20:36,544 - INFO - Comprehensive data extracted for BPCL
+2025-10-06 12:20:36,872 - INFO - Processing BHARTIARTL (38/50)...
+2025-10-06 12:20:37,525 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-10-06 12:20:37,718 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-10-06 12:20:37,960 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-10-06 12:20:38,144 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-10-06 12:20:38,486 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-10-06 12:20:38,963 - INFO - Comprehensive data extracted for BHARTIARTL
+2025-10-06 12:20:39,255 - INFO - Processing BHARTIHEXA (39/50)...
+2025-10-06 12:20:40,007 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-10-06 12:20:40,343 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-10-06 12:20:40,528 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-10-06 12:20:40,712 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-10-06 12:20:41,962 - INFO - Comprehensive data extracted for BHARTIHEXA
+2025-10-06 12:20:42,336 - INFO - Processing BIOCON (40/50)...
+2025-10-06 12:20:43,101 - INFO - Comprehensive data extracted for BIOCON
+2025-10-06 12:20:43,547 - INFO - Comprehensive data extracted for BIOCON
+2025-10-06 12:20:43,789 - INFO - Comprehensive data extracted for BIOCON
+2025-10-06 12:20:44,070 - INFO - Comprehensive data extracted for BIOCON
+2025-10-06 12:20:44,270 - INFO - Comprehensive data extracted for BIOCON
+2025-10-06 12:20:45,110 - INFO - Comprehensive data extracted for BIOCON
+2025-10-06 12:20:45,379 - INFO - Processing BOSCHLTD (41/50)...
+2025-10-06 12:20:46,156 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-10-06 12:20:46,499 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-10-06 12:20:46,710 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-10-06 12:20:46,935 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-10-06 12:20:47,683 - INFO - Comprehensive data extracted for BOSCHLTD
+2025-10-06 12:20:47,970 - INFO - Processing BRITANNIA (42/50)...
+2025-10-06 12:20:48,676 - INFO - Comprehensive data extracted for BRITANNIA
+2025-10-06 12:20:48,892 - INFO - Comprehensive data extracted for BRITANNIA
+2025-10-06 12:20:49,134 - INFO - Comprehensive data extracted for BRITANNIA
+2025-10-06 12:20:49,369 - INFO - Comprehensive data extracted for BRITANNIA
+2025-10-06 12:20:49,889 - INFO - Comprehensive data extracted for BRITANNIA
+2025-10-06 12:20:50,180 - INFO - Processing CGPOWER (43/50)...
+2025-10-06 12:20:50,840 - INFO - Comprehensive data extracted for CGPOWER
+2025-10-06 12:20:51,097 - INFO - Comprehensive data extracted for CGPOWER
+2025-10-06 12:20:51,399 - INFO - Comprehensive data extracted for CGPOWER
+2025-10-06 12:20:51,737 - INFO - Comprehensive data extracted for CGPOWER
+2025-10-06 12:20:52,300 - INFO - Comprehensive data extracted for CGPOWER
+2025-10-06 12:20:52,591 - INFO - Processing CANBK (44/50)...
+2025-10-06 12:20:53,308 - INFO - Comprehensive data extracted for CANBK
+2025-10-06 12:20:53,539 - INFO - Comprehensive data extracted for CANBK
+2025-10-06 12:20:53,764 - INFO - Comprehensive data extracted for CANBK
+2025-10-06 12:20:53,976 - INFO - Comprehensive data extracted for CANBK
+2025-10-06 12:20:54,629 - INFO - Comprehensive data extracted for CANBK
+2025-10-06 12:20:54,921 - INFO - Processing CHOLAFIN (45/50)...
+2025-10-06 12:20:55,608 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-10-06 12:20:55,832 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-10-06 12:20:56,053 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-10-06 12:20:56,279 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-10-06 12:20:57,045 - INFO - Comprehensive data extracted for CHOLAFIN
+2025-10-06 12:20:57,354 - INFO - Processing CIPLA (46/50)...
+2025-10-06 12:20:58,379 - INFO - Comprehensive data extracted for CIPLA
+2025-10-06 12:20:58,584 - INFO - Comprehensive data extracted for CIPLA
+2025-10-06 12:20:58,933 - INFO - Comprehensive data extracted for CIPLA
+2025-10-06 12:20:59,169 - INFO - Comprehensive data extracted for CIPLA
+2025-10-06 12:21:00,045 - INFO - Comprehensive data extracted for CIPLA
+2025-10-06 12:21:00,363 - INFO - Processing COALINDIA (47/50)...
+2025-10-06 12:21:01,065 - INFO - Comprehensive data extracted for COALINDIA
+2025-10-06 12:21:01,301 - INFO - Comprehensive data extracted for COALINDIA
+2025-10-06 12:21:01,534 - INFO - Comprehensive data extracted for COALINDIA
+2025-10-06 12:21:01,742 - INFO - Comprehensive data extracted for COALINDIA
+2025-10-06 12:21:02,072 - INFO - Comprehensive data extracted for COALINDIA
+2025-10-06 12:21:02,814 - INFO - Comprehensive data extracted for COALINDIA
+2025-10-06 12:21:03,066 - INFO - Processing COCHINSHIP (48/50)...
+2025-10-06 12:21:03,673 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-10-06 12:21:03,954 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-10-06 12:21:04,164 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-10-06 12:21:04,422 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-10-06 12:21:04,656 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-10-06 12:21:05,341 - INFO - Comprehensive data extracted for COCHINSHIP
+2025-10-06 12:21:05,811 - INFO - Processing COFORGE (49/50)...
+2025-10-06 12:21:06,629 - INFO - Comprehensive data extracted for COFORGE
+2025-10-06 12:21:06,853 - INFO - Comprehensive data extracted for COFORGE
+2025-10-06 12:21:07,060 - INFO - Comprehensive data extracted for COFORGE
+2025-10-06 12:21:07,284 - INFO - Comprehensive data extracted for COFORGE
+2025-10-06 12:21:08,031 - INFO - Comprehensive data extracted for COFORGE
+2025-10-06 12:21:08,324 - INFO - Processing COLPAL (50/50)...
+2025-10-06 12:21:08,944 - INFO - Comprehensive data extracted for COLPAL
+2025-10-06 12:21:09,153 - INFO - Comprehensive data extracted for COLPAL
+2025-10-06 12:21:09,357 - INFO - Comprehensive data extracted for COLPAL
+2025-10-06 12:21:09,719 - INFO - Comprehensive data extracted for COLPAL
+2025-10-06 12:21:10,577 - INFO - Comprehensive data extracted for COLPAL
+2025-10-06 12:21:10,875 - INFO - Collected 265 training samples
+2025-10-06 12:21:10,875 - INFO - Failed to collect 235 samples
+2025-10-06 12:21:10,876 - INFO - Label distribution: UP=48, HOLD=129, DOWN=88
+2025-10-06 12:21:10,876 - INFO - Training ML model with 265 samples...
+2025-10-06 12:21:11,457 - INFO - ML Model trained - Train accuracy: 100.00%, Test accuracy: 39.62%
+2025-10-06 12:21:11,463 - INFO - Model saved to models\ml_predictor_20251006_122111.pkl
+2025-10-06 12:21:11,468 - INFO - Latest model saved to models\ml_predictor_latest.pkl

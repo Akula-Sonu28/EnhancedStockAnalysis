@@ -1,0 +1,559 @@
+2025-10-06 12:18:46,457 - INFO - No trained model found. Using fallback predictions.
+2025-10-06 12:18:46,458 - INFO - ML Price Predictor initialized (using fallback mode - no training data yet)
+2025-10-06 12:18:46,460 - INFO - Loaded 200 stocks from stock_list_template.csv
+2025-10-06 12:18:46,461 - INFO - Collecting training data from 2 stocks...
+2025-10-06 12:18:46,461 - INFO - Processing ABB (1/2)...
+2025-10-06 12:18:46,461 - DEBUG - Entering history()
+2025-10-06 12:18:46,463 - DEBUG - ('CREATE TABLE IF NOT EXISTS "_tz_kv" ("key" VARCHAR(255) NOT NULL PRIMARY KEY, "value" VARCHAR(255)) WITHOUT ROWID', [])
+2025-10-06 12:18:46,465 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ABB.NS', 1, 0])
+2025-10-06 12:18:46,504 - DEBUG -  Entering history()
+2025-10-06 12:18:46,506 - DEBUG - ABB.NS: Yahoo GET parameters: {'period1': '2025-03-25 12:18:46+05:30', 'period2': '2025-10-06 12:18:46+05:30', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:46,506 - DEBUG -   Entering get()
+2025-10-06 12:18:46,506 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:46,507 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ABB.NS
+2025-10-06 12:18:46,507 - DEBUG - params={'period1': 1742885326, 'period2': 1759733326, 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:46,507 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:46,507 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:46,507 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:46,507 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:46,507 - DEBUG -        Entering _load_cookie_curlCffi()
+2025-10-06 12:18:46,509 - DEBUG - ('CREATE TABLE IF NOT EXISTS "_cookieschema" ("strategy" VARCHAR(255) NOT NULL PRIMARY KEY, "fetch_date" DATETIME NOT NULL, "cookie_bytes" BLOB NOT NULL) WITHOUT ROWID', [])
+2025-10-06 12:18:46,509 - DEBUG - ('SELECT "t1"."strategy", "t1"."fetch_date", "t1"."cookie_bytes" FROM "_cookieschema" AS "t1" WHERE ("t1"."strategy" = ?) LIMIT ? OFFSET ?', ['curlCffi', 1, 0])
+2025-10-06 12:18:46,510 - DEBUG -        Exiting _load_cookie_curlCffi()
+2025-10-06 12:18:46,510 - DEBUG - reusing persistent cookie
+2025-10-06 12:18:46,510 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:46,510 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:46,510 - DEBUG -        Entering _get_cookie_basic()
+2025-10-06 12:18:46,510 - DEBUG - reusing cookie
+2025-10-06 12:18:46,510 - DEBUG -        Exiting _get_cookie_basic()
+2025-10-06 12:18:46,992 - DEBUG - crumb = 'xfKJzcuGYMT'
+2025-10-06 12:18:46,992 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:46,992 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:46,992 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,109 - DEBUG - response code=200
+2025-10-06 12:18:47,109 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:47,109 - DEBUG -   Exiting get()
+2025-10-06 12:18:47,111 - DEBUG - ABB.NS: yfinance received OHLC data: 2025-03-25 03:45:00 -> 2025-10-06 06:48:43
+2025-10-06 12:18:47,112 - DEBUG - ABB.NS: OHLC after cleaning: 2025-03-25 09:15:00+05:30 -> 2025-10-06 12:18:43+05:30
+2025-10-06 12:18:47,117 - DEBUG - ABB.NS: OHLC after combining events: 2025-03-25 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:47,120 - DEBUG - ABB.NS: yfinance returning OHLC: 2025-03-25 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:47,121 - DEBUG -  Exiting history()
+2025-10-06 12:18:47,121 - DEBUG - Exiting history()
+2025-10-06 12:18:47,122 - DEBUG - get_raw_json(): https://query2.finance.yahoo.com/v10/finance/quoteSummary/ABB.NS
+2025-10-06 12:18:47,122 - DEBUG - Entering get()
+2025-10-06 12:18:47,122 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,123 - DEBUG - url=https://query2.finance.yahoo.com/v10/finance/quoteSummary/ABB.NS
+2025-10-06 12:18:47,123 - DEBUG - params={'modules': 'financialData,quoteType,defaultKeyStatistics,assetProfile,summaryDetail', 'corsDomain': 'finance.yahoo.com', 'formatted': 'false', 'symbol': 'ABB.NS'}
+2025-10-06 12:18:47,123 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,123 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,123 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,123 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,123 - DEBUG - reusing cookie
+2025-10-06 12:18:47,124 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,124 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,124 - DEBUG - reusing crumb
+2025-10-06 12:18:47,124 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,124 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,124 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,252 - DEBUG - response code=200
+2025-10-06 12:18:47,252 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,252 - DEBUG - Exiting get()
+2025-10-06 12:18:47,252 - DEBUG - get_raw_json(): https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:47,253 - DEBUG - Entering get()
+2025-10-06 12:18:47,253 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,253 - DEBUG - url=https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:47,253 - DEBUG - params={'symbols': 'ABB.NS', 'formatted': 'false'}
+2025-10-06 12:18:47,253 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,253 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,253 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,254 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,254 - DEBUG - reusing cookie
+2025-10-06 12:18:47,254 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,254 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,254 - DEBUG - reusing crumb
+2025-10-06 12:18:47,254 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,254 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,254 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,377 - DEBUG - response code=200
+2025-10-06 12:18:47,377 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,377 - DEBUG - Exiting get()
+2025-10-06 12:18:47,378 - DEBUG - Entering get()
+2025-10-06 12:18:47,378 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,378 - DEBUG - url=https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/ABB.NS?symbol=ABB.NS&type=trailingPegRatio&period1=1743984000&period2=1759795200
+2025-10-06 12:18:47,378 - DEBUG - params=None
+2025-10-06 12:18:47,378 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,379 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,379 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,379 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,379 - DEBUG - reusing cookie
+2025-10-06 12:18:47,379 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,379 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,379 - DEBUG - reusing crumb
+2025-10-06 12:18:47,379 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,379 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,380 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,481 - DEBUG - response code=200
+2025-10-06 12:18:47,481 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,481 - DEBUG - Exiting get()
+2025-10-06 12:18:47,481 - DEBUG - Entering history()
+2025-10-06 12:18:47,482 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ABB.NS', 1, 0])
+2025-10-06 12:18:47,482 - DEBUG -  Entering history()
+2025-10-06 12:18:47,482 - DEBUG - ABB.NS: Yahoo GET parameters: {'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,482 - DEBUG -   Entering get()
+2025-10-06 12:18:47,482 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:47,483 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ABB.NS
+2025-10-06 12:18:47,483 - DEBUG - params={'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,483 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,483 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,483 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,483 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:47,483 - DEBUG - reusing cookie
+2025-10-06 12:18:47,483 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:47,484 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:47,484 - DEBUG - reusing crumb
+2025-10-06 12:18:47,484 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:47,484 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,484 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,591 - DEBUG - response code=200
+2025-10-06 12:18:47,591 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:47,591 - DEBUG -   Exiting get()
+2025-10-06 12:18:47,592 - DEBUG - ABB.NS: yfinance received OHLC data: 2024-10-07 03:45:00 -> 2025-10-06 06:48:43
+2025-10-06 12:18:47,593 - DEBUG - ABB.NS: OHLC after cleaning: 2024-10-07 09:15:00+05:30 -> 2025-10-06 12:18:43+05:30
+2025-10-06 12:18:47,597 - DEBUG - ABB.NS: OHLC after combining events: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:47,600 - DEBUG - ABB.NS: yfinance returning OHLC: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:47,600 - DEBUG -  Exiting history()
+2025-10-06 12:18:47,600 - DEBUG - Exiting history()
+2025-10-06 12:18:47,601 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:18:47,601 - DEBUG - Entering history()
+2025-10-06 12:18:47,602 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ABB.NS', 1, 0])
+2025-10-06 12:18:47,602 - DEBUG -  Entering history()
+2025-10-06 12:18:47,602 - DEBUG - ABB.NS: Yahoo GET parameters: {'period1': '2024-11-29 12:18:46+05:30', 'period2': '2025-06-12 12:18:46+05:30', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,602 - DEBUG -   Entering get()
+2025-10-06 12:18:47,602 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:47,602 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ABB.NS
+2025-10-06 12:18:47,603 - DEBUG - params=frozendict.frozendict({'period1': 1732862926, 'period2': 1749710926, 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'})
+2025-10-06 12:18:47,603 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,603 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,603 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,603 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:47,603 - DEBUG - reusing cookie
+2025-10-06 12:18:47,603 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:47,603 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:47,603 - DEBUG - reusing crumb
+2025-10-06 12:18:47,604 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:47,604 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,604 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,709 - DEBUG - response code=200
+2025-10-06 12:18:47,710 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:47,710 - DEBUG -   Exiting get()
+2025-10-06 12:18:47,711 - DEBUG - ABB.NS: yfinance received OHLC data: 2024-11-29 03:45:00 -> 2025-06-12 03:45:00
+2025-10-06 12:18:47,711 - DEBUG - ABB.NS: OHLC after cleaning: 2024-11-29 09:15:00+05:30 -> 2025-06-12 09:15:00+05:30
+2025-10-06 12:18:47,715 - DEBUG - ABB.NS: OHLC after combining events: 2024-11-29 00:00:00+05:30 -> 2025-06-12 00:00:00+05:30
+2025-10-06 12:18:47,718 - DEBUG - ABB.NS: yfinance returning OHLC: 2024-11-29 00:00:00+05:30 -> 2025-06-12 00:00:00+05:30
+2025-10-06 12:18:47,718 - DEBUG -  Exiting history()
+2025-10-06 12:18:47,719 - DEBUG - Exiting history()
+2025-10-06 12:18:47,720 - DEBUG - get_raw_json(): https://query2.finance.yahoo.com/v10/finance/quoteSummary/ABB.NS
+2025-10-06 12:18:47,720 - DEBUG - Entering get()
+2025-10-06 12:18:47,720 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,720 - DEBUG - url=https://query2.finance.yahoo.com/v10/finance/quoteSummary/ABB.NS
+2025-10-06 12:18:47,720 - DEBUG - params={'modules': 'financialData,quoteType,defaultKeyStatistics,assetProfile,summaryDetail', 'corsDomain': 'finance.yahoo.com', 'formatted': 'false', 'symbol': 'ABB.NS'}
+2025-10-06 12:18:47,720 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,720 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,721 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,721 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,721 - DEBUG - reusing cookie
+2025-10-06 12:18:47,721 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,721 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,721 - DEBUG - reusing crumb
+2025-10-06 12:18:47,721 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,721 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,721 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,783 - DEBUG - response code=200
+2025-10-06 12:18:47,784 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,784 - DEBUG - Exiting get()
+2025-10-06 12:18:47,784 - DEBUG - get_raw_json(): https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:47,784 - DEBUG - Entering get()
+2025-10-06 12:18:47,784 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,785 - DEBUG - url=https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:47,785 - DEBUG - params={'symbols': 'ABB.NS', 'formatted': 'false'}
+2025-10-06 12:18:47,785 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,785 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,785 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,785 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,785 - DEBUG - reusing cookie
+2025-10-06 12:18:47,786 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,786 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,786 - DEBUG - reusing crumb
+2025-10-06 12:18:47,786 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,786 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,786 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,807 - DEBUG - response code=200
+2025-10-06 12:18:47,807 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,808 - DEBUG - Exiting get()
+2025-10-06 12:18:47,808 - DEBUG - Entering history()
+2025-10-06 12:18:47,809 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ABB.NS', 1, 0])
+2025-10-06 12:18:47,809 - DEBUG -  Entering history()
+2025-10-06 12:18:47,809 - DEBUG - ABB.NS: Yahoo GET parameters: {'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,809 - DEBUG -   Entering get()
+2025-10-06 12:18:47,810 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:47,810 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ABB.NS
+2025-10-06 12:18:47,810 - DEBUG - params={'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,810 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,810 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,810 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,810 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:47,810 - DEBUG - reusing cookie
+2025-10-06 12:18:47,811 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:47,811 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:47,811 - DEBUG - reusing crumb
+2025-10-06 12:18:47,811 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:47,811 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,811 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,820 - DEBUG - response code=200
+2025-10-06 12:18:47,820 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:47,820 - DEBUG -   Exiting get()
+2025-10-06 12:18:47,822 - DEBUG - ABB.NS: yfinance received OHLC data: 2024-10-07 03:45:00 -> 2025-10-06 06:48:43
+2025-10-06 12:18:47,823 - DEBUG - ABB.NS: OHLC after cleaning: 2024-10-07 09:15:00+05:30 -> 2025-10-06 12:18:43+05:30
+2025-10-06 12:18:47,827 - DEBUG - ABB.NS: OHLC after combining events: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:47,830 - DEBUG - ABB.NS: yfinance returning OHLC: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:47,831 - DEBUG -  Exiting history()
+2025-10-06 12:18:47,831 - DEBUG - Exiting history()
+2025-10-06 12:18:47,831 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:18:47,832 - DEBUG - Entering history()
+2025-10-06 12:18:47,832 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ABB.NS', 1, 0])
+2025-10-06 12:18:47,832 - DEBUG -  Entering history()
+2025-10-06 12:18:47,833 - DEBUG - ABB.NS: Yahoo GET parameters: {'period1': '2024-08-04 12:18:46+05:30', 'period2': '2025-02-15 12:18:46+05:30', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,833 - DEBUG -   Entering get()
+2025-10-06 12:18:47,833 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:47,833 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ABB.NS
+2025-10-06 12:18:47,833 - DEBUG - params=frozendict.frozendict({'period1': 1722754126, 'period2': 1739602126, 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'})
+2025-10-06 12:18:47,833 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,833 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,833 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,834 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:47,834 - DEBUG - reusing cookie
+2025-10-06 12:18:47,834 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:47,834 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:47,834 - DEBUG - reusing crumb
+2025-10-06 12:18:47,834 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:47,834 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,834 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,932 - DEBUG - response code=200
+2025-10-06 12:18:47,932 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:47,932 - DEBUG -   Exiting get()
+2025-10-06 12:18:47,933 - DEBUG - ABB.NS: yfinance received OHLC data: 2024-08-05 03:45:00 -> 2025-02-14 03:45:00
+2025-10-06 12:18:47,934 - DEBUG - ABB.NS: OHLC after cleaning: 2024-08-05 09:15:00+05:30 -> 2025-02-14 09:15:00+05:30
+2025-10-06 12:18:47,938 - DEBUG - ABB.NS: OHLC after combining events: 2024-08-05 00:00:00+05:30 -> 2025-02-14 00:00:00+05:30
+2025-10-06 12:18:47,942 - DEBUG - ABB.NS: yfinance returning OHLC: 2024-08-05 00:00:00+05:30 -> 2025-02-14 00:00:00+05:30
+2025-10-06 12:18:47,942 - DEBUG -  Exiting history()
+2025-10-06 12:18:47,942 - DEBUG - Exiting history()
+2025-10-06 12:18:47,944 - DEBUG - get_raw_json(): https://query2.finance.yahoo.com/v10/finance/quoteSummary/ABB.NS
+2025-10-06 12:18:47,944 - DEBUG - Entering get()
+2025-10-06 12:18:47,944 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,945 - DEBUG - url=https://query2.finance.yahoo.com/v10/finance/quoteSummary/ABB.NS
+2025-10-06 12:18:47,945 - DEBUG - params={'modules': 'financialData,quoteType,defaultKeyStatistics,assetProfile,summaryDetail', 'corsDomain': 'finance.yahoo.com', 'formatted': 'false', 'symbol': 'ABB.NS'}
+2025-10-06 12:18:47,945 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,945 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,945 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,945 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,945 - DEBUG - reusing cookie
+2025-10-06 12:18:47,946 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,946 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,946 - DEBUG - reusing crumb
+2025-10-06 12:18:47,946 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,946 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,946 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,954 - DEBUG - response code=200
+2025-10-06 12:18:47,954 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,954 - DEBUG - Exiting get()
+2025-10-06 12:18:47,955 - DEBUG - get_raw_json(): https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:47,955 - DEBUG - Entering get()
+2025-10-06 12:18:47,955 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:47,955 - DEBUG - url=https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:47,955 - DEBUG - params={'symbols': 'ABB.NS', 'formatted': 'false'}
+2025-10-06 12:18:47,955 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,956 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,956 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,956 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:47,956 - DEBUG - reusing cookie
+2025-10-06 12:18:47,956 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:47,956 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:47,956 - DEBUG - reusing crumb
+2025-10-06 12:18:47,956 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:47,956 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,956 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,987 - DEBUG - response code=200
+2025-10-06 12:18:47,987 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:47,987 - DEBUG - Exiting get()
+2025-10-06 12:18:47,988 - DEBUG - Entering history()
+2025-10-06 12:18:47,988 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ABB.NS', 1, 0])
+2025-10-06 12:18:47,988 - DEBUG -  Entering history()
+2025-10-06 12:18:47,988 - DEBUG - ABB.NS: Yahoo GET parameters: {'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,988 - DEBUG -   Entering get()
+2025-10-06 12:18:47,988 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:47,989 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ABB.NS
+2025-10-06 12:18:47,989 - DEBUG - params={'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:47,989 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:47,989 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:47,989 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,989 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:47,989 - DEBUG - reusing cookie
+2025-10-06 12:18:47,989 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:47,989 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:47,990 - DEBUG - reusing crumb
+2025-10-06 12:18:47,990 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:47,990 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:47,990 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:47,998 - DEBUG - response code=200
+2025-10-06 12:18:47,998 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:47,999 - DEBUG -   Exiting get()
+2025-10-06 12:18:48,000 - DEBUG - ABB.NS: yfinance received OHLC data: 2024-10-07 03:45:00 -> 2025-10-06 06:48:43
+2025-10-06 12:18:48,001 - DEBUG - ABB.NS: OHLC after cleaning: 2024-10-07 09:15:00+05:30 -> 2025-10-06 12:18:43+05:30
+2025-10-06 12:18:48,004 - DEBUG - ABB.NS: OHLC after combining events: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:48,008 - DEBUG - ABB.NS: yfinance returning OHLC: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:48,008 - DEBUG -  Exiting history()
+2025-10-06 12:18:48,008 - DEBUG - Exiting history()
+2025-10-06 12:18:48,009 - INFO - Comprehensive data extracted for ABB
+2025-10-06 12:18:48,010 - INFO - Processing ACC (2/2)...
+2025-10-06 12:18:48,010 - DEBUG - Entering history()
+2025-10-06 12:18:48,010 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ACC.NS', 1, 0])
+2025-10-06 12:18:48,010 - DEBUG -  Entering history()
+2025-10-06 12:18:48,011 - DEBUG - ACC.NS: Yahoo GET parameters: {'period1': '2025-03-25 12:18:48+05:30', 'period2': '2025-10-06 12:18:48+05:30', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,011 - DEBUG -   Entering get()
+2025-10-06 12:18:48,011 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:48,011 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ACC.NS
+2025-10-06 12:18:48,011 - DEBUG - params={'period1': 1742885328, 'period2': 1759733328, 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,011 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,011 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,012 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,012 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:48,012 - DEBUG - reusing cookie
+2025-10-06 12:18:48,012 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:48,012 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:48,012 - DEBUG - reusing crumb
+2025-10-06 12:18:48,012 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:48,012 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,013 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,222 - DEBUG - response code=200
+2025-10-06 12:18:48,222 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:48,222 - DEBUG -   Exiting get()
+2025-10-06 12:18:48,223 - DEBUG - ACC.NS: yfinance received OHLC data: 2025-03-25 03:45:00 -> 2025-10-06 06:48:44
+2025-10-06 12:18:48,224 - DEBUG - ACC.NS: OHLC after cleaning: 2025-03-25 09:15:00+05:30 -> 2025-10-06 12:18:44+05:30
+2025-10-06 12:18:48,228 - DEBUG - ACC.NS: OHLC after combining events: 2025-03-25 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:48,231 - DEBUG - ACC.NS: yfinance returning OHLC: 2025-03-25 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:48,231 - DEBUG -  Exiting history()
+2025-10-06 12:18:48,231 - DEBUG - Exiting history()
+2025-10-06 12:18:48,232 - DEBUG - ACC: Not enough future data (end_idx=123, hist_len=133)
+2025-10-06 12:18:48,232 - DEBUG - ACC: No stock_data collected for 2025-09-21
+2025-10-06 12:18:48,232 - DEBUG - Entering history()
+2025-10-06 12:18:48,233 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ACC.NS', 1, 0])
+2025-10-06 12:18:48,233 - DEBUG -  Entering history()
+2025-10-06 12:18:48,233 - DEBUG - ACC.NS: Yahoo GET parameters: {'period1': '2024-11-29 12:18:48+05:30', 'period2': '2025-06-12 12:18:48+05:30', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,233 - DEBUG -   Entering get()
+2025-10-06 12:18:48,233 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:48,233 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ACC.NS
+2025-10-06 12:18:48,234 - DEBUG - params=frozendict.frozendict({'period1': 1732862928, 'period2': 1749710928, 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'})
+2025-10-06 12:18:48,234 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,234 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,234 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,234 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:48,234 - DEBUG - reusing cookie
+2025-10-06 12:18:48,234 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:48,234 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:48,234 - DEBUG - reusing crumb
+2025-10-06 12:18:48,234 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:48,235 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,235 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,345 - DEBUG - response code=200
+2025-10-06 12:18:48,346 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:48,346 - DEBUG -   Exiting get()
+2025-10-06 12:18:48,347 - DEBUG - ACC.NS: yfinance received OHLC data: 2024-11-29 03:45:00 -> 2025-06-12 03:45:00
+2025-10-06 12:18:48,348 - DEBUG - ACC.NS: OHLC after cleaning: 2024-11-29 09:15:00+05:30 -> 2025-06-12 09:15:00+05:30
+2025-10-06 12:18:48,350 - DEBUG - ACC.NS: OHLC after combining events: 2024-11-29 00:00:00+05:30 -> 2025-06-12 00:00:00+05:30
+2025-10-06 12:18:48,353 - DEBUG - ACC.NS: yfinance returning OHLC: 2024-11-29 00:00:00+05:30 -> 2025-06-12 00:00:00+05:30
+2025-10-06 12:18:48,353 - DEBUG -  Exiting history()
+2025-10-06 12:18:48,353 - DEBUG - Exiting history()
+2025-10-06 12:18:48,354 - DEBUG - get_raw_json(): https://query2.finance.yahoo.com/v10/finance/quoteSummary/ACC.NS
+2025-10-06 12:18:48,354 - DEBUG - Entering get()
+2025-10-06 12:18:48,354 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:48,355 - DEBUG - url=https://query2.finance.yahoo.com/v10/finance/quoteSummary/ACC.NS
+2025-10-06 12:18:48,355 - DEBUG - params={'modules': 'financialData,quoteType,defaultKeyStatistics,assetProfile,summaryDetail', 'corsDomain': 'finance.yahoo.com', 'formatted': 'false', 'symbol': 'ACC.NS'}
+2025-10-06 12:18:48,355 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,355 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,355 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,355 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:48,355 - DEBUG - reusing cookie
+2025-10-06 12:18:48,355 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:48,355 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:48,356 - DEBUG - reusing crumb
+2025-10-06 12:18:48,356 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:48,356 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,356 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,505 - DEBUG - response code=200
+2025-10-06 12:18:48,505 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:48,505 - DEBUG - Exiting get()
+2025-10-06 12:18:48,505 - DEBUG - get_raw_json(): https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:48,505 - DEBUG - Entering get()
+2025-10-06 12:18:48,505 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:48,506 - DEBUG - url=https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:48,506 - DEBUG - params={'symbols': 'ACC.NS', 'formatted': 'false'}
+2025-10-06 12:18:48,506 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,506 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,506 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,506 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:48,506 - DEBUG - reusing cookie
+2025-10-06 12:18:48,506 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:48,507 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:48,507 - DEBUG - reusing crumb
+2025-10-06 12:18:48,507 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:48,507 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,507 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,626 - DEBUG - response code=200
+2025-10-06 12:18:48,626 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:48,626 - DEBUG - Exiting get()
+2025-10-06 12:18:48,627 - DEBUG - Entering get()
+2025-10-06 12:18:48,627 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:48,627 - DEBUG - url=https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/ACC.NS?symbol=ACC.NS&type=trailingPegRatio&period1=1743984000&period2=1759795200
+2025-10-06 12:18:48,627 - DEBUG - params=None
+2025-10-06 12:18:48,627 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,628 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,628 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,628 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:48,628 - DEBUG - reusing cookie
+2025-10-06 12:18:48,628 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:48,628 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:48,628 - DEBUG - reusing crumb
+2025-10-06 12:18:48,628 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:48,628 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,629 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,729 - DEBUG - response code=200
+2025-10-06 12:18:48,729 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:48,729 - DEBUG - Exiting get()
+2025-10-06 12:18:48,730 - DEBUG - Entering history()
+2025-10-06 12:18:48,730 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ACC.NS', 1, 0])
+2025-10-06 12:18:48,730 - DEBUG -  Entering history()
+2025-10-06 12:18:48,730 - DEBUG - ACC.NS: Yahoo GET parameters: {'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,730 - DEBUG -   Entering get()
+2025-10-06 12:18:48,731 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:48,731 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ACC.NS
+2025-10-06 12:18:48,731 - DEBUG - params={'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,731 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,731 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,731 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,731 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:48,731 - DEBUG - reusing cookie
+2025-10-06 12:18:48,731 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:48,731 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:48,732 - DEBUG - reusing crumb
+2025-10-06 12:18:48,732 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:48,732 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,732 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,815 - DEBUG - response code=200
+2025-10-06 12:18:48,815 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:48,816 - DEBUG -   Exiting get()
+2025-10-06 12:18:48,817 - DEBUG - ACC.NS: yfinance received OHLC data: 2024-10-07 03:45:00 -> 2025-10-06 06:48:44
+2025-10-06 12:18:48,818 - DEBUG - ACC.NS: OHLC after cleaning: 2024-10-07 09:15:00+05:30 -> 2025-10-06 12:18:44+05:30
+2025-10-06 12:18:48,821 - DEBUG - ACC.NS: OHLC after combining events: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:48,824 - DEBUG - ACC.NS: yfinance returning OHLC: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:48,825 - DEBUG -  Exiting history()
+2025-10-06 12:18:48,825 - DEBUG - Exiting history()
+2025-10-06 12:18:48,826 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:18:48,826 - DEBUG - Entering history()
+2025-10-06 12:18:48,826 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ACC.NS', 1, 0])
+2025-10-06 12:18:48,827 - DEBUG -  Entering history()
+2025-10-06 12:18:48,827 - DEBUG - ACC.NS: Yahoo GET parameters: {'period1': '2024-08-04 12:18:48+05:30', 'period2': '2025-02-15 12:18:48+05:30', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,827 - DEBUG -   Entering get()
+2025-10-06 12:18:48,828 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:48,828 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ACC.NS
+2025-10-06 12:18:48,828 - DEBUG - params=frozendict.frozendict({'period1': 1722754128, 'period2': 1739602128, 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'})
+2025-10-06 12:18:48,828 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,828 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,828 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,828 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:48,828 - DEBUG - reusing cookie
+2025-10-06 12:18:48,828 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:48,829 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:48,829 - DEBUG - reusing crumb
+2025-10-06 12:18:48,829 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:48,829 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,829 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,911 - DEBUG - response code=200
+2025-10-06 12:18:48,911 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:48,911 - DEBUG -   Exiting get()
+2025-10-06 12:18:48,912 - DEBUG - ACC.NS: yfinance received OHLC data: 2024-08-05 03:45:00 -> 2025-02-14 03:45:00
+2025-10-06 12:18:48,913 - DEBUG - ACC.NS: OHLC after cleaning: 2024-08-05 09:15:00+05:30 -> 2025-02-14 09:15:00+05:30
+2025-10-06 12:18:48,915 - DEBUG - ACC.NS: OHLC after combining events: 2024-08-05 00:00:00+05:30 -> 2025-02-14 00:00:00+05:30
+2025-10-06 12:18:48,918 - DEBUG - ACC.NS: yfinance returning OHLC: 2024-08-05 00:00:00+05:30 -> 2025-02-14 00:00:00+05:30
+2025-10-06 12:18:48,918 - DEBUG -  Exiting history()
+2025-10-06 12:18:48,918 - DEBUG - Exiting history()
+2025-10-06 12:18:48,920 - DEBUG - get_raw_json(): https://query2.finance.yahoo.com/v10/finance/quoteSummary/ACC.NS
+2025-10-06 12:18:48,920 - DEBUG - Entering get()
+2025-10-06 12:18:48,920 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:48,920 - DEBUG - url=https://query2.finance.yahoo.com/v10/finance/quoteSummary/ACC.NS
+2025-10-06 12:18:48,920 - DEBUG - params={'modules': 'financialData,quoteType,defaultKeyStatistics,assetProfile,summaryDetail', 'corsDomain': 'finance.yahoo.com', 'formatted': 'false', 'symbol': 'ACC.NS'}
+2025-10-06 12:18:48,920 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,920 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,921 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,921 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:48,921 - DEBUG - reusing cookie
+2025-10-06 12:18:48,921 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:48,921 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:48,921 - DEBUG - reusing crumb
+2025-10-06 12:18:48,921 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:48,921 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,921 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,930 - DEBUG - response code=200
+2025-10-06 12:18:48,930 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:48,930 - DEBUG - Exiting get()
+2025-10-06 12:18:48,930 - DEBUG - get_raw_json(): https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:48,931 - DEBUG - Entering get()
+2025-10-06 12:18:48,931 - DEBUG -  Entering _make_request()
+2025-10-06 12:18:48,931 - DEBUG - url=https://query1.finance.yahoo.com/v7/finance/quote?
+2025-10-06 12:18:48,931 - DEBUG - params={'symbols': 'ACC.NS', 'formatted': 'false'}
+2025-10-06 12:18:48,931 - DEBUG -   Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,931 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,931 - DEBUG -    Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,931 - DEBUG -     Entering _get_cookie_basic()
+2025-10-06 12:18:48,931 - DEBUG - reusing cookie
+2025-10-06 12:18:48,931 - DEBUG -     Exiting _get_cookie_basic()
+2025-10-06 12:18:48,932 - DEBUG -     Entering _get_crumb_basic()
+2025-10-06 12:18:48,932 - DEBUG - reusing crumb
+2025-10-06 12:18:48,932 - DEBUG -     Exiting _get_crumb_basic()
+2025-10-06 12:18:48,932 - DEBUG -    Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,932 - DEBUG -   Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,968 - DEBUG - response code=200
+2025-10-06 12:18:48,968 - DEBUG -  Exiting _make_request()
+2025-10-06 12:18:48,968 - DEBUG - Exiting get()
+2025-10-06 12:18:48,969 - DEBUG - Entering history()
+2025-10-06 12:18:48,969 - DEBUG - ('SELECT "t1"."key", "t1"."value" FROM "_tz_kv" AS "t1" WHERE ("t1"."key" = ?) LIMIT ? OFFSET ?', ['ACC.NS', 1, 0])
+2025-10-06 12:18:48,969 - DEBUG -  Entering history()
+2025-10-06 12:18:48,969 - DEBUG - ACC.NS: Yahoo GET parameters: {'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,970 - DEBUG -   Entering get()
+2025-10-06 12:18:48,970 - DEBUG -    Entering _make_request()
+2025-10-06 12:18:48,970 - DEBUG - url=https://query2.finance.yahoo.com/v8/finance/chart/ACC.NS
+2025-10-06 12:18:48,970 - DEBUG - params={'range': '1y', 'interval': '1d', 'includePrePost': False, 'events': 'div,splits,capitalGains'}
+2025-10-06 12:18:48,970 - DEBUG -     Entering _get_cookie_and_crumb()
+2025-10-06 12:18:48,970 - DEBUG - cookie_mode = 'basic'
+2025-10-06 12:18:48,970 - DEBUG -      Entering _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,970 - DEBUG -       Entering _get_cookie_basic()
+2025-10-06 12:18:48,970 - DEBUG - reusing cookie
+2025-10-06 12:18:48,971 - DEBUG -       Exiting _get_cookie_basic()
+2025-10-06 12:18:48,971 - DEBUG -       Entering _get_crumb_basic()
+2025-10-06 12:18:48,971 - DEBUG - reusing crumb
+2025-10-06 12:18:48,971 - DEBUG -       Exiting _get_crumb_basic()
+2025-10-06 12:18:48,971 - DEBUG -      Exiting _get_cookie_and_crumb_basic()
+2025-10-06 12:18:48,971 - DEBUG -     Exiting _get_cookie_and_crumb()
+2025-10-06 12:18:48,985 - DEBUG - response code=200
+2025-10-06 12:18:48,986 - DEBUG -    Exiting _make_request()
+2025-10-06 12:18:48,986 - DEBUG -   Exiting get()
+2025-10-06 12:18:48,987 - DEBUG - ACC.NS: yfinance received OHLC data: 2024-10-07 03:45:00 -> 2025-10-06 06:48:44
+2025-10-06 12:18:48,988 - DEBUG - ACC.NS: OHLC after cleaning: 2024-10-07 09:15:00+05:30 -> 2025-10-06 12:18:44+05:30
+2025-10-06 12:18:48,996 - DEBUG - ACC.NS: OHLC after combining events: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:49,000 - DEBUG - ACC.NS: yfinance returning OHLC: 2024-10-07 00:00:00+05:30 -> 2025-10-06 00:00:00+05:30
+2025-10-06 12:18:49,000 - DEBUG -  Exiting history()
+2025-10-06 12:18:49,000 - DEBUG - Exiting history()
+2025-10-06 12:18:49,001 - INFO - Comprehensive data extracted for ACC
+2025-10-06 12:18:49,001 - INFO - Collected 5 training samples
+2025-10-06 12:18:49,001 - INFO - Failed to collect 1 samples
+2025-10-06 12:18:49,001 - INFO - Label distribution: UP=1, HOLD=3, DOWN=1
+2025-10-06 12:18:49,001 - ERROR - Insufficient training data. Need at least 50 samples.

@@ -11,6 +11,8 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import logging
+import pickle
+from pathlib import Path
 
 class MLPricePredictor:
     """
@@ -26,6 +28,75 @@ class MLPricePredictor:
         self.model = None
         self.scaler = StandardScaler()
         self.is_trained = False
+        self._load_trained_model()
+    
+    def _load_trained_model(self):
+        """Load pre-trained model if available"""
+        try:
+            model_path = Path('models/ml_predictor_latest.pkl')
+            if model_path.exists():
+                with open(model_path, 'rb') as f:
+                    data = pickle.load(f)
+                    self.model = data['model']
+                    self.scaler = data['scaler']
+                    self.is_trained = True
+                    trained_date = data.get('trained_date', 'unknown')
+                    num_samples = data.get('num_samples', 0)
+                    logging.info(f"Loaded trained ML model (trained: {trained_date}, samples: {num_samples})")
+            else:
+                logging.info("No trained model found. Using fallback predictions.")
+        except Exception as e:
+            logging.warning(f"Failed to load trained model: {e}. Using fallback predictions.")
+            self.is_trained = False
+    
+    def train_model(self, training_data: List, labels: List) -> bool:
+        """
+        🎓 Train the ML model with historical data
+        
+        Args:
+            training_data: List of feature vectors
+            labels: List of labels (1=UP, 0=HOLD, -1=DOWN)
+        """
+        try:
+            if len(training_data) < 50:
+                logging.warning("Insufficient training data for ML model")
+                return False
+            
+            X = np.array(training_data)
+            y = np.array(labels)
+            
+            # Scale features
+            X_scaled = self.scaler.fit_transform(X)
+            
+            # Split data
+            from sklearn.model_selection import train_test_split
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_scaled, y, test_size=0.2, random_state=42
+            )
+            
+            # Train Gradient Boosting Classifier (better for financial data)
+            self.model = GradientBoostingClassifier(
+                n_estimators=100,
+                learning_rate=0.1,
+                max_depth=5,
+                random_state=42,
+                verbose=0
+            )
+            
+            self.model.fit(X_train, y_train)
+            
+            # Calculate accuracy
+            train_accuracy = self.model.score(X_train, y_train)
+            test_accuracy = self.model.score(X_test, y_test)
+            
+            logging.info(f"ML Model trained - Train accuracy: {train_accuracy:.2%}, Test accuracy: {test_accuracy:.2%}")
+            
+            self.is_trained = True
+            return True
+            
+        except Exception as e:
+            logging.error(f"Error training ML model: {e}")
+            return False
     
     def _safe_float(self, value, default=0.0):
         """Convert value to float, handling strings and None"""

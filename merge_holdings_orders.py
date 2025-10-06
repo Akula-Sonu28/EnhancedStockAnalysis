@@ -155,18 +155,15 @@ class HoldingsOrdersMerger:
                     if current_qty == 0:
                         processed_sells += 1
             
-            # If most SELL orders are for stocks with 0 quantity, orders are likely already processed
-            processed_ratio = processed_sells / len(sell_orders) if len(sell_orders) > 0 else 0
-            
-            if processed_ratio > 0.5:  # More than 50% of sells are for 0-quantity stocks
-                logger.info(f"Detected {processed_ratio:.1%} of SELL orders already processed in holdings")
-                return True
-            
-            return False
+            # IMPORTANT: Broker holdings CSV always contains CURRENT quantities (post-SELL)
+            # We should ONLY apply BUY orders to avoid double-deduction
+            logger.info("✅ Holdings CSV contains current quantities after sells (standard broker format)")
+            logger.info("   Only BUY orders will be processed to prevent double-counting")
+            return True  # Always treat SELL orders as already processed
             
         except Exception as e:
             logger.error(f"Error detecting processed orders: {e}")
-            return False
+            return True  # Default to safe mode: don't apply sells
     
     def _process_buy_sell_orders(self, holdings_df):
         """Process BUY and SELL orders to update holdings correctly"""
@@ -287,7 +284,10 @@ class HoldingsOrdersMerger:
             return None
     
     def _calculate_order_statistics(self):
-        """Calculate order statistics for each stock"""
+        """
+        Calculate order statistics from today's orders CSV
+        Note: Only shows TODAY's orders, not historical holdings
+        """
         try:
             if self.orders_data.empty:
                 return None
@@ -322,36 +322,38 @@ class HoldingsOrdersMerger:
             if type_col is None:
                 return None
                 
-            # Separate BUY and SELL orders
+            # Separate BUY and SELL orders (TODAY's orders only)
             buy_orders = orders[orders[type_col].str.upper() == 'BUY'].copy()
             sell_orders = orders[orders[type_col].str.upper() == 'SELL'].copy()
+            
+            logger.info(f"📊 Today's Orders: {len(buy_orders)} BUYs, {len(sell_orders)} SELLs")
             
             # Calculate statistics by instrument
             buy_stats = buy_orders.groupby('Instrument').agg({
                 'Order_Qty': 'sum',
                 'Avg. price': 'mean'
-            }).rename(columns={'Order_Qty': 'Total_Buy_Orders', 'Avg. price': 'Avg_Buy_Price'})
+            }).rename(columns={'Order_Qty': 'Today_Buy_Qty', 'Avg. price': 'Avg_Buy_Price'})
             
             sell_stats = sell_orders.groupby('Instrument').agg({
                 'Order_Qty': 'sum',
                 'Avg. price': 'mean'
-            }).rename(columns={'Order_Qty': 'Total_Sell_Orders', 'Avg. price': 'Avg_Sell_Price'})
+            }).rename(columns={'Order_Qty': 'Today_Sell_Qty', 'Avg. price': 'Avg_Sell_Price'})
             
             # Combine statistics
             order_stats = buy_stats.merge(sell_stats, on='Instrument', how='outer').fillna(0)
-            order_stats['Net_Order_Qty'] = order_stats['Total_Buy_Orders'] - order_stats['Total_Sell_Orders']
+            order_stats['Net_Today_Orders'] = order_stats['Today_Buy_Qty'] - order_stats['Today_Sell_Qty']
             
-            # Calculate weighted average price
+            # Calculate weighted average price for today's orders
             order_stats['Avg_Order_Price'] = (
-                (order_stats['Total_Buy_Orders'] * order_stats['Avg_Buy_Price'] + 
-                 order_stats['Total_Sell_Orders'] * order_stats['Avg_Sell_Price']) / 
-                (order_stats['Total_Buy_Orders'] + order_stats['Total_Sell_Orders'])
+                (order_stats['Today_Buy_Qty'] * order_stats['Avg_Buy_Price'] + 
+                 order_stats['Today_Sell_Qty'] * order_stats['Avg_Sell_Price']) / 
+                (order_stats['Today_Buy_Qty'] + order_stats['Today_Sell_Qty'])
             ).fillna(0)
             
             # Reset index to make Instrument a column
             order_stats = order_stats.reset_index()
             
-            return order_stats[['Instrument', 'Total_Buy_Orders', 'Total_Sell_Orders', 'Net_Order_Qty', 'Avg_Order_Price']]
+            return order_stats[['Instrument', 'Today_Buy_Qty', 'Today_Sell_Qty', 'Net_Today_Orders', 'Avg_Order_Price']]
             
         except Exception as e:
             logger.error(f"Error calculating order statistics: {e}")
@@ -404,19 +406,19 @@ class HoldingsOrdersMerger:
             
             # Add order statistics if orders data exists
             if not self.orders_data.empty:
-                # Calculate order statistics for each stock
+                # Calculate order statistics for each stock (today's orders only)
                 order_stats = self._calculate_order_statistics()
                 if order_stats is not None:
                     merged = merged.merge(order_stats, on='Instrument', how='left')
-                    # Fill NaN values for stocks without orders
-                    order_columns = ['Total_Buy_Orders', 'Total_Sell_Orders', 'Net_Order_Qty', 'Avg_Order_Price']
+                    # Fill NaN values for stocks without today's orders
+                    order_columns = ['Today_Buy_Qty', 'Today_Sell_Qty', 'Net_Today_Orders', 'Avg_Order_Price']
                     for col in order_columns:
                         if col in merged.columns:
                             merged[col] = merged[col].fillna(0)
             else:
-                merged['Total_Buy_Orders'] = 0
-                merged['Total_Sell_Orders'] = 0
-                merged['Net_Order_Qty'] = 0
+                merged['Today_Buy_Qty'] = 0
+                merged['Today_Sell_Qty'] = 0
+                merged['Net_Today_Orders'] = 0
                 merged['Avg_Order_Price'] = 0
             
             # Reorder columns for better readability
@@ -424,7 +426,7 @@ class HoldingsOrdersMerger:
                 'Instrument', 'Company_Name', 'Industry', 'Series', 'ISIN',
                 'Qty.', 'Avg. cost', 'LTP', 'Invested', 'Cur. val', 'P&L',
                 'Portfolio_Weight', 'Profit_Margin', 'Net chg.', 'Day chg.',
-                'Total_Buy_Orders', 'Total_Sell_Orders', 'Net_Order_Qty', 'Avg_Order_Price', 'Position_Size'
+                'Today_Buy_Qty', 'Today_Sell_Qty', 'Net_Today_Orders', 'Avg_Order_Price', 'Position_Size'
             ]
             
             # Keep only existing columns

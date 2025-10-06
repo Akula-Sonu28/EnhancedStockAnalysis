@@ -242,7 +242,7 @@ class EnhancedTop200StockAnalyzer:
         
         # Custom filter to remove emojis from console output only
         class SafeConsoleFilter(logging.Filter):
-            """Filter to remove emojis from console output on Windows"""
+            """Filter to remove Unicode characters from console output on Windows"""
             def filter(self, record):
                 # Create a safe version of the message for console
                 if hasattr(record, 'msg'):
@@ -254,14 +254,31 @@ class EnhancedTop200StockAnalyzer:
                     safe_msg = safe_msg.replace('📊', '[INFO]')
                     safe_msg = safe_msg.replace('✅', '[OK]')
                     safe_msg = safe_msg.replace('❌', '[X]')
-                    # Remove any remaining emojis (characters outside ASCII range)
-                    safe_msg = safe_msg.encode('ascii', errors='ignore').decode('ascii')
+                    safe_msg = safe_msg.replace('💰', '[PROFIT]')
+                    safe_msg = safe_msg.replace('🎯', '[TARGET]')
+                    safe_msg = safe_msg.replace('→', '->')
+                    safe_msg = safe_msg.replace('₹', 'Rs.')
+                    # Remove any remaining Unicode characters (keep only ASCII)
+                    safe_msg = safe_msg.encode('ascii', errors='replace').decode('ascii')
                     record.msg = safe_msg
                 return True
         
+        # Create custom StreamHandler with safe encoding for Windows
+        class SafeStreamHandler(logging.StreamHandler):
+            """StreamHandler that handles Unicode encoding errors gracefully"""
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                    stream = self.stream
+                    # Try to encode as ASCII, replacing problematic characters
+                    stream.write(msg.encode('ascii', errors='replace').decode('ascii') + self.terminator)
+                    self.flush()
+                except Exception:
+                    self.handleError(record)
+        
         # Create handlers
         file_handler = logging.FileHandler(self.log_filename, encoding='utf-8', errors='replace')
-        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler = SafeStreamHandler(sys.stdout)
         
         # Add emoji filter only to console handler
         stream_handler.addFilter(SafeConsoleFilter())
@@ -7284,6 +7301,25 @@ def main():
             except Exception as e:
                 # Don't fail the main analysis if comparison fails
                 pass
+            
+            # Auto-run Profit Booking Advisor
+            try:
+                print(f"\n{'='*90}")
+                print(f"[PROFIT] AUTO-RUNNING SMART PROFIT BOOKING ADVISOR")
+                print(f"   [SMART] History-Aware System - Prevents Over-Booking")
+                print(f"{'='*90}")
+                
+                from smart_profit_booking_advisor import SmartProfitBookingAdvisor
+                
+                advisor = SmartProfitBookingAdvisor()
+                advisor.run()
+                
+            except ImportError:
+                print(f"\n[INFO] Smart Profit Booking Advisor not available")
+                print(f"   Run 'python smart_profit_booking_advisor.py' manually to see profit booking recommendations")
+            except Exception as pbe:
+                print(f"\n[WARNING] Smart Profit Booking Advisor encountered an issue: {str(pbe)[:100]}")
+                print(f"   You can run 'python smart_profit_booking_advisor.py' manually")
                 
         else:
             print(f"\n⚠️  Analysis completed but report generation failed")

@@ -156,9 +156,9 @@ class PortfolioAnalyzer:
                     self.holdings_df = self._merge_orders_into_portfolio(processed_orders)
                     
                     new_count = len(self.holdings_df)
-                    self.logger.info(f"Merged {len(processed_orders)} orders. Portfolio updated: {original_count} → {new_count} positions")
+                    self.logger.info(f"Merged {len(processed_orders)} orders. Portfolio updated: {original_count} -> {new_count} positions")
                     print(f"✅ Merged orders from {os.path.basename(latest_orders_file)}")
-                    print(f"   📊 Portfolio positions updated: {original_count} → {new_count}")
+                    print(f"   📊 Portfolio positions updated: {original_count} -> {new_count}")
                 else:
                     self.logger.info("No valid completed orders found to merge")
             else:

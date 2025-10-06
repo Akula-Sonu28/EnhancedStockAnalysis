@@ -588,7 +588,7 @@ class VolumeAnalyzer:
             }
             
             self.logger.info(
-                f"Volume adjustment: {base_score:.1f} → {adjusted_score:.1f} "
+                f"Volume adjustment: {base_score:.1f} -> {adjusted_score:.1f} "
                 f"({adjustment:+.1f}) | Signal: {volume_signal}"
             )
             
