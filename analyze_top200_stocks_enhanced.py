@@ -1259,27 +1259,25 @@ class EnhancedTop200StockAnalyzer:
                     stock_data.update({
                         'regime_adjusted_score': regime_adjustment_result['adjusted_score'],
                         'regime_adjustment_amount': regime_adjustment_result['regime_adjustment'],
-                        'vix_adjustment_amount': regime_adjustment_result['vix_adjustment'],
-                        'total_regime_adjustment': regime_adjustment_result['total_adjustment'],
-                        'regime_adjustment_reasons': ', '.join(regime_adjustment_result['adjustment_reasons'])
+                        'regime_adjustment_reasons': ', '.join(regime_adjustment_result['adjustment_reasons']),
+                        'regime_context': regime_adjustment_result['regime_context']
                     })
                     
-                    logging.info(f"Regime adjustment for {symbol}: {regime_adjustment_result['total_adjustment']:+.1f} points "
-                               f"({stock_data['market_regime']}). Reasons: {stock_data['regime_adjustment_reasons']}")
+                    if regime_adjustment_result['regime_adjustment'] != 0:
+                        logging.info(f"Regime adjustment for {symbol}: {regime_adjustment_result['regime_adjustment']:+.1f} points "
+                                   f"({stock_data['market_regime']}). Reasons: {stock_data['regime_adjustment_reasons']}")
                 else:
                     stock_data['regime_adjusted_score'] = phase1_adjusted_score
                     stock_data['regime_adjustment_amount'] = 0.0
-                    stock_data['vix_adjustment_amount'] = 0.0
-                    stock_data['total_regime_adjustment'] = 0.0
                     stock_data['regime_adjustment_reasons'] = 'No regime detected'
+                    stock_data['regime_context'] = 'Unknown'
                     
             except Exception as e:
                 logging.warning(f"Regime adjustment failed for {symbol}: {e}")
                 stock_data['regime_adjusted_score'] = phase1_adjusted_score
                 stock_data['regime_adjustment_amount'] = 0.0
-                stock_data['vix_adjustment_amount'] = 0.0
-                stock_data['total_regime_adjustment'] = 0.0
                 stock_data['regime_adjustment_reasons'] = f'Error: {str(e)}'
+                stock_data['regime_context'] = 'Error'
             
             # 🔧 NEW: Apply corrected scoring algorithm based on backtest analysis
             corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
