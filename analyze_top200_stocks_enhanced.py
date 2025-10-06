@@ -44,6 +44,7 @@ from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
 from pattern_recognition import analyze_patterns  # Phase 2: Advanced Pattern Recognition
 from market_regime_detector import get_market_regime, MarketRegimeDetector  # Phase 2: Market Regime Detection
 from sentiment_analyzer import SentimentAnalyzer  # Phase 2: News & Sentiment Analysis
+from volume_analyzer import VolumeAnalyzer  # Phase 2: Volume Profile & Order Flow Analysis
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -56,6 +57,7 @@ class EnhancedTop200StockAnalyzer:
         self.ml_predictor = get_ml_predictor()  # 🤖 Phase 2: ML Price Prediction
         self.regime_detector = MarketRegimeDetector()  # 🌐 Phase 2: Market Regime Detection
         self.sentiment_analyzer = SentimentAnalyzer()  # 🎭 Phase 2: Sentiment Analysis
+        self.volume_analyzer = VolumeAnalyzer()  # 📊 Phase 2: Volume Profile & Order Flow
         self.market_regime = None  # Will be populated on first analysis
         self.setup_logging()
         self.results = []
@@ -1184,6 +1186,63 @@ class EnhancedTop200StockAnalyzer:
                     'sentiment_analysis_status': f'error: {str(sentiment_error)}'
                 })
             
+            # 3.9. PHASE 2 - TASK 5: Volume Profile & Order Flow Analysis
+            try:
+                volume_data = self.volume_analyzer.analyze_volume(symbol, hist)
+                
+                stock_data.update({
+                    'vwap_current': volume_data['vwap_current'],
+                    'vwap_position': volume_data['vwap_position'],
+                    'vwap_distance_pct': volume_data['vwap_distance_pct'],
+                    'vwap_trend': volume_data['vwap_trend'],
+                    'vwap_support': volume_data['vwap_support'],
+                    'vwap_resistance': volume_data['vwap_resistance'],
+                    'order_flow_imbalance': volume_data['order_flow_imbalance'],
+                    'flow_strength': volume_data['flow_strength'],
+                    'flow_direction': volume_data['flow_direction'],
+                    'flow_consistency': volume_data['flow_consistency'],
+                    'block_trades_count': volume_data['block_trades_count'],
+                    'block_trades_volume_pct': volume_data['block_trades_volume_pct'],
+                    'institutional_activity': volume_data['institutional_activity'],
+                    'recent_blocks_direction': volume_data['recent_blocks_direction'],
+                    'volume_poc': volume_data['volume_poc'],
+                    'volume_vah': volume_data['volume_vah'],
+                    'volume_val': volume_data['volume_val'],
+                    'volume_profile_shape': volume_data['volume_profile_shape'],
+                    'price_in_value_area': volume_data['price_in_value_area'],
+                    'volume_support_1': volume_data['volume_support_1'],
+                    'volume_support_2': volume_data['volume_support_2'],
+                    'volume_resistance_1': volume_data['volume_resistance_1'],
+                    'volume_resistance_2': volume_data['volume_resistance_2'],
+                    'nearest_volume_zone': volume_data['nearest_volume_zone'],
+                    'zone_distance_pct': volume_data['zone_distance_pct'],
+                    'volume_composite_score': volume_data['volume_composite_score'],
+                    'volume_signal': volume_data['volume_signal'],
+                    'volume_confidence': volume_data['volume_confidence'],
+                    'volume_quality': volume_data['volume_quality'],
+                    'volume_analysis_status': 'success'
+                })
+                
+                logging.info(f"Volume Analysis for {symbol}: Score={volume_data['volume_composite_score']:.1f}/100, Signal={volume_data['volume_signal']}, VWAP={volume_data['vwap_position']}, Flow={volume_data['flow_direction']}")
+                
+            except Exception as volume_error:
+                logging.warning(f"Volume analysis error for {symbol}: {volume_error}")
+                stock_data.update({
+                    'vwap_current': 0, 'vwap_position': 'UNKNOWN', 'vwap_distance_pct': 0,
+                    'vwap_trend': 'NEUTRAL', 'vwap_support': 0, 'vwap_resistance': 0,
+                    'order_flow_imbalance': 0, 'flow_strength': 'WEAK', 'flow_direction': 'BALANCED',
+                    'flow_consistency': 50, 'block_trades_count': 0, 'block_trades_volume_pct': 0,
+                    'institutional_activity': 'LOW', 'recent_blocks_direction': 'NONE',
+                    'volume_poc': 0, 'volume_vah': 0, 'volume_val': 0,
+                    'volume_profile_shape': 'NORMAL', 'price_in_value_area': True,
+                    'volume_support_1': None, 'volume_support_2': None,
+                    'volume_resistance_1': None, 'volume_resistance_2': None,
+                    'nearest_volume_zone': 0, 'zone_distance_pct': 0,
+                    'volume_composite_score': 50, 'volume_signal': 'HOLD',
+                    'volume_confidence': 50, 'volume_quality': 'LOW',
+                    'volume_analysis_status': f'error: {str(volume_error)}'
+                })
+            
             # 4. Calculate Comprehensive Scores with All Accuracy Improvements
             fund_score = stock_data.get('fundamental_score', 50)
             enhanced_score = enhanced_tech_data.get('short_term_score', 50) if enhanced_tech_data else 50
@@ -1388,6 +1447,48 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['sentiment_adjustment_amount'] = 0.0
                 stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
                 stock_data['sentiment_context'] = 'Error'
+            
+            # PHASE 2 - TASK 5: Apply Volume Profile & Order Flow Adjustments
+            try:
+                # Use sentiment-adjusted score as base for volume adjustment
+                base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
+                
+                # Prepare volume data for adjustment
+                volume_data = {
+                    'volume_composite_score': stock_data.get('volume_composite_score', 50),
+                    'volume_signal': stock_data.get('volume_signal', 'HOLD'),
+                    'volume_confidence': stock_data.get('volume_confidence', 50),
+                    'vwap_position': stock_data.get('vwap_position', 'UNKNOWN'),
+                    'flow_direction': stock_data.get('flow_direction', 'BALANCED'),
+                    'institutional_activity': stock_data.get('institutional_activity', 'LOW')
+                }
+                
+                # Apply volume adjustment
+                volume_adjustment_result = self.volume_analyzer.adjust_score_by_volume(
+                    base_score_for_volume,
+                    volume_data
+                )
+                
+                # Update stock data with volume-adjusted scores
+                stock_data.update({
+                    'volume_adjusted_score': volume_adjustment_result['volume_adjusted_score'],
+                    'volume_adjustment_amount': volume_adjustment_result['volume_adjustment_amount'],
+                    'volume_adjustment_reasons': volume_adjustment_result['volume_adjustment_reasons'],
+                    'volume_signal_used': volume_adjustment_result['volume_signal_used'],
+                    'volume_confidence_used': volume_adjustment_result['volume_confidence_used']
+                })
+                
+                if volume_adjustment_result['volume_adjustment_amount'] != 0:
+                    logging.info(f"Volume adjustment for {symbol}: {volume_adjustment_result['volume_adjustment_amount']:+.1f} points "
+                               f"({volume_data['volume_signal']}). Reasons: {stock_data['volume_adjustment_reasons']}")
+            
+            except Exception as e:
+                logging.warning(f"Volume adjustment failed for {symbol}: {e}")
+                stock_data['volume_adjusted_score'] = base_score_for_volume if 'base_score_for_volume' in locals() else stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
+                stock_data['volume_adjustment_amount'] = 0.0
+                stock_data['volume_adjustment_reasons'] = f'Error: {str(e)}'
+                stock_data['volume_signal_used'] = 'HOLD'
+                stock_data['volume_confidence_used'] = 0
             
             # 🔧 NEW: Apply corrected scoring algorithm based on backtest analysis
             corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
