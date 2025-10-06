@@ -42,6 +42,7 @@ from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
 from corrected_scoring_engine import CorrectedScoringEngine
 from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
 from pattern_recognition import analyze_patterns  # Phase 2: Advanced Pattern Recognition
+from market_regime_detector import get_market_regime, MarketRegimeDetector  # Phase 2: Market Regime Detection
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -52,6 +53,8 @@ class EnhancedTop200StockAnalyzer:
         self.max_workers = max_workers
         self.corrected_scoring_engine = CorrectedScoringEngine()  # 🔧 NEW: Corrected scoring based on backtest
         self.ml_predictor = get_ml_predictor()  # 🤖 Phase 2: ML Price Prediction
+        self.regime_detector = MarketRegimeDetector()  # 🌐 Phase 2: Market Regime Detection
+        self.market_regime = None  # Will be populated on first analysis
         self.setup_logging()
         self.results = []
         self.failed_stocks = []
@@ -1084,6 +1087,45 @@ class EnhancedTop200StockAnalyzer:
                     'patterns_detected': 'error'
                 })
             
+            # 3.7. PHASE 2 - TASK 6: Market Regime Detection
+            try:
+                # Get market regime (cached for batch processing)
+                if self.market_regime is None:
+                    self.market_regime = self.regime_detector.detect_regime(period_days=180)
+                    logging.info(f"Market Regime Detected: {self.market_regime['regime']} ({self.market_regime['regime_strength']}), VIX: {self.market_regime['vix_level']:.2f}")
+                
+                regime_data = self.market_regime
+                
+                stock_data.update({
+                    'market_regime': regime_data['regime'],
+                    'regime_strength': regime_data['regime_strength'],
+                    'regime_score': regime_data['regime_score'],
+                    'regime_confidence': regime_data['regime_confidence'],
+                    'market_sentiment': regime_data['market_sentiment'],
+                    'market_risk_level': regime_data['risk_level'],
+                    'trading_recommendation': regime_data['trading_recommendation'],
+                    'vix_level': regime_data['vix_level'],
+                    'nifty_level': regime_data['current_nifty']
+                })
+                
+                stock_data['regime_detection_status'] = 'success'
+                logging.debug(f"Market regime data added for {symbol}: {regime_data['regime']}")
+                
+            except Exception as regime_error:
+                logging.warning(f"Market regime detection error for {symbol}: {regime_error}")
+                stock_data['regime_detection_status'] = f'error: {str(regime_error)}'
+                stock_data.update({
+                    'market_regime': 'UNKNOWN',
+                    'regime_strength': 'UNKNOWN',
+                    'regime_score': 0.0,
+                    'regime_confidence': 0.0,
+                    'market_sentiment': 'NEUTRAL',
+                    'market_risk_level': 'MODERATE',
+                    'trading_recommendation': 'WAIT_AND_WATCH',
+                    'vix_level': 15.0,
+                    'nifty_level': 0.0
+                })
+            
             # 4. Calculate Comprehensive Scores with All Accuracy Improvements
             fund_score = stock_data.get('fundamental_score', 50)
             enhanced_score = enhanced_tech_data.get('short_term_score', 50) if enhanced_tech_data else 50
@@ -1202,6 +1244,42 @@ class EnhancedTop200StockAnalyzer:
             stock_data['phase1_context_adjustment'] = context_adjustment
             
             logging.info(f"Phase 1 improvements for {symbol}: Quality={data_quality_score:.0f}, Context={stock_data.get('portfolio_context_score', 100):.0f}, Adjusted Score={phase1_adjusted_score:.1f}")
+            
+            # 🌍 PHASE 2 - TASK 6: Apply Regime-Based Score Adjustment
+            try:
+                if self.market_regime:
+                    # Apply regime-based adjustments to Phase 1 score
+                    regime_adjustment_result = self.regime_detector.adjust_stock_score_by_regime(
+                        phase1_adjusted_score, 
+                        stock_data, 
+                        self.market_regime
+                    )
+                    
+                    # Update stock data with regime-adjusted scores
+                    stock_data.update({
+                        'regime_adjusted_score': regime_adjustment_result['adjusted_score'],
+                        'regime_adjustment_amount': regime_adjustment_result['regime_adjustment'],
+                        'vix_adjustment_amount': regime_adjustment_result['vix_adjustment'],
+                        'total_regime_adjustment': regime_adjustment_result['total_adjustment'],
+                        'regime_adjustment_reasons': ', '.join(regime_adjustment_result['adjustment_reasons'])
+                    })
+                    
+                    logging.info(f"Regime adjustment for {symbol}: {regime_adjustment_result['total_adjustment']:+.1f} points "
+                               f"({stock_data['market_regime']}). Reasons: {stock_data['regime_adjustment_reasons']}")
+                else:
+                    stock_data['regime_adjusted_score'] = phase1_adjusted_score
+                    stock_data['regime_adjustment_amount'] = 0.0
+                    stock_data['vix_adjustment_amount'] = 0.0
+                    stock_data['total_regime_adjustment'] = 0.0
+                    stock_data['regime_adjustment_reasons'] = 'No regime detected'
+                    
+            except Exception as e:
+                logging.warning(f"Regime adjustment failed for {symbol}: {e}")
+                stock_data['regime_adjusted_score'] = phase1_adjusted_score
+                stock_data['regime_adjustment_amount'] = 0.0
+                stock_data['vix_adjustment_amount'] = 0.0
+                stock_data['total_regime_adjustment'] = 0.0
+                stock_data['regime_adjustment_reasons'] = f'Error: {str(e)}'
             
             # 🔧 NEW: Apply corrected scoring algorithm based on backtest analysis
             corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
