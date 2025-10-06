@@ -43,6 +43,7 @@ from corrected_scoring_engine import CorrectedScoringEngine
 from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
 from pattern_recognition import analyze_patterns  # Phase 2: Advanced Pattern Recognition
 from market_regime_detector import get_market_regime, MarketRegimeDetector  # Phase 2: Market Regime Detection
+from sentiment_analyzer import SentimentAnalyzer  # Phase 2: News & Sentiment Analysis
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -54,6 +55,7 @@ class EnhancedTop200StockAnalyzer:
         self.corrected_scoring_engine = CorrectedScoringEngine()  # 🔧 NEW: Corrected scoring based on backtest
         self.ml_predictor = get_ml_predictor()  # 🤖 Phase 2: ML Price Prediction
         self.regime_detector = MarketRegimeDetector()  # 🌐 Phase 2: Market Regime Detection
+        self.sentiment_analyzer = SentimentAnalyzer()  # 🎭 Phase 2: Sentiment Analysis
         self.market_regime = None  # Will be populated on first analysis
         self.setup_logging()
         self.results = []
@@ -1126,6 +1128,62 @@ class EnhancedTop200StockAnalyzer:
                     'nifty_level': 0.0
                 })
             
+            # 3.8. PHASE 2 - TASK 7: News & Sentiment Analysis
+            try:
+                sentiment_data = self.sentiment_analyzer.analyze_sentiment(symbol, stock_data)
+                
+                stock_data.update({
+                    'sentiment_composite_score': sentiment_data['composite_score'],
+                    'overall_sentiment': sentiment_data['overall_sentiment'],
+                    'sentiment_signal': sentiment_data['sentiment_signal'],
+                    'sentiment_confidence': sentiment_data['confidence'],
+                    'sentiment_strength': sentiment_data['sentiment_strength'],
+                    'news_sentiment_score': sentiment_data['news_sentiment']['score'],
+                    'news_sentiment_signal': sentiment_data['news_sentiment']['signal'],
+                    'analyst_sentiment_score': sentiment_data['analyst_sentiment']['score'],
+                    'analyst_sentiment_signal': sentiment_data['analyst_sentiment']['signal'],
+                    'analyst_buy_count': sentiment_data['analyst_sentiment'].get('buy_count', 0),
+                    'analyst_hold_count': sentiment_data['analyst_sentiment'].get('hold_count', 0),
+                    'analyst_sell_count': sentiment_data['analyst_sentiment'].get('sell_count', 0),
+                    'market_sentiment_score': sentiment_data['market_sentiment']['score'],
+                    'market_sentiment_signal': sentiment_data['market_sentiment']['signal'],
+                    'earnings_sentiment_score': sentiment_data['earnings_sentiment']['score'],
+                    'earnings_sentiment_signal': sentiment_data['earnings_sentiment']['signal'],
+                    'earnings_growth': sentiment_data['earnings_sentiment'].get('earnings_growth', 0),
+                    'buzz_sentiment_score': sentiment_data['buzz_sentiment']['score'],
+                    'buzz_sentiment_signal': sentiment_data['buzz_sentiment']['signal'],
+                    'buzz_level': sentiment_data['buzz_sentiment'].get('buzz_level', 'LOW'),
+                    'sentiment_analysis_status': 'success'
+                })
+                
+                logging.info(f"Sentiment Analysis for {symbol}: {sentiment_data['overall_sentiment']} ({sentiment_data['composite_score']:.1f}/100), Confidence: {sentiment_data['confidence']:.1f}%")
+                
+            except Exception as sentiment_error:
+                logging.warning(f"Sentiment analysis error for {symbol}: {sentiment_error}")
+                stock_data.update({
+                    'sentiment_composite_score': 50.0,
+                    'overall_sentiment': 'NEUTRAL',
+                    'sentiment_signal': 'HOLD',
+                    'sentiment_confidence': 40.0,
+                    'sentiment_strength': 'MODERATE',
+                    'news_sentiment_score': 50.0,
+                    'news_sentiment_signal': 'NEUTRAL',
+                    'analyst_sentiment_score': 50.0,
+                    'analyst_sentiment_signal': 'NEUTRAL',
+                    'analyst_buy_count': 0,
+                    'analyst_hold_count': 0,
+                    'analyst_sell_count': 0,
+                    'market_sentiment_score': 50.0,
+                    'market_sentiment_signal': 'NEUTRAL',
+                    'earnings_sentiment_score': 50.0,
+                    'earnings_sentiment_signal': 'NEUTRAL',
+                    'earnings_growth': 0.0,
+                    'buzz_sentiment_score': 50.0,
+                    'buzz_sentiment_signal': 'NEUTRAL',
+                    'buzz_level': 'LOW',
+                    'sentiment_analysis_status': f'error: {str(sentiment_error)}'
+                })
+            
             # 4. Calculate Comprehensive Scores with All Accuracy Improvements
             fund_score = stock_data.get('fundamental_score', 50)
             enhanced_score = enhanced_tech_data.get('short_term_score', 50) if enhanced_tech_data else 50
@@ -1278,6 +1336,58 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['regime_adjustment_amount'] = 0.0
                 stock_data['regime_adjustment_reasons'] = f'Error: {str(e)}'
                 stock_data['regime_context'] = 'Error'
+            
+            # 🎭 PHASE 2 - TASK 7: Apply Sentiment-Based Score Adjustment
+            try:
+                # Get the score from previous step (regime-adjusted or phase1)
+                base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
+                
+                # Prepare sentiment data for adjustment
+                sentiment_data = {
+                    'composite_score': stock_data.get('sentiment_composite_score', 50),
+                    'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
+                    'confidence': stock_data.get('sentiment_confidence', 40),
+                    'news_sentiment': {
+                        'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
+                        'volume_surge': stock_data.get('volume_trend', 1.0)
+                    },
+                    'analyst_sentiment': {
+                        'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
+                        'total_recommendations': (
+                            stock_data.get('analyst_buy_count', 0) +
+                            stock_data.get('analyst_hold_count', 0) +
+                            stock_data.get('analyst_sell_count', 0)
+                        )
+                    },
+                    'earnings_sentiment': {
+                        'earnings_growth': stock_data.get('earnings_growth', 0)
+                    }
+                }
+                
+                # Apply sentiment adjustment
+                sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
+                    base_score_for_sentiment,
+                    sentiment_data
+                )
+                
+                # Update stock data with sentiment-adjusted scores
+                stock_data.update({
+                    'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
+                    'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
+                    'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
+                    'sentiment_context': sentiment_adjustment_result['sentiment_context']
+                })
+                
+                if sentiment_adjustment_result['sentiment_adjustment'] != 0:
+                    logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
+                               f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
+            
+            except Exception as e:
+                logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
+                stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
+                stock_data['sentiment_adjustment_amount'] = 0.0
+                stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
+                stock_data['sentiment_context'] = 'Error'
             
             # 🔧 NEW: Apply corrected scoring algorithm based on backtest analysis
             corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
