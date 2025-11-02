@@ -152,8 +152,19 @@ class SmartProfitBookingAdvisor:
         if self.report_df is None:
             return None
         
+        # Check which column name is used (could be 'ACTION' or 'action_type' or 'action_recommendation')
+        action_col = None
+        for col in ['ACTION', 'action_type', 'action_recommendation']:
+            if col in self.report_df.columns:
+                action_col = col
+                break
+        
+        if action_col is None:
+            print(f"⚠️  No action column found in report. Available columns: {list(self.report_df.columns)}")
+            return None
+        
         book_stocks = self.report_df[
-            self.report_df['action_type'].astype(str).str.contains('BOOK', na=False, case=False)
+            self.report_df[action_col].astype(str).str.contains('BOOK', na=False, case=False)
         ].copy()
         
         return book_stocks

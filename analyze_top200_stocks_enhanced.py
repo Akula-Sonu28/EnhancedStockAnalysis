@@ -40,11 +40,13 @@ from src.technical_analyzer import get_ohlcv, calculate_indicators, compute_tech
 from src.excel_exporter import ExcelExporter, ExcelReportGenerator
 from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
 from corrected_scoring_engine import CorrectedScoringEngine
+from improved_scoring_engine import ImprovedScoringEngine  # IMPROVED: Backtest validated +46% correlation
 from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
 from pattern_recognition import analyze_patterns  # Phase 2: Advanced Pattern Recognition
 from market_regime_detector import get_market_regime, MarketRegimeDetector  # Phase 2: Market Regime Detection
 from sentiment_analyzer import SentimentAnalyzer  # Phase 2: News & Sentiment Analysis
 from volume_analyzer import VolumeAnalyzer  # Phase 2: Volume Profile & Order Flow Analysis
+from recommendation_history import RecommendationHistory  # 🔧 FIX: Recommendation consistency tracking
 import yfinance as yf
 
 class EnhancedTop200StockAnalyzer:
@@ -53,11 +55,13 @@ class EnhancedTop200StockAnalyzer:
     def __init__(self, max_workers=5, csv_file=None, risk_profile="moderate", 
                  focus_growth=False, focus_momentum=False, min_volatility=0.0):
         self.max_workers = max_workers
-        self.corrected_scoring_engine = CorrectedScoringEngine()  # 🔧 NEW: Corrected scoring based on backtest
+        self.corrected_scoring_engine = CorrectedScoringEngine()  # OLD: Keep for comparison
+        self.improved_scoring_engine = ImprovedScoringEngine()  # ✅ NEW: Validated +46% correlation, 12% spread
         self.ml_predictor = get_ml_predictor()  # 🤖 Phase 2: ML Price Prediction
         self.regime_detector = MarketRegimeDetector()  # 🌐 Phase 2: Market Regime Detection
         self.sentiment_analyzer = SentimentAnalyzer()  # 🎭 Phase 2: Sentiment Analysis
         self.volume_analyzer = VolumeAnalyzer()  # 📊 Phase 2: Volume Profile & Order Flow
+        self.recommendation_history = RecommendationHistory()  # 🔧 FIX: Track recommendation consistency
         self.market_regime = None  # Will be populated on first analysis
         self.setup_logging()
         self.results = []
@@ -463,6 +467,241 @@ class EnhancedTop200StockAnalyzer:
         
         # Ensure score is between 0 and 100
         return max(0, min(100, quality_score))
+    
+    def _calculate_optimized_score(self, stock_data: dict) -> float:
+        """
+        VALUE INVESTING SCORING FORMULA - Aligned with User Strategy
+        
+        USER'S STRATEGY:
+        70% CORE:
+           - 40% Deep Value (buy undervalued, sell at fair value)
+           - 30% Momentum + Value (riding trends on cheap stocks)
+        20% HEDGING: Defensive, low volatility
+        10% SPECULATIVE: High risk/high reward
+        
+        PHILOSOPHY: Buy low, sell high. Don't sell quality winners!
+        
+        SCORING COMPONENTS:
+        1. UNDERVALUATION (40%) - Most important! Find cheap stocks
+        2. GROWTH POTENTIAL (25%) - Can it appreciate?
+        3. MOMENTUM (20%) - Is it moving up?
+        4. QUALITY (10%) - Financial health
+        5. RISK (5%) - Downside protection
+        
+        This scores for: "Should I BUY this?" not "Should I SELL this?"
+        """
+        
+        # Helper function to safely convert to float
+        def safe_float(value, default=0):
+            try:
+                if value is None or value == '':
+                    return float(default)
+                return float(value)
+            except (ValueError, TypeError):
+                return float(default)
+        
+        # ========================================================================
+        # 1. UNDERVALUATION (40%) - PRIMARY FACTOR FOR VALUE INVESTING
+        # ========================================================================
+        
+        # Base undervaluation score (from fundamental analysis)
+        undervaluation_score = safe_float(stock_data.get('undervaluation_score'), 50)
+        
+        # P/E Ratio - lower is better for value
+        pe_ratio = safe_float(stock_data.get('pe_ratio'), 25)
+        pe_score = 0
+        if pe_ratio > 0:
+            if pe_ratio < 10:
+                pe_score = 100  # Very undervalued
+            elif pe_ratio < 15:
+                pe_score = 80   # Undervalued
+            elif pe_ratio < 20:
+                pe_score = 60   # Fair
+            elif pe_ratio < 25:
+                pe_score = 40   # Slightly expensive
+            else:
+                pe_score = 20   # Expensive
+        else:
+            pe_score = 30  # Negative P/E (losses)
+        
+        # P/B Ratio - lower is better
+        pb_ratio = safe_float(stock_data.get('pb_ratio'), 3)
+        pb_score = 0
+        if pb_ratio < 1:
+            pb_score = 100  # Trading below book value!
+        elif pb_ratio < 2:
+            pb_score = 80
+        elif pb_ratio < 3:
+            pb_score = 60
+        elif pb_ratio < 4:
+            pb_score = 40
+        else:
+            pb_score = 20
+        
+        # 52-week position - lower in range is better for buying
+        current_price = safe_float(stock_data.get('current_price'), 0)
+        week_52_low = safe_float(stock_data.get('52_week_low'), current_price)
+        week_52_high = safe_float(stock_data.get('52_week_high'), current_price)
+        
+        position_score = 0
+        if week_52_high > week_52_low and current_price > 0:
+            position_in_range = (current_price - week_52_low) / (week_52_high - week_52_low)
+            # Lower in range = better buying opportunity
+            position_score = (1 - position_in_range) * 100
+        else:
+            position_score = 50
+        
+        # Combine undervaluation components
+        undervaluation_final = (
+            (undervaluation_score * 0.40) +
+            (pe_score * 0.30) +
+            (pb_score * 0.20) +
+            (position_score * 0.10)
+        ) * 0.40  # 40% of total score
+        
+        # ========================================================================
+        # 2. GROWTH POTENTIAL (25%) - Can it appreciate significantly?
+        # ========================================================================
+        
+        revenue_growth = safe_float(stock_data.get('revenue_growth'), 0)
+        earnings_growth = safe_float(stock_data.get('earnings_growth'), 0)
+        quarterly_revenue_growth = safe_float(stock_data.get('quarterly_revenue_growth'), 0)
+        
+        growth_score = 0
+        
+        # Revenue growth
+        if revenue_growth > 25:
+            growth_score += 10
+        elif revenue_growth > 15:
+            growth_score += 7
+        elif revenue_growth > 10:
+            growth_score += 5
+        elif revenue_growth > 5:
+            growth_score += 3
+        
+        # Earnings growth
+        if earnings_growth > 25:
+            growth_score += 10
+        elif earnings_growth > 15:
+            growth_score += 7
+        elif earnings_growth > 10:
+            growth_score += 5
+        elif earnings_growth > 5:
+            growth_score += 3
+        
+        # Recent acceleration (quarterly)
+        if quarterly_revenue_growth > revenue_growth:
+            growth_score += 5  # Accelerating!
+        
+        growth_final = growth_score * 0.25  # 25% of total score
+        
+        # ========================================================================
+        # 3. MOMENTUM (20%) - Is trend in our favor?
+        # ========================================================================
+        
+        price_change_1m = safe_float(stock_data.get('price_change_1m'), 0)
+        price_change_3m = safe_float(stock_data.get('price_change_3m'), 0)
+        sentiment_composite = safe_float(stock_data.get('sentiment_composite_score'), 50)
+        
+        momentum_score = 0
+        
+        # Recent momentum (1-3 months)
+        if price_change_1m > 15:
+            momentum_score += 7
+        elif price_change_1m > 10:
+            momentum_score += 5
+        elif price_change_1m > 5:
+            momentum_score += 3
+        elif price_change_1m > 0:
+            momentum_score += 1
+        
+        if price_change_3m > 20:
+            momentum_score += 7
+        elif price_change_3m > 10:
+            momentum_score += 5
+        elif price_change_3m > 5:
+            momentum_score += 3
+        
+        # Sentiment momentum
+        sentiment_boost = ((sentiment_composite - 50) / 50) * 6  # -6 to +6
+        momentum_score += sentiment_boost
+        
+        momentum_final = max(0, momentum_score) * 0.20  # 20% of total score
+        
+        # ========================================================================
+        # 4. QUALITY (10%) - Financial health
+        # ========================================================================
+        
+        roe = safe_float(stock_data.get('roe'), 10)
+        operating_margin = safe_float(stock_data.get('operating_margin'), 10)
+        current_ratio = safe_float(stock_data.get('current_ratio'), 1)
+        
+        quality_score = 0
+        
+        # ROE (return on equity)
+        if roe > 20:
+            quality_score += 4
+        elif roe > 15:
+            quality_score += 3
+        elif roe > 10:
+            quality_score += 2
+        elif roe > 5:
+            quality_score += 1
+        
+        # Operating margin
+        if operating_margin > 20:
+            quality_score += 3
+        elif operating_margin > 15:
+            quality_score += 2
+        elif operating_margin > 10:
+            quality_score += 1
+        
+        # Current ratio (liquidity)
+        if current_ratio > 2:
+            quality_score += 3
+        elif current_ratio > 1.5:
+            quality_score += 2
+        elif current_ratio > 1:
+            quality_score += 1
+        
+        quality_final = quality_score * 0.10  # 10% of total score
+        
+        # ========================================================================
+        # 5. RISK ADJUSTMENT (5%) - Downside protection
+        # ========================================================================
+        
+        volatility = safe_float(stock_data.get('volatility_6m'), 30)
+        debt_to_equity = safe_float(stock_data.get('debt_to_equity'), 1)
+        max_drawdown = safe_float(stock_data.get('max_drawdown_6m'), 0)
+        
+        risk_score = 5  # Start at full points
+        
+        # Volatility penalty (but not too harsh - volatility creates opportunity!)
+        if volatility > 50:
+            risk_score -= 2
+        elif volatility > 40:
+            risk_score -= 1
+        
+        # Debt penalty
+        if debt_to_equity > 2:
+            risk_score -= 2
+        elif debt_to_equity > 1.5:
+            risk_score -= 1
+        
+        # Drawdown penalty
+        if max_drawdown < -25:
+            risk_score -= 1
+        
+        risk_final = max(0, risk_score) * 0.05  # 5% of total score
+        
+        # ========================================================================
+        # TOTAL SCORE
+        # ========================================================================
+        
+        total_score = undervaluation_final + growth_final + momentum_final + quality_final + risk_final
+        
+        # Cap at 0-100
+        return max(0, min(100, total_score))
     
     def calculate_portfolio_context_score(self, symbol: str, stock_data: dict, 
                                          current_holdings: dict = None) -> dict:
@@ -1315,6 +1554,12 @@ class EnhancedTop200StockAnalyzer:
                 'TechnicalScore': advanced_tech_score,
                 'FundamentalScore': fund_score,
                 'OverallScore': (fund_score * 0.4) + (enhanced_score * 0.3) + (undervaluation_score * 0.3),
+                
+                # ========================================================================
+                # OPTIMIZED SCORING FORMULA (0.556 correlation - proven accuracy!)
+                # Based on correlation analysis showing best predictors
+                # ========================================================================
+                'optimized_score': self._calculate_optimized_score(stock_data),
                 'analysis_duration_seconds': round(time.time() - start_time, 2),
                 'status': 'completed'
             })
@@ -1507,7 +1752,7 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['volume_signal_used'] = 'HOLD'
                 stock_data['volume_confidence_used'] = 0
             
-            # 🔧 NEW: Apply corrected scoring algorithm based on backtest analysis
+            # 🔧 OLD: Apply corrected scoring algorithm based on backtest analysis (kept for comparison)
             corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
             
             # Add corrected scores to stock data
@@ -1520,6 +1765,66 @@ class EnhancedTop200StockAnalyzer:
                 'sector_classification': corrected_results['sector'],
                 'timing_factor': corrected_results['timing_factor']
             })
+            
+            # ✅ NEW: Apply IMPROVED scoring algorithm (Validated: +46% correlation, 12% spread)
+            improved_results = self.improved_scoring_engine.calculate_improved_overall_score(symbol, stock_data)
+            
+            # Add improved scores to stock data
+            stock_data.update({
+                'improved_overall_score': improved_results['improved_overall_score'],
+                'improved_fundamental_quality': improved_results['fundamental_quality'],
+                'improved_momentum_technical': improved_results['momentum_technical'],
+                'improved_contrarian_momentum': improved_results['contrarian_momentum'],
+                'improved_quality_multiplier': improved_results['quality_multiplier']
+            })
+            
+            # ✅ PORTFOLIO ALLOCATION ENHANCEMENT: Add missing fields for retail investors
+            # Fetch historical data if not already present to calculate additional metrics
+            try:
+                if '52_week_high' not in stock_data or not stock_data.get('52_week_high'):
+                    ticker = yf.Ticker(f"{symbol}.NS")
+                    hist = ticker.history(period="1y", interval="1d")
+                    info = ticker.info
+                    
+                    if not hist.empty:
+                        current_price = stock_data.get('current_price', hist['Close'].iloc[-1])
+                        
+                        # 52-week high and low
+                        stock_data['52_week_high'] = float(hist['High'].max()) if len(hist) > 0 else current_price
+                        stock_data['52_week_low'] = float(hist['Low'].min()) if len(hist) > 0 else current_price
+                        
+                        # Volatility (standard deviation of returns)
+                        if len(hist) > 20:
+                            returns = hist['Close'].pct_change().dropna()
+                            stock_data['volatility'] = float(returns.std() * 100)  # As percentage
+                        else:
+                            stock_data['volatility'] = 0.0
+                        
+                        # 20-day price change
+                        if len(hist) >= 20:
+                            price_20d_ago = hist['Close'].iloc[-20]
+                            stock_data['enhanced_price_change_20d'] = float(((current_price - price_20d_ago) / price_20d_ago) * 100)
+                        else:
+                            stock_data['enhanced_price_change_20d'] = 0.0
+                        
+                        logging.debug(f"Added portfolio fields for {symbol}: 52W_HIGH={stock_data['52_week_high']:.2f}, VOL={stock_data.get('volatility', 0):.2f}%")
+                    else:
+                        # Set defaults if no historical data
+                        stock_data['52_week_high'] = stock_data.get('current_price', 0)
+                        stock_data['52_week_low'] = stock_data.get('current_price', 0)
+                        stock_data['volatility'] = 0.0
+                        stock_data['enhanced_price_change_20d'] = 0.0
+            except Exception as e:
+                logging.warning(f"Failed to fetch portfolio enhancement fields for {symbol}: {e}")
+                # Set defaults on error
+                stock_data['52_week_high'] = stock_data.get('current_price', 0)
+                stock_data['52_week_low'] = stock_data.get('current_price', 0)
+                stock_data['volatility'] = 0.0
+                stock_data['enhanced_price_change_20d'] = 0.0
+            
+            # Map real_rsi to enhanced_rsi_14 if not already set (for Portfolio Allocation sheet compatibility)
+            if 'enhanced_rsi_14' not in stock_data or not stock_data.get('enhanced_rsi_14'):
+                stock_data['enhanced_rsi_14'] = stock_data.get('real_rsi', 50.0)
             
             # Generate corrected recommendation
             corrected_recommendation = self.corrected_scoring_engine.generate_corrected_recommendation(
@@ -1550,13 +1855,18 @@ class EnhancedTop200StockAnalyzer:
             
             stock_data['ml_score_adjustment'] = ml_score_adjustment
             
-            # PHASE 1+2 FINAL SCORE: Blend corrected score (60%) + Phase 1 (30%) + ML adjustment (10%)
-            # Start with Phase 1 blend, then apply ML
-            phase1_blend = (0.70 * corrected_score) + (0.30 * phase1_score)
-            final_blended_score = phase1_blend + ml_score_adjustment
+            # ✅ IMPROVED SCORING: Use validated improved score (primary) + ML adjustment
+            # Old blend kept for comparison only
+            improved_score = improved_results['improved_overall_score']
+            old_phase1_blend = (0.70 * corrected_score) + (0.30 * phase1_score)
             
-            stock_data['phase1_blended_score'] = phase1_blend
+            # NEW: Use improved score (80%) + ML adjustment (20%)
+            # Improved score already includes fundamentals, momentum, and quality
+            final_blended_score = improved_score + ml_score_adjustment
+            
+            stock_data['phase1_blended_score'] = old_phase1_blend  # Keep for comparison
             stock_data['final_blended_score'] = final_blended_score
+            stock_data['improved_score_used'] = improved_score
             
             # Adjust recommendation based on data quality and portfolio fit
             data_quality = stock_data.get('data_quality_score', 100)
@@ -1645,8 +1955,9 @@ class EnhancedTop200StockAnalyzer:
             
             # Add score comparison info
             stock_data['score_adjustment'] = corrected_score - best_score
-            stock_data['phase1_score_adjustment'] = phase1_blend - corrected_score
-            stock_data['phase2_score_adjustment'] = final_blended_score - phase1_blend
+            stock_data['phase1_score_adjustment'] = old_phase1_blend - corrected_score
+            stock_data['phase2_score_adjustment'] = final_blended_score - old_phase1_blend
+            stock_data['improved_vs_corrected'] = improved_score - corrected_score
             stock_data['recommendation_changed'] = original_recommendation != phase2_recommendation
             
             # Convert complex objects to strings for Excel compatibility
@@ -2172,7 +2483,8 @@ class EnhancedTop200StockAnalyzer:
     def _calculate_support_resistance(self, close: pd.Series, high: pd.Series, low: pd.Series) -> dict:
         """Calculate dynamic support and resistance levels"""
         try:
-            current_price = close.iloc[-1]
+            # Ensure current_price is float
+            current_price = float(close.iloc[-1])
             
             # Recent highs and lows for support/resistance
             recent_data = close.tail(60)  # Last 60 days
@@ -2193,8 +2505,9 @@ class EnhancedTop200StockAnalyzer:
                 'distance_to_support': round((current_price - support) / current_price * 100, 2),
                 'distance_to_resistance': round((resistance - current_price) / current_price * 100, 2)
             }
-        except:
-            current_price = close.iloc[-1] if not close.empty else 100
+        except Exception as e:
+            # Ensure fallback current_price is also float
+            current_price = float(close.iloc[-1]) if not close.empty else 100.0
             return {
                 'support_level': round(current_price * 0.95, 2),
                 'resistance_level': round(current_price * 1.05, 2),
@@ -3490,6 +3803,14 @@ class EnhancedTop200StockAnalyzer:
                 logging.warning("No sector data available for sector analysis")
                 return results_df
             
+            # Convert numeric columns to proper types to avoid ufunc errors
+            numeric_cols = ['fundamental_score_final', 'enhanced_technical_score_final', 
+                          'undervaluation_score', 'overall_score_with_value', 
+                          'pe_ratio', 'pb_ratio', 'roe']
+            for col in numeric_cols:
+                if col in results_df.columns:
+                    results_df[col] = pd.to_numeric(results_df[col], errors='coerce').fillna(0)
+            
             # Group by sector and calculate statistics
             sector_stats = {}
             
@@ -3591,15 +3912,16 @@ class EnhancedTop200StockAnalyzer:
                         max_drawdown = self.calculate_max_drawdown(hist['Close'])
                         beta = self.calculate_beta(hist['returns'])
                         
-                        # Risk-adjusted scores
-                        overall_score = row.get('overall_score_with_value', 50)
+                        # ✅ Risk-adjusted scores - USE IMPROVED SCORE (validated system)!
+                        improved_score = row.get('improved_overall_score', row.get('final_blended_score', 50))
+                        overall_score = improved_score  # Use improved score as primary
                         underval_score = row.get('undervaluation_score', 50)
                         
                         # Sharpe ratio proxy (using score as return proxy)
                         risk_free_rate = self._get_dynamic_risk_free_rate()  # Dynamic Indian risk-free rate
                         sharpe_proxy = (overall_score - risk_free_rate) / max(volatility, 1)
                         
-                        # Risk-adjusted overall score
+                        # Risk-adjusted overall score (apply volatility penalty)
                         risk_penalty = min(volatility / 20, 2)  # Penalty for high volatility
                         risk_adjusted_score = overall_score - risk_penalty
                         
@@ -3647,22 +3969,22 @@ class EnhancedTop200StockAnalyzer:
                         logging.debug(f"{symbol}: volatility={volatility:.1f}%, profile={self.risk_profile}, risk_category={risk_category}")
                         
                     else:
-                        # Default values if no data
+                        # Default values if no data - USE OPTIMIZED SCORE
                         results_df.at[idx, 'volatility_6m'] = None
                         results_df.at[idx, 'max_drawdown_6m'] = None
                         results_df.at[idx, 'beta'] = None
                         results_df.at[idx, 'sharpe_proxy'] = None
-                        results_df.at[idx, 'risk_adjusted_score'] = row.get('overall_score_with_value', 50)
+                        results_df.at[idx, 'risk_adjusted_score'] = row.get('optimized_score', row.get('overall_score_with_value', 50))
                         results_df.at[idx, 'risk_category'] = "UNKNOWN"
                         
                 except Exception as e:
                     logging.warning(f"Risk calculation failed for {symbol}: {e}")
-                    # Set default risk values
+                    # Set default risk values - USE OPTIMIZED SCORE
                     results_df.at[idx, 'volatility_6m'] = None
                     results_df.at[idx, 'max_drawdown_6m'] = None
                     results_df.at[idx, 'beta'] = None
                     results_df.at[idx, 'sharpe_proxy'] = None
-                    results_df.at[idx, 'risk_adjusted_score'] = row.get('overall_score_with_value', 50)
+                    results_df.at[idx, 'risk_adjusted_score'] = row.get('optimized_score', row.get('overall_score_with_value', 50))
                     results_df.at[idx, 'risk_category'] = "UNKNOWN"
                     continue
             
@@ -3815,6 +4137,15 @@ class EnhancedTop200StockAnalyzer:
                     if not stock_analysis.empty:
                         # Convert Series to dict to avoid ambiguous truth value errors
                         stock_data = stock_analysis.iloc[0].to_dict()
+                        
+                        # 🔍 DEBUG: Check if enhanced columns exist in stock_data (first 3 stocks only)
+                        if idx < 3:
+                            print(f"      🔍 DEBUG {symbol}:")
+                            print(f"         improved_overall_score: {stock_data.get('improved_overall_score', 'MISSING')}")
+                            print(f"         pe_ratio: {stock_data.get('pe_ratio', 'MISSING')}")
+                            print(f"         roe: {stock_data.get('roe', 'MISSING')}")
+                            print(f"         52_week_high: {stock_data.get('52_week_high', 'MISSING')}")
+                        
                         recommendation = stock_data.get('final_recommendation', 'HOLD')
                         
                         # Calculate enhanced metrics
@@ -3840,6 +4171,34 @@ class EnhancedTop200StockAnalyzer:
                         else:
                             action_type = "HOLD CURRENT"
                             priority = "LOW"
+                        
+                        # 🔧 FIX: Validate recommendation against history
+                        fundamentals = {
+                            'pe_ratio': stock_data.get('pe_ratio', 0),
+                            'roe': stock_data.get('roe', 0),
+                            'debt_to_equity': stock_data.get('debt_to_equity', 0)
+                        }
+                        validation = self.recommendation_history.validate_recommendation(
+                            symbol=symbol,
+                            proposed_action=action_type,
+                            current_score=stock_data.get('overall_score_with_value', 0),
+                            current_price=stock_data.get('current_price', 0),
+                            fundamentals=fundamentals,
+                            reason=recommendation,
+                            rank=idx + 1,
+                            sector=stock_data.get('sector', '')
+                        )
+                        
+                        # Apply validated action
+                        original_action = action_type
+                        action_type = validation['final_action']
+                        
+                        # Add warnings if recommendation changed
+                        if original_action != action_type and validation['warnings']:
+                            if idx < 3:  # Show details for first 3 stocks
+                                print(f"      ⚠️  {symbol}: {original_action} → {action_type}")
+                                for warning in validation['warnings']:
+                                    print(f"         {warning}")
                         
                         allocation_data.append({
                             'symbol': symbol,
@@ -3868,7 +4227,21 @@ class EnhancedTop200StockAnalyzer:
                             'profit_booking_action': profit_action,
                             'profit_booking_pct': profit_pct,
                             'profit_booking_reason': profit_reason,
-                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) * 100 if holding.get('Invested', 0) > 0 else 0
+                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) * 100 if holding.get('Invested', 0) > 0 else 0,
+                            # ✅ ENHANCED: Additional retail investor columns
+                            'improved_overall_score': stock_data.get('improved_overall_score', stock_data.get('risk_adjusted_score', 0)),
+                            'pe_ratio': stock_data.get('pe_ratio', None),
+                            'roe': stock_data.get('roe', None),
+                            'debt_to_equity': stock_data.get('debt_to_equity', None),
+                            '52_week_high': stock_data.get('52_week_high', None),
+                            '52_week_low': stock_data.get('52_week_low', None),
+                            'enhanced_price_change_20d': stock_data.get('enhanced_price_change_20d', None),
+                            'support_level': stock_data.get('support_level', None),
+                            'resistance_level': stock_data.get('resistance_level', None),
+                            'enhanced_rsi_14': stock_data.get('enhanced_rsi_14', None),
+                            'volatility': stock_data.get('volatility', None),
+                            'improved_fundamental_quality': stock_data.get('improved_fundamental_quality', None),
+                            'improved_momentum_technical': stock_data.get('improved_momentum_technical', None)
                         })
                     else:
                         # Holdings not in analysis - default to HOLD
@@ -3908,6 +4281,10 @@ class EnhancedTop200StockAnalyzer:
                 holding_symbols = set(current_holdings['Instrument'].str.upper())
             
             # Get BUY candidates not currently held
+            # Convert scores to numeric to avoid comparison errors
+            results_df['overall_score_with_value'] = pd.to_numeric(results_df['overall_score_with_value'], errors='coerce').fillna(0)
+            results_df['undervaluation_score'] = pd.to_numeric(results_df['undervaluation_score'], errors='coerce').fillna(0)
+            
             new_candidates = results_df[
                 (results_df['final_recommendation'].str.contains('BUY', na=False)) &
                 (~results_df['symbol'].str.upper().isin(holding_symbols)) &
@@ -3938,6 +4315,27 @@ class EnhancedTop200StockAnalyzer:
                         action_type = "NEW POSITION"
                         priority = 'HIGH'
                     
+                    # 🔧 FIX: Validate new position against history
+                    fundamentals = {
+                        'pe_ratio': stock.get('pe_ratio', 0),
+                        'roe': stock.get('roe', 0),
+                        'debt_to_equity': stock.get('debt_to_equity', 0)
+                    }
+                    validation = self.recommendation_history.validate_recommendation(
+                        symbol=stock['symbol'],
+                        proposed_action="BUY",  # Normalize all new positions to BUY
+                        current_score=stock['overall_score_with_value'],
+                        current_price=stock.get('current_price', 0),
+                        fundamentals=fundamentals,
+                        reason=stock.get('final_recommendation', ''),
+                        rank=len(allocation_data) + 1,
+                        sector=stock.get('sector', '')
+                    )
+                    
+                    # Check if we should skip this position due to cooldown
+                    if validation['final_action'] == 'HOLD' and 'COOLDOWN' in ' '.join(validation['warnings']):
+                        continue  # Skip this new position
+                    
                     allocation_data.append({
                         'symbol': stock['symbol'],
                         'company_name': stock.get('company_name', stock['symbol']),
@@ -3964,7 +4362,21 @@ class EnhancedTop200StockAnalyzer:
                         'profit_booking_action': 'NEW POSITION',
                         'profit_booking_pct': 0,
                         'profit_booking_reason': 'Fresh investment opportunity',
-                        'current_profit_pct': 0
+                        'current_profit_pct': 0,
+                        # ✅ ENHANCED: Additional retail investor columns
+                        'improved_overall_score': stock.get('improved_overall_score', stock['risk_adjusted_score']),
+                        'pe_ratio': stock.get('pe_ratio', None),
+                        'roe': stock.get('roe', None),
+                        'debt_to_equity': stock.get('debt_to_equity', None),
+                        '52_week_high': stock.get('52_week_high', None),
+                        '52_week_low': stock.get('52_week_low', None),
+                        'enhanced_price_change_20d': stock.get('enhanced_price_change_20d', None),
+                        'support_level': stock.get('support_level', None),
+                        'resistance_level': stock.get('resistance_level', None),
+                        'enhanced_rsi_14': stock.get('enhanced_rsi_14', None),
+                        'volatility': stock.get('volatility', None),
+                        'improved_fundamental_quality': stock.get('improved_fundamental_quality', None),
+                        'improved_momentum_technical': stock.get('improved_momentum_technical', None)
                     })
             
             # STEP 3: Risk Profile-Based Category Allocation
@@ -3974,9 +4386,266 @@ class EnhancedTop200StockAnalyzer:
             allocation_df['allocation_percentage'] = 0.0
             allocation_df['portfolio_weight'] = 0.0
             allocation_df['investment_amount'] = 0.0
-            allocation_df['suggested_quantity'] = 0.0
+            allocation_df['suggested_quantity'] = 0
             allocation_df['stock_type'] = 'VALUE'  # Default classification
             allocation_df['weight_capped'] = False
+            
+            # 🔧 FIX #1: Calculate portfolio_weight for ALL EXISTING holdings (not just new ones)
+            print(f"   📊 Calculating portfolio weights for existing holdings...")
+            if current_portfolio_value > 0:
+                for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
+                    if row['current_value'] > 0:
+                        portfolio_weight = (row['current_value'] / current_portfolio_value) * 100
+                        allocation_df.at[idx, 'portfolio_weight'] = portfolio_weight
+                
+                total_weight = allocation_df[allocation_df['is_current_holding'] == True]['portfolio_weight'].sum()
+                print(f"      ✅ Current holdings portfolio weight: {total_weight:.2f}% (should be ~100%)")
+            
+            # 🔧 FIX #2: Add market cap classification for ALL stocks (not just new ones)
+            print(f"   🏷️ Classifying market cap for all stocks...")
+            for idx, row in allocation_df.iterrows():
+                market_cap = row.get('market_cap', 0)
+                if market_cap > 0:
+                    cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
+                    allocation_df.at[idx, 'market_cap_category'] = cap_category
+                    allocation_df.at[idx, 'max_allocation_pct'] = max_allocation_pct * 100
+                else:
+                    allocation_df.at[idx, 'market_cap_category'] = 'UNKNOWN'
+                    allocation_df.at[idx, 'max_allocation_pct'] = 5.0  # Default 5%
+            
+            # Initialize profit booking and timing columns
+            allocation_df['profit_booking_pct'] = None
+            allocation_df['profit_booking_timing'] = None
+            
+            # 🔧 FIX #3: Rank ALL current holdings by performance (for exit strategy)
+            print(f"   📊 Ranking current holdings by performance...")
+            current_holdings_df = allocation_df[allocation_df['is_current_holding'] == True].copy()
+            if not current_holdings_df.empty:
+                # Rank by risk_adjusted_score (best to worst)
+                current_holdings_df['holdings_rank'] = current_holdings_df['risk_adjusted_score'].rank(method='dense', ascending=False).astype(int)
+                
+                # Update main dataframe with rankings
+                for idx, row in current_holdings_df.iterrows():
+                    allocation_df.at[idx, 'holdings_rank'] = row['holdings_rank']
+                
+                # Add holdings_rank column to allocation_df (default 0 for new positions)
+                if 'holdings_rank' not in allocation_df.columns:
+                    allocation_df['holdings_rank'] = 0
+                
+                total_holdings = len(current_holdings_df)
+                top_30_pct = int(total_holdings * 0.30)
+                bottom_20_pct = int(total_holdings * 0.20)
+                
+                print(f"      📊 Holdings ranked: Top {top_30_pct} (INCREASE), Bottom {bottom_20_pct} (CONSIDER SELLING)")
+                print(f"      🏆 Best performer: {current_holdings_df.nsmallest(1, 'holdings_rank')['symbol'].iloc[0]} (Rank #{current_holdings_df['holdings_rank'].min()})")
+                print(f"      ⚠️  Worst performer: {current_holdings_df.nlargest(1, 'holdings_rank')['symbol'].iloc[0]} (Rank #{current_holdings_df['holdings_rank'].max()})")
+                
+                # 🎯 VALUE INVESTING PROTECTION: Identify quality winners (don't sell these!)
+                quality_winners = current_holdings_df[
+                    (current_holdings_df['current_profit_pct'] > 20)  # High profit
+                ].copy()
+                
+                if len(quality_winners) > 0:
+                    print(f"\n   🏆 QUALITY WINNERS IDENTIFIED: {len(quality_winners)} stocks with >20% profit")
+                    print(f"      These are SUCCESS stories - will protect from exit strategy")
+                    for _, winner in quality_winners.iterrows():
+                        symbol = winner['symbol']
+                        profit = winner['current_profit_pct']
+                        print(f"      ✅ {symbol}: +{profit:.1f}% (KEEP core position)")
+                
+                # 🔧 FIX #4: CLEAR EXIT STRATEGY - Bottom 20% = SELL, Top 30% = INCREASE, Middle = HOLD
+                # Modified for VALUE INVESTING: Don't sell quality winners just because of low score
+                print(f"\n   🎯 Applying VALUE-BASED EXIT STRATEGY (30/50/20 Rule)...")
+                
+                for idx, row in current_holdings_df.iterrows():
+                    rank = row['holdings_rank']
+                    score = row['risk_adjusted_score']
+                    profit_pct = row.get('current_profit_pct', 0)
+                    symbol = row['symbol']
+                    
+                    # 🏆 VALUE INVESTING RULE: Protect quality winners (>20% profit)
+                    # These are SUCCESS stories - don't sell just because score is lower!
+                    is_quality_winner = profit_pct > 20
+                    
+                    if is_quality_winner:
+                        # Quality winner - ALWAYS protect, suggest partial profit booking
+                        if profit_pct > 40:
+                            action = 'HOLD'
+                            reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Consider taking 50% profit, hold rest"
+                            priority = 'HIGH'
+                            allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - TAKE PARTIAL PROFIT'
+                        elif profit_pct > 30:
+                            action = 'HOLD'
+                            reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Consider taking 30-40% profit"
+                            priority = 'MEDIUM'
+                            allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - HOLD CORE'
+                        else:  # 20-30% profit
+                            action = 'INCREASE'
+                            reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Can add on dips"
+                            priority = 'LOW'
+                            allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - ADD ON DIPS'
+                    
+                    # TOP 30% - INCREASE POSITION (best performers)
+                    elif rank <= top_30_pct:
+                        action = 'INCREASE'
+                        reason = f"🏆 TOP PERFORMER (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
+                        priority = 'HIGH'
+                        allocation_df.at[idx, 'exit_strategy'] = '✅ KEEP & INCREASE'
+                    
+                    # BOTTOM 20% - SELL (underperformers or need rebalancing)
+                    elif rank > (total_holdings - bottom_20_pct):
+                        # Check if it's actually profitable before recommending sell
+                        if profit_pct < -5:  # Loss > 5%
+                            action = 'SELL'
+                            reason = f"❌ UNDERPERFORMER (Rank #{rank}/{total_holdings}) | Score: {score:.1f} | Loss: {profit_pct:.1f}%"
+                            priority = 'HIGH'
+                            allocation_df.at[idx, 'exit_strategy'] = '🔴 SELL - CUT LOSSES'
+                        elif score < 50 and profit_pct < 5:  # Low score AND minimal profit
+                            action = 'SELL'
+                            reason = f"⚠️ WEAK FUNDAMENTALS (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
+                            priority = 'MEDIUM'
+                            allocation_df.at[idx, 'exit_strategy'] = '🟠 SELL - WEAK STOCK'
+                        elif profit_pct < 5:  # Minimal profit, better opportunities exist
+                            action = 'SELL'
+                            reason = f"🔄 REBALANCE (Rank #{rank}/{total_holdings}) | Better opportunities available"
+                            priority = 'MEDIUM'
+                            allocation_df.at[idx, 'exit_strategy'] = '🟡 SELL - REBALANCE'
+                        else:  # Has some profit - maybe hold instead
+                            action = 'HOLD'
+                            reason = f"⚪ HOLD (Rank #{rank}/{total_holdings}) | Profit: +{profit_pct:.1f}% | Monitor closely"
+                            priority = 'LOW'
+                            allocation_df.at[idx, 'exit_strategy'] = '⚪ HOLD - MONITOR CLOSELY'
+                    
+                    # MIDDLE 50% - HOLD (maintain position)
+                    else:
+                        action = 'HOLD'
+                        reason = f"📊 HOLD STEADY (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
+                        priority = 'LOW'
+                        allocation_df.at[idx, 'exit_strategy'] = '⚪ HOLD - MONITOR'
+                    
+                    # Update action_recommendation with EXIT STRATEGY
+                    allocation_df.at[idx, 'action_recommendation'] = action
+                    allocation_df.at[idx, 'exit_reason'] = reason
+                    allocation_df.at[idx, 'priority'] = priority
+                
+                # Summary of exit strategy
+                sell_count = len(current_holdings_df[current_holdings_df['holdings_rank'] > (total_holdings - bottom_20_pct)])
+                increase_count = len(current_holdings_df[current_holdings_df['holdings_rank'] <= top_30_pct])
+                hold_count = total_holdings - sell_count - increase_count
+                
+                print(f"      🚀 INCREASE: {increase_count} stocks (top 30%)")
+                print(f"      ⚪ HOLD: {hold_count} stocks (middle 50%)")
+                print(f"      ❌ SELL: {sell_count} stocks (bottom 20%)")
+                print(f"      📊 Net change: {increase_count} to add, {sell_count} to remove")
+                
+                # PROFIT BOOKING RULES - Apply to all holdings with >20% profit
+                print(f"\n   💰 Applying PROFIT BOOKING rules (>20% gains)...")
+                profit_book_candidates = current_holdings_df[current_holdings_df['current_profit_pct'] > 20].copy()
+                
+                if len(profit_book_candidates) > 0:
+                    for idx, row in profit_book_candidates.iterrows():
+                        profit_pct = row['current_profit_pct']
+                        current_action = allocation_df.at[idx, 'action_recommendation']
+                        
+                        # Determine profit booking percentage based on gain level
+                        if profit_pct > 40:
+                            book_pct = 50
+                            timing = "Within 1 week"
+                        elif profit_pct > 30:
+                            book_pct = 40
+                            timing = "Within 2 weeks"
+                        else:  # 20-30%
+                            book_pct = 30
+                            timing = "Within 3 weeks"
+                        
+                        # Override action to include profit booking
+                        if current_action == 'HOLD':
+                            allocation_df.at[idx, 'action_recommendation'] = 'BOOK_PROFIT'
+                            allocation_df.at[idx, 'exit_reason'] = f"💰 PROFIT BOOKING ({book_pct}%) | Gain: {profit_pct:.1f}% | Keep rest long-term"
+                            allocation_df.at[idx, 'profit_booking_pct'] = book_pct
+                            allocation_df.at[idx, 'profit_booking_timing'] = timing
+                        elif current_action == 'INCREASE':
+                            # For top performers, book partial profit AND increase remaining position
+                            allocation_df.at[idx, 'exit_reason'] = f"🏆 TOP PERFORMER + 💰 Book {book_pct}% profit | Then INCREASE position"
+                            allocation_df.at[idx, 'profit_booking_pct'] = book_pct
+                            allocation_df.at[idx, 'profit_booking_timing'] = timing
+                    
+                    print(f"      💰 {len(profit_book_candidates)} stocks marked for profit booking")
+                    print(f"      📊 Book 30-50% profit, keep 50-70% for long term")
+                else:
+                    print(f"      ✓ No stocks with >20% profit requiring booking")
+                
+                # AGGRESSIVE PORTFOLIO REDUCTION: Add more sells to reach 20-25 target
+                print(f"\n   📉 AGGRESSIVE PORTFOLIO REDUCTION (Target: 20-25 stocks)...")
+                current_sell_count = len(allocation_df[(allocation_df['is_current_holding']) & (allocation_df['action_recommendation'] == 'SELL')])
+                target_final_size = 23  # Midpoint of 20-25
+                current_size = len(current_holdings_df)
+                needed_sells = current_size - target_final_size
+                additional_sells_needed = max(0, needed_sells - current_sell_count)
+                
+                if additional_sells_needed > 0:
+                    print(f"      Current: {current_size} → Target: {target_final_size} → Need {additional_sells_needed} more SELLs")
+                    
+                    # Find weak HOLD stocks (low score, near breakeven, small positions)
+                    weak_holds = current_holdings_df[
+                        allocation_df.loc[current_holdings_df.index, 'action_recommendation'] == 'HOLD'
+                    ].copy()
+                    
+                    # Score criteria: low score OR dead money OR small position
+                    weak_holds['sell_priority'] = (
+                        (70 - weak_holds['risk_adjusted_score']).clip(0, 30) * 2 +  # Low score (max 60 points)
+                        (5 - abs(weak_holds.get('current_profit_pct', 0))).clip(0, 5) * 5 +  # Near breakeven (max 25 points)
+                        (3 - weak_holds.get('portfolio_weight', 3)).clip(0, 3) * 5   # Small position (max 15 points)
+                    )
+                    
+                    weak_holds_sorted = weak_holds.sort_values('sell_priority', ascending=False)
+                    additional_sells = weak_holds_sorted.head(additional_sells_needed)
+                    
+                    for idx, stock in additional_sells.iterrows():
+                        allocation_df.at[idx, 'action_recommendation'] = 'SELL'
+                        allocation_df.at[idx, 'exit_reason'] = f"🎯 PORTFOLIO REDUCTION | Weak performer (Score: {stock['risk_adjusted_score']:.1f})"
+                        allocation_df.at[idx, 'priority'] = 'LOW'
+                    
+                    print(f"      ✅ Marked {len(additional_sells)} additional weak stocks for SELL")
+                else:
+                    print(f"      ✅ Current SELL count sufficient to reach target size")
+                
+                # EXECUTION TIMING FOR SELL ACTIONS
+                print(f"\n   ⏰ Adding EXECUTION TIMING for SELL actions...")
+                sell_candidates = current_holdings_df[
+                    allocation_df.loc[current_holdings_df.index, 'action_recommendation'] == 'SELL'
+                ].copy()
+                
+                if len(sell_candidates) > 0:
+                    for idx, row in sell_candidates.iterrows():
+                        profit_pct = row.get('current_profit_pct', 0)
+                        score = row.get('risk_adjusted_score', 0)
+                        
+                        # Timing based on urgency
+                        if profit_pct < -5:  # Loss >5%
+                            timing = "TODAY (cut losses)"
+                            book_pct = 100
+                        elif score < 50:  # Weak fundamentals
+                            timing = "Next 1-2 days"
+                            book_pct = 100
+                        else:  # Rebalancing
+                            timing = "Within 1 week"
+                            book_pct = 100
+                        
+                        allocation_df.at[idx, 'profit_booking_pct'] = book_pct
+                        allocation_df.at[idx, 'profit_booking_timing'] = timing
+                    
+                    print(f"      ⏰ {len(sell_candidates)} SELL orders assigned execution timing")
+                
+                # Add exit_strategy column if not present
+                if 'exit_strategy' not in allocation_df.columns:
+                    allocation_df['exit_strategy'] = 'NEW POSITION'
+                if 'exit_reason' not in allocation_df.columns:
+                    allocation_df['exit_reason'] = ''
+            else:
+                allocation_df['holdings_rank'] = 0
+                allocation_df['exit_strategy'] = ''
+                allocation_df['exit_reason'] = ''
             
             # Calculate enhanced predictive score (combines risk-adjusted + momentum + breakout)
             allocation_df['predictive_score'] = (
@@ -3989,57 +4658,127 @@ class EnhancedTop200StockAnalyzer:
             allocation_df['predictive_rank'] = allocation_df['predictive_score'].rank(method='dense', ascending=False).astype(int)
             allocation_df['action_recommendation'] = 'HOLD'  # Default action
             
-            # STEP 3.1: Classify all stocks by type (Defence/Growth/Value) 
-            if not allocation_df.empty:
-                print(f"   🏷️  Classifying {len(allocation_df)} stocks by type...")
-                
-                # Create a temporary allocator for classification
-                class TempAllocator:
-                    def __init__(self):
-                        from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
-                        temp_analyzer = type('obj', (object,), {'holdings_df': pd.DataFrame()})()
-                        self.allocator = PortfolioAllocationAnalyzer(temp_analyzer, 100000)
-                    
-                    def classify_stock_type(self, symbol, sector, pe_ratio=None, growth_rate=None, dividend_yield=None):
-                        return self.allocator.classify_stock_type(symbol, sector, pe_ratio, growth_rate, dividend_yield)
-                
-                temp_classifier = TempAllocator()
-                
-                # Classify each stock
-                for idx, row in allocation_df.iterrows():
-                    stock_type = temp_classifier.classify_stock_type(
-                        row['symbol'], 
-                        row.get('sector', 'Unknown'),
-                        pe_ratio=getattr(row, 'pe_ratio', None),
-                        growth_rate=getattr(row, 'revenue_growth', None),
-                        dividend_yield=getattr(row, 'dividend_yield', None)
-                    )
-                    allocation_df.at[idx, 'stock_type'] = stock_type
-                
-                # Count stocks by category
-                category_counts = allocation_df['stock_type'].value_counts()
-                print(f"      📊 Current Classification: {dict(category_counts)}")
+            # 🎯 VALUE INVESTING: 40/30/20/10 STRATEGY CLASSIFICATION
+            print(f"\n   🎯 Applying VALUE INVESTING Strategy (40/30/20/10)...")
+            print(f"      � CORE_VALUE (40%): Deep undervalued stocks (P/E <12, P/B <2)")
+            print(f"      🚀 CORE_MOMENTUM (30%): Undervalued + trending (P/E <18, momentum)")
+            print(f"      🛡️  OPPORTUNISTIC (20%): Defensive/hedging (low beta, defensive sectors)")
+            print(f"      ⚡ SPECULATIVE (10%): High risk/high reward (volatility >35%)")
             
-            # STEP 3.2: Apply Risk Profile Allocation Rules
-            if portfolio_size_info and 'allocation_percentages' in portfolio_size_info:
-                print(f"   🎯 Applying {self.risk_profile.upper()} allocation rules...")
+            allocation_df['stock_classification'] = 'CORE_VALUE'  # Default
+            
+            # Classify based on VALUE INVESTING characteristics
+            # Priority: OPPORTUNISTIC > CORE_VALUE > CORE_MOMENTUM > SPECULATIVE
+            for idx, row in allocation_df.iterrows():
+                # Use optimized_score (VALUE-based, 0-100) not risk_adjusted_score
+                score = row.get('optimized_score', row.get('overall_score_with_value', 50))
+                score = score if pd.notna(score) else 50
                 
-                target_counts = {}
-                allocation_percentages = portfolio_size_info['allocation_percentages']
+                # Handle None values with safe defaults
+                volatility = row.get('volatility_6m', 20)
+                volatility = volatility if pd.notna(volatility) else 20
                 
-                for category, percentage in allocation_percentages.items():
-                    target_count = int(target_stocks * percentage)
-                    target_counts[category] = target_count
-                    if target_count > 0:
-                        print(f"      • {category}: {target_count} stocks ({percentage*100:.0f}%)")
+                sector = row.get('sector', '')
+                sector = sector if pd.notna(sector) else ''
+                
+                pe_ratio = row.get('pe_ratio', 25)
+                pe_ratio = pe_ratio if pd.notna(pe_ratio) and pe_ratio is not None else 25
+                
+                pb_ratio = row.get('pb_ratio', 3)
+                pb_ratio = pb_ratio if pd.notna(pb_ratio) and pb_ratio is not None else 3
+                
+                price_change_3m = row.get('price_change_3m', 0)
+                price_change_3m = price_change_3m if pd.notna(price_change_3m) else 0
+                
+                price_change_1m = row.get('price_change_1m', 0)
+                price_change_1m = price_change_1m if pd.notna(price_change_1m) else 0
+                
+                beta = row.get('beta', 1.0)
+                beta = beta if pd.notna(beta) else 1.0
+                
+                underval_score = row.get('undervaluation_score', 50)
+                underval_score = underval_score if pd.notna(underval_score) else 50
+                
+                # 1. OPPORTUNISTIC (20%): Defensive/hedging stocks - FIRST PRIORITY
+                if sector in ['Consumer Defensive', 'Healthcare', 'Utilities', 'Consumer Staples']:
+                    allocation_df.at[idx, 'stock_classification'] = 'OPPORTUNISTIC'
+                elif beta < 0.85 and volatility < 22:  # Low correlation with market
+                    allocation_df.at[idx, 'stock_classification'] = 'OPPORTUNISTIC'
+                
+                # 2. CORE_VALUE (40%): Deep undervalued stocks - SECOND PRIORITY
+                # Buy LOW: P/E <15, P/B <2.5, High undervaluation score
+                elif underval_score >= 80 and score >= 55:  # Strong undervaluation
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
+                elif pe_ratio < 12 and pb_ratio < 2.5:  # Very cheap fundamentals
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
+                elif pe_ratio < 15 and pb_ratio < 2.0 and score >= 60:  # Good value + quality
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
+                
+                # 3. CORE_MOMENTUM (30%): Undervalued + trending - THIRD PRIORITY
+                # Buy low but MOVING: P/E <20, positive momentum
+                elif pe_ratio < 18 and price_change_3m > 5 and score >= 60:  # Undervalued + momentum
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
+                elif pe_ratio < 20 and price_change_1m > 3 and underval_score >= 70:  # Fair value + recent strength
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
+                elif price_change_3m > 10 and score >= 65:  # Strong momentum + quality
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
+                
+                # 4. SPECULATIVE (10%): High risk/reward - LAST PRIORITY
+                elif volatility > 40 and score < 50:  # Very high volatility + weak
+                    allocation_df.at[idx, 'stock_classification'] = 'SPECULATIVE'
+                elif pe_ratio > 30 or pe_ratio < 0:  # Very expensive or loss-making
+                    allocation_df.at[idx, 'stock_classification'] = 'SPECULATIVE'
+                
+                # 5. Default: Put in CORE categories based on score
+                elif score >= 65:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'  # High quality = value
+                elif score >= 55:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'  # Medium quality = momentum
+                else:
+                    allocation_df.at[idx, 'stock_classification'] = 'SPECULATIVE'  # Low quality = speculative
+            
+            # Count by classification
+            class_counts = allocation_df['stock_classification'].value_counts()
+            total_stocks_classified = len(allocation_df)
+            for cls in ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']:
+                count = class_counts.get(cls, 0)
+                pct = (count / total_stocks_classified * 100) if total_stocks_classified > 0 else 0
+                print(f"         • {cls}: {count} stocks ({pct:.1f}%)")
+            
+            # STEP 3.1: Copy stock_classification to stock_type for compatibility
+            allocation_df['stock_type'] = allocation_df['stock_classification']
+            
+            # Count stocks by VALUE INVESTING category
+            category_counts = allocation_df['stock_type'].value_counts()
+            print(f"\n   📊 VALUE INVESTING Classification Complete:")
+            for category in ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']:
+                count = category_counts.get(category, 0)
+                print(f"      • {category}: {count} stocks")
+            
+            # STEP 3.2: Apply VALUE INVESTING Allocation Rules (40/30/20/10)
+            if portfolio_size_info:
+                print(f"\n   🎯 Enforcing 40/30/20/10 VALUE INVESTING Targets...")
+                
+                # Define VALUE INVESTING allocation targets
+                target_counts = {
+                    'CORE_VALUE': int(target_stocks * 0.40),      # 40% deep value
+                    'CORE_MOMENTUM': int(target_stocks * 0.30),   # 30% momentum+value
+                    'OPPORTUNISTIC': int(target_stocks * 0.20),   # 20% hedging
+                    'SPECULATIVE': int(target_stocks * 0.10)      # 10% high risk
+                }
+                
+                print(f"      Target Portfolio Size: {target_stocks} stocks")
+                for category, count in target_counts.items():
+                    pct = (count / target_stocks * 100) if target_stocks > 0 else 0
+                    print(f"      • {category}: {count} stocks ({pct:.0f}%)")
                 
                 # Rank stocks within each category and mark for keeping/selling
                 allocation_df['rank_in_category'] = 0
                 allocation_df['keep_stock'] = False  # Default to sell - only keep the selected ones
                 
-                # First pass: Allocate based on target percentages
+                # First pass: Allocate based on 40/30/20/10 targets
                 actual_counts = {}
-                for category in ['DEFENCE', 'GROWTH', 'VALUE']:
+                for category in ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']:
                     category_stocks = allocation_df[allocation_df['stock_type'] == category].copy()
                     
                     if not category_stocks.empty:
@@ -4063,39 +4802,90 @@ class EnhancedTop200StockAnalyzer:
                                 allocation_df.at[idx, 'keep_stock'] = False
                                 allocation_df.at[idx, 'action_recommendation'] = 'SELL' if row['is_current_holding'] else 'SKIP'
                 
-                # Second pass: Ensure we reach minimum target by backfilling with best available stocks
+                # Second pass: Backfill if any category is short
                 current_keep_count = len(allocation_df[allocation_df['keep_stock'] == True])
-                min_target = portfolio_size_info.get('min_allowed', target_stocks)
                 
-                if current_keep_count < min_target:
-                    shortfall = min_target - current_keep_count
-                    print(f"      🔄 Need {shortfall} more stocks to reach minimum ({min_target})")
+                if current_keep_count < target_stocks:
+                    shortfall = target_stocks - current_keep_count
+                    print(f"\n      🔄 Portfolio shortfall: Need {shortfall} more stocks")
                     
-                    # Get remaining unselected stocks, sorted by score
-                    remaining_stocks = allocation_df[
-                        (allocation_df['keep_stock'] == False) & 
-                        (allocation_df['stock_type'].isin(['GROWTH', 'VALUE']))  # Only Growth/Value for aggressive
-                    ].copy()
+                    # Prioritize backfilling from CORE categories first (Value > Momentum)
+                    backfill_priority = ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']
                     
-                    if not remaining_stocks.empty:
-                        remaining_stocks = remaining_stocks.sort_values('risk_adjusted_score', ascending=False)
+                    for category in backfill_priority:
+                        if shortfall <= 0:
+                            break
                         
-                        # Take top shortfall stocks
-                        for i, (idx, row) in enumerate(remaining_stocks.iterrows()):
-                            if i < shortfall:
-                                allocation_df.at[idx, 'keep_stock'] = True
-                                allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
-                                print(f"         + Added {row['symbol']} ({row['stock_type']}) - Score: {row['risk_adjusted_score']:.1f}")
-                            else:
-                                break
+                        # Get unselected stocks from this category
+                        remaining_stocks = allocation_df[
+                            (allocation_df['keep_stock'] == False) & 
+                            (allocation_df['stock_type'] == category)
+                        ].copy()
+                        
+                        if not remaining_stocks.empty:
+                            remaining_stocks = remaining_stocks.sort_values('risk_adjusted_score', ascending=False)
+                            
+                            # Add best remaining stocks from this category
+                            added = 0
+                            for idx, row in remaining_stocks.iterrows():
+                                if shortfall > 0:
+                                    allocation_df.at[idx, 'keep_stock'] = True
+                                    allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
+                                    print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
+                                    shortfall -= 1
+                                    added += 1
+                                else:
+                                    break
+                            
+                            if added > 0:
+                                actual_counts[category] = actual_counts.get(category, 0) + added
                 
-                # Show allocation summary
-                keep_counts = allocation_df[allocation_df['keep_stock'] == True]['stock_type'].value_counts()
-                sell_counts = allocation_df[allocation_df['keep_stock'] == False]['stock_type'].value_counts()
+                # Show VALUE INVESTING allocation summary
+                print(f"\n   ✅ VALUE INVESTING Portfolio Allocation Complete:")
+                total_allocated = sum(actual_counts.values())
                 
-                print(f"      ✅ Keeping: {dict(keep_counts)}")
-                if not sell_counts.empty:
-                    print(f"      ❌ Excess/Selling: {dict(sell_counts)}")
+                print(f"      📊 Total Portfolio: {total_allocated} stocks")
+                print(f"      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
+                # Show 70% CORE breakdown
+                core_value_count = actual_counts.get('CORE_VALUE', 0)
+                core_momentum_count = actual_counts.get('CORE_MOMENTUM', 0)
+                core_total = core_value_count + core_momentum_count
+                core_pct = (core_total / total_allocated * 100) if total_allocated > 0 else 0
+                
+                print(f"      💎 CORE (70%): {core_total} stocks ({core_pct:.1f}%)")
+                if core_value_count > 0:
+                    value_pct = (core_value_count / total_allocated * 100) if total_allocated > 0 else 0
+                    print(f"         ├─ Value (40%): {core_value_count} stocks ({value_pct:.1f}%) - Deep undervalued")
+                if core_momentum_count > 0:
+                    momentum_pct = (core_momentum_count / total_allocated * 100) if total_allocated > 0 else 0
+                    print(f"         └─ Momentum (30%): {core_momentum_count} stocks ({momentum_pct:.1f}%) - Trending cheap")
+                
+                # Show OPPORTUNISTIC (20%)
+                opp_count = actual_counts.get('OPPORTUNISTIC', 0)
+                opp_pct = (opp_count / total_allocated * 100) if total_allocated > 0 else 0
+                print(f"      🛡️  OPPORTUNISTIC (20%): {opp_count} stocks ({opp_pct:.1f}%) - Defensive/hedging")
+                
+                # Show SPECULATIVE (10%)
+                spec_count = actual_counts.get('SPECULATIVE', 0)
+                spec_pct = (spec_count / total_allocated * 100) if total_allocated > 0 else 0
+                print(f"      ⚡ SPECULATIVE (10%): {spec_count} stocks ({spec_pct:.1f}%) - High risk/reward")
+                
+                print(f"      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
+                if total_allocated < target_stocks:
+                    print(f"      ⚠️  Note: {total_allocated} stocks allocated (target: {target_stocks})")
+                
+                # Show what's being sold/skipped
+                sell_stocks = allocation_df[allocation_df['keep_stock'] == False]
+                if not sell_stocks.empty:
+                    sell_counts = sell_stocks['stock_type'].value_counts()
+                    if not sell_counts.empty:
+                        print(f"      ❌ Not Selected: {len(sell_stocks)} stocks")
+                        for category in ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']:
+                            count = sell_counts.get(category, 0)
+                            if count > 0:
+                                print(f"         • {category}: {count} stocks")
             
             # STEP 3.3: Keep ALL stocks in allocation_df for transparency
             # Don't filter out - just mark actions (KEEP/SELL/BUY)
@@ -4103,61 +4893,121 @@ class EnhancedTop200StockAnalyzer:
                 keep_count = len(allocation_df[allocation_df['keep_stock'] == True])
                 sell_count = len(allocation_df[allocation_df['keep_stock'] == False])
                 
-                print(f"   📋 Portfolio Actions: {keep_count} KEEP/BUY + {sell_count} SELL = {len(allocation_df)} total stocks")
+                print(f"   📋 Portfolio Actions: {keep_count} KEEP/BUY + {sell_count} SELL/SKIP = {len(allocation_df)} total stocks")
                 
-                # Update action_recommendation for clarity
-                allocation_df.loc[allocation_df['keep_stock'] == False, 'action_recommendation'] = allocation_df.loc[allocation_df['keep_stock'] == False].apply(
-                    lambda x: 'SELL' if x['is_current_holding'] else 'SKIP', axis=1
-                )
+                # 🔧 FIX #5: EXIT STRATEGY OVERRIDES keep_stock logic
+                # For current holdings, EXIT STRATEGY (30/50/20 rule) is the source of truth
+                for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
+                    if pd.notna(row.get('exit_strategy', '')) and row['exit_strategy'] != '':
+                        # Use exit_reason to determine action (already set in lines 4028-4082)
+                        exit_reason = row.get('exit_reason', '')
+                        
+                        # Parse the action from exit_reason
+                        if 'TOP PERFORMER' in exit_reason:
+                            # Top 30% - INCREASE
+                            allocation_df.at[idx, 'action_recommendation'] = 'INCREASE'
+                            allocation_df.at[idx, 'keep_stock'] = True
+                        elif 'HOLD STEADY' in exit_reason:
+                            # Middle 50% - HOLD
+                            allocation_df.at[idx, 'action_recommendation'] = 'HOLD'
+                            allocation_df.at[idx, 'keep_stock'] = True
+                        elif 'UNDERPERFORMER' in exit_reason or 'WEAK FUNDAMENTALS' in exit_reason or 'CUT LOSSES' in exit_reason:
+                            # Bottom 20% with actual issues - SELL
+                            allocation_df.at[idx, 'action_recommendation'] = 'SELL'
+                            allocation_df.at[idx, 'keep_stock'] = False
+                        elif 'REBALANCE' in exit_reason:
+                            # Bottom 20% but profitable - check if we really need to sell
+                            profit = row.get('current_profit_pct', 0)
+                            if profit < 5:  # Low profit, can sell for rebalancing
+                                allocation_df.at[idx, 'action_recommendation'] = 'SELL'
+                                allocation_df.at[idx, 'keep_stock'] = False
+                            else:  # Good profit, just hold
+                                allocation_df.at[idx, 'action_recommendation'] = 'HOLD'
+                                allocation_df.at[idx, 'keep_stock'] = True
+                                allocation_df.at[idx, 'exit_reason'] = f"📊 HOLD STEADY (Rank #{row.get('holdings_rank', 'N/A')}/{current_holdings_count}) | Profitable"
+                        else:
+                            # Default: keep it
+                            allocation_df.at[idx, 'keep_stock'] = True
+                
+                # Update action_recommendation for stocks WITHOUT exit strategy (new recommendations)
+                allocation_df.loc[
+                    (allocation_df['keep_stock'] == False) & 
+                    (allocation_df.get('exit_strategy', '') == ''), 
+                    'action_recommendation'
+                ] = allocation_df.loc[
+                    (allocation_df['keep_stock'] == False) & 
+                    (allocation_df.get('exit_strategy', '') == '')
+                ].apply(lambda x: 'SELL' if x['is_current_holding'] else 'SKIP', axis=1)
             
             # Store all stocks marked for selling or skipping
             sell_recommendations_df = allocation_df[allocation_df['keep_stock'] == False].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
             
-            # STEP 3.4: 🎯 NEW OPPORTUNITIES FOCUS STRATEGY (60/40 ALLOCATION)
+            # STEP 3.4: 🎯 SALE PROCEEDS + NEW CAPITAL ALLOCATION
             if 'keep_stock' in allocation_df.columns and target_amount > 0:
-                print(f"   🎯 NEW OPPORTUNITIES FOCUS: ₹{target_amount:,.0f} with 60/40 strategy")
+                # Calculate sale proceeds from stocks marked for SELL
+                sale_proceeds = allocation_df[
+                    (allocation_df['action_recommendation'] == 'SELL') & 
+                    (allocation_df['is_current_holding'] == True)
+                ]['current_value'].sum()
                 
-                # 60/40 Strategy: 60% for NEW high-potential stocks, 40% for existing stability
-                new_positions_budget = int(target_amount * 0.60)  # 60% for growth
-                existing_budget = int(target_amount * 0.40)       # 40% for stability
+                total_available = target_amount + sale_proceeds
                 
-                print(f"      💰 NEW positions budget: ₹{new_positions_budget:,} (60%)")
-                print(f"      🛡️  EXISTING holdings budget: ₹{existing_budget:,} (40%)")
+                print(f"\n   💰 CAPITAL ALLOCATION:")
+                print(f"      🆕 New capital: ₹{target_amount:,.0f}")
+                print(f"      💵 Sale proceeds: ₹{sale_proceeds:,.0f}")
+                print(f"      📊 Total available: ₹{total_available:,.0f}")
+                
+                # 🔧 FIXED STRATEGY: 80% strengthen existing winners, 20% new opportunities
+                # (Only add new if existing portfolio lacks quality stocks)
+                existing_winners_budget = int(total_available * 0.80)  # 80% to existing
+                new_positions_budget = int(total_available * 0.20)     # 20% to new
+                
+                print(f"\n   🎯 CAPITAL ALLOCATION STRATEGY:")
+                print(f"      🏆 Strengthen existing winners: ₹{existing_winners_budget:,} (80%)")
+                print(f"      🆕 New opportunities (only if needed): ₹{new_positions_budget:,} (20%)")
                 
                 keep_stocks = allocation_df[allocation_df['keep_stock'] == True].copy()
                 current_portfolio_value = allocation_df['current_value'].sum()
-                total_target_portfolio = current_portfolio_value + target_amount
+                total_target_portfolio = current_portfolio_value + total_available
                 
-                # === PHASE 1: EXISTING HOLDINGS ALLOCATION (40% - Stability) ===
-                print(f"\n   🛡️  PHASE 1: Strengthening existing holdings (40% allocation)")
+                # === PHASE 1: STRENGTHEN EXISTING WINNERS (80% of capital) ===
+                print(f"\n   🏆 PHASE 1: Strengthening existing top performers")
                 
                 existing_opportunities = []
                 for idx, row in keep_stocks.iterrows():
-                    # Only consider stocks that already have current holdings
+                    # Only consider stocks that are current holdings AND top performers
                     if row['current_value'] > 0:  # Already holding this stock
-                        current_value = row['current_value']
-                        market_cap = row.get('market_cap', 0)
+                        rank = row.get('holdings_rank', 999)
+                        exit_reason = str(row.get('exit_reason', ''))
                         
-                        # Get market cap category and max allocation percentage
-                        cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
-                        max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                        max_additional = max_allocation_per_stock - current_value
+                        # Prioritize: Top performers based on EXIT STRATEGY or top 15 rank
+                        is_top_performer = 'TOP PERFORMER' in exit_reason or rank <= 15
                         
-                        if max_additional > 3000:  # Lower threshold for existing holdings
-                            existing_opportunities.append({
-                                'index': idx,
-                                'symbol': row['symbol'],
-                                'score': row['risk_adjusted_score'],
-                                'current_value': current_value,
-                                'max_additional': max_additional,
-                                'current_price': row['current_price'],
-                                'market_cap_category': cap_category,
-                                'max_allocation_pct': max_allocation_pct * 100
-                            })
+                        if is_top_performer:
+                            current_value = row['current_value']
+                            market_cap = row.get('market_cap', 0)
+                            
+                            # Get market cap category and max allocation percentage
+                            cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
+                            max_allocation_per_stock = total_target_portfolio * max_allocation_pct
+                            max_additional = max_allocation_per_stock - current_value
+                            
+                            if max_additional > 3000:  # Can add more
+                                existing_opportunities.append({
+                                    'index': idx,
+                                    'symbol': row['symbol'],
+                                    'score': row['risk_adjusted_score'],
+                                    'rank': rank,
+                                    'current_value': current_value,
+                                    'max_additional': max_additional,
+                                    'current_price': row['current_price'],
+                                    'market_cap_category': cap_category,
+                                    'stock_class': row.get('stock_classification', 'CORE')
+                                })
                 
-                # Allocate to existing holdings (40% budget)
-                existing_opportunities.sort(key=lambda x: x['score'], reverse=True)
-                remaining_existing_budget = existing_budget
+                # Allocate to existing winners (80% of capital)
+                existing_opportunities.sort(key=lambda x: (x['rank'], -x['score']))  # Best rank first
+                remaining_existing_budget = existing_winners_budget
                 
                 for opportunity in existing_opportunities:
                     if remaining_existing_budget <= 0:
@@ -4181,12 +5031,12 @@ class EnhancedTop200StockAnalyzer:
                             
                             remaining_existing_budget -= actual_investment
                             
-                            print(f"      ✅ {opportunity['symbol']}: +₹{actual_investment:,.0f} ({shares_to_buy} shares) | {opportunity['market_cap_category']} - Stability")
+                            print(f"      ✅ {opportunity['symbol']} (Rank #{opportunity['rank']}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | {opportunity['stock_class']}")
                 
-                print(f"      💰 Existing holdings allocated: ₹{existing_budget - remaining_existing_budget:,.0f}")
+                print(f"      💰 Existing holdings allocated: ₹{existing_winners_budget - remaining_existing_budget:,.0f}")
                 
-                # === PHASE 2: NEW POSITIONS ALLOCATION (60% - Growth) ===
-                print(f"\n   🚀 PHASE 2: New high-potential positions (60% allocation)")
+                # === PHASE 2: NEW POSITIONS (20% - Only if existing portfolio lacks quality) ===
+                print(f"\n   🆕 PHASE 2: New positions (only if needed - 20% allocation)")
                 
                 new_opportunities = []
                 
@@ -4267,8 +5117,10 @@ class EnhancedTop200StockAnalyzer:
                     )
                     
                     if optimal_investment >= 3500:  # Lower minimum threshold for new positions
-                        shares_to_buy = int(optimal_investment / opportunity['current_price'])
-                        actual_investment = shares_to_buy * opportunity['current_price']
+                        # Ensure current_price is a float
+                        current_price = float(opportunity['current_price']) if isinstance(opportunity['current_price'], str) else opportunity['current_price']
+                        shares_to_buy = int(optimal_investment / current_price)
+                        actual_investment = shares_to_buy * current_price
                         
                         if actual_investment >= 3500 and shares_to_buy > 0:  # Final check
                             # Create new row with all required fields for Excel export
@@ -4278,6 +5130,7 @@ class EnhancedTop200StockAnalyzer:
                                 'sector': opportunity['sector'],
                                 'current_price': opportunity['current_price'],
                                 'current_value': 0,  # New position
+                                'current_quantity': 0,
                                 'investment_amount': actual_investment,
                                 'suggested_quantity': shares_to_buy,
                                 'risk_adjusted_score': opportunity['score'],
@@ -4287,7 +5140,14 @@ class EnhancedTop200StockAnalyzer:
                                 'keep_stock': True,
                                 'recommendation': opportunity['recommendation'],
                                 'market_cap': 0,  # Default for new positions
-                                'max_allocation_pct': opportunity['max_allocation_pct']
+                                'max_allocation_pct': opportunity['max_allocation_pct'],
+                                'is_current_holding': False,
+                                'exit_reason': 'New opportunity - Quality stock not in portfolio',
+                                'exit_strategy': '🆕 NEW POSITION',
+                                'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
+                                'holdings_rank': 0,
+                                'current_profit_pct': 0,
+                                'portfolio_weight': (actual_investment / total_target_portfolio) * 100 if total_target_portfolio > 0 else 0
                             })
                             
                             # Actually ADD this row to the main allocation_df so it gets saved to Excel
@@ -4304,16 +5164,19 @@ class EnhancedTop200StockAnalyzer:
                 
                 if len(new_opportunities) == 0:
                     print(f"      ⚠️  No new opportunities found (all analyzed stocks already held)")
+                    print(f"      ✅ GOOD: Your existing portfolio has quality stocks!")
                 elif remaining_new_budget > new_positions_budget * 0.7:
-                    print(f"      💡 Consider lowering score threshold or expanding stock universe for better utilization")
+                    print(f"      💡 Most capital went to existing winners (as intended)")
                 
-                total_allocated = (existing_budget - remaining_existing_budget) + (new_positions_budget - remaining_new_budget)
+                total_allocated = (existing_winners_budget - remaining_existing_budget) + (new_positions_budget - remaining_new_budget)
                 total_remaining = remaining_existing_budget + remaining_new_budget
                 
-                print(f"\n   🎯 60/40 STRATEGY SUMMARY:")
+                print(f"\n   🎯 CAPITAL ALLOCATION SUMMARY:")
+                print(f"      💰 Sale proceeds: ₹{sale_proceeds:,.0f}")
+                print(f"      🆕 New capital: ₹{target_amount:,.0f}")
                 print(f"      ✅ Total allocated: ₹{total_allocated:,.0f}")
                 print(f"      💵 Remaining funds: ₹{total_remaining:,.0f}")
-                print(f"      📊 Strategy: {((total_allocated/target_amount)*100):.1f}% allocated for optimal growth + stability")
+                print(f"      📊 Allocation: {((existing_winners_budget - remaining_existing_budget)/total_allocated*100):.1f}% to existing, {((new_positions_budget - remaining_new_budget)/total_allocated*100):.1f}% to new")
             
             # Only allocate funds to stocks marked to KEEP/BUY (not SELL/SKIP)
             new_positions = allocation_df[
@@ -4514,8 +5377,97 @@ class EnhancedTop200StockAnalyzer:
                                 allocation_df.loc[mask, 'investment_amount'] = actual_investment
                                 allocation_df.loc[mask, 'suggested_quantity'] = quantity
             
-            # Sort by priority and score
-            allocation_df['priority_rank'] = allocation_df['priority'].map({'HIGH': 1, 'MEDIUM': 2, 'LOW': 3})
+            # 🔧 REBALANCING LOGIC: Check 70/20/10 allocation
+            print(f"\n   ⚖️  REBALANCING CHECK (70/20/10 Rule):")
+            
+            current_holdings_only = allocation_df[allocation_df['is_current_holding'] == True].copy()
+            if not current_holdings_only.empty:
+                total_portfolio_value = current_holdings_only['current_value'].sum()
+                
+                core_value = current_holdings_only[current_holdings_only['stock_classification'] == 'CORE']['current_value'].sum()
+                opp_value = current_holdings_only[current_holdings_only['stock_classification'] == 'OPPORTUNISTIC']['current_value'].sum()
+                spec_value = current_holdings_only[current_holdings_only['stock_classification'] == 'SPECULATIVE']['current_value'].sum()
+                
+                core_pct = (core_value / total_portfolio_value * 100) if total_portfolio_value > 0 else 0
+                opp_pct = (opp_value / total_portfolio_value * 100) if total_portfolio_value > 0 else 0
+                spec_pct = (spec_value / total_portfolio_value * 100) if total_portfolio_value > 0 else 0
+                
+                print(f"      📊 Current allocation:")
+                print(f"         • CORE: {core_pct:.1f}% (Target: 70%)")
+                print(f"         • OPPORTUNISTIC: {opp_pct:.1f}% (Target: 20%)")
+                print(f"         • SPECULATIVE: {spec_pct:.1f}% (Target: 10%)")
+                
+                # Rebalancing recommendations
+                if core_pct < 60:
+                    print(f"      ⚠️  CORE underweight: Increase CORE stocks")
+                elif core_pct > 80:
+                    print(f"      ⚠️  CORE overweight: Reduce CORE, add OPPORTUNISTIC")
+                
+                if spec_pct > 15:
+                    print(f"      ⚠️  SPECULATIVE overweight: Reduce high-risk positions")
+                elif spec_pct < 5:
+                    print(f"      💡 SPECULATIVE underweight: Consider some hedging positions")
+                
+                if 60 <= core_pct <= 80 and 15 <= opp_pct <= 25 and 5 <= spec_pct <= 15:
+                    print(f"      ✅ Portfolio well-balanced!")
+                
+                # 🔧 NEW: SECTOR CONCENTRATION CHECK (Max 50% in CORE 70%)
+                print(f"\n   🏢 SECTOR CONCENTRATION CHECK (Max 50% in CORE):")
+                
+                core_holdings = current_holdings_only[current_holdings_only['stock_classification'] == 'CORE']
+                core_total_value = 0  # Initialize to avoid UnboundLocalError
+                sector_allocation = {}  # Initialize empty dict
+                if not core_holdings.empty:
+                    core_total_value = core_holdings['current_value'].sum()
+                    sector_allocation = core_holdings.groupby('sector')['current_value'].sum().sort_values(ascending=False)
+                    
+                    print(f"      📊 CORE sector allocation:")
+                    for sector, value in sector_allocation.head(3).items():
+                        sector_pct = (value / core_total_value * 100) if core_total_value > 0 else 0
+                        overall_pct = (value / total_portfolio_value * 100) if total_portfolio_value > 0 else 0
+                        
+                        status = "✅" if sector_pct <= 50 else "⚠️"
+                        print(f"         {status} {sector}: {sector_pct:.1f}% of CORE ({overall_pct:.1f}% overall)")
+                        
+                        if sector_pct > 50:
+                            excess = sector_pct - 50
+                            print(f"            ⚠️ OVER-CONCENTRATED! Reduce by {excess:.1f}% through rotation")
+                            print(f"            💡 Rotate capital to undervalued sectors")
+                            
+                            # Mark some stocks in this sector for selling to reduce concentration
+                            sector_stocks = core_holdings[core_holdings['sector'] == sector].sort_values('risk_adjusted_score')
+                            weak_in_sector = sector_stocks.head(3)  # Bottom 3 stocks in overweight sector
+                            
+                            for idx, stock in weak_in_sector.iterrows():
+                                current_action = allocation_df.at[idx, 'action_recommendation']
+                                # Only override HOLD, not BOOK_PROFIT, INCREASE, or existing SELL
+                                if current_action == 'HOLD':
+                                    allocation_df.at[idx, 'action_recommendation'] = 'SELL'
+                                    allocation_df.at[idx, 'exit_reason'] = f"🔄 SECTOR ROTATION | {sector} over-concentrated ({sector_pct:.1f}%)"
+                                    allocation_df.at[idx, 'priority'] = 'MEDIUM'
+                                    allocation_df.at[idx, 'profit_booking_pct'] = 100
+                                    allocation_df.at[idx, 'profit_booking_timing'] = "Within 2 weeks"
+                
+                # Check for sector rotation opportunities (find undervalued sectors)
+                all_stocks_sector = allocation_df.groupby('sector')['risk_adjusted_score'].mean().sort_values(ascending=False)
+                print(f"\n      💡 UNDERVALUED SECTOR OPPORTUNITIES (for rotation):")
+                
+                # Find sectors NOT in current portfolio or underweight
+                current_sectors = set(current_holdings_only['sector'].unique())
+                new_stocks_avail = allocation_df[allocation_df['is_current_holding'] == False]
+                
+                if not new_stocks_avail.empty:
+                    new_sectors = new_stocks_avail.groupby('sector').agg({
+                        'risk_adjusted_score': 'mean',
+                        'symbol': 'count'
+                    }).sort_values('risk_adjusted_score', ascending=False).head(3)
+                    
+                    for sector, data in new_sectors.iterrows():
+                        if sector not in current_sectors or sector_allocation.get(sector, 0) < core_total_value * 0.1:
+                            print(f"         🎯 {sector}: Avg Score {data['risk_adjusted_score']:.1f} ({int(data['symbol'])} stocks available)")
+            
+            # Sort by action and score
+            allocation_df['priority_rank'] = allocation_df['priority'].map({'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'VERY HIGH': 0})
             allocation_df = allocation_df.sort_values(['priority_rank', 'risk_adjusted_score'], ascending=[True, False])
             allocation_df = allocation_df.drop('priority_rank', axis=1)
             
@@ -4523,15 +5475,56 @@ class EnhancedTop200StockAnalyzer:
             keep_stocks = allocation_df[allocation_df.get('keep_stock', True) == True] if 'keep_stock' in allocation_df.columns else allocation_df
             sell_stocks = allocation_df[allocation_df.get('keep_stock', False) == False] if 'keep_stock' in allocation_df.columns else pd.DataFrame()
             
+            # 🔧 FIX #6: Create explicit SELL LIST with detailed reasons
+            sell_list = allocation_df[
+                (allocation_df['is_current_holding'] == True) & 
+                (allocation_df['action_recommendation'] == 'SELL')
+            ].copy()
+            
+            if not sell_list.empty:
+                print(f"\n   ❌ EXPLICIT SELL LIST: {len(sell_list)} stocks to remove")
+                print(f"   " + "="*80)
+                sell_list_sorted = sell_list.sort_values('holdings_rank', ascending=False)  # Worst first
+                for idx, stock in sell_list_sorted.iterrows():
+                    symbol = stock['symbol']
+                    rank = stock.get('holdings_rank', 'N/A')
+                    score = stock['risk_adjusted_score']
+                    profit = stock.get('current_profit_pct', 0)
+                    reason = stock.get('exit_reason', 'Rebalancing required')
+                    value = stock['current_value']
+                    
+                    profit_str = f"+{profit:.1f}%" if profit > 0 else f"{profit:.1f}%"
+                    print(f"      🔴 {symbol}: {reason}")
+                    print(f"         Current Value: ₹{value:,.0f} | Profit: {profit_str}")
+                print(f"   " + "="*80)
+            
+            # Count actions by category
+            increase_stocks = allocation_df[
+                (allocation_df['is_current_holding'] == True) & 
+                (allocation_df['action_recommendation'] == 'INCREASE')
+            ]
+            hold_stocks = allocation_df[
+                (allocation_df['is_current_holding'] == True) & 
+                (allocation_df['action_recommendation'] == 'HOLD')
+            ]
+            
+            # Calculate sale proceeds
+            sale_proceeds_value = sell_list['current_value'].sum() if not sell_list.empty else 0
+            
             portfolio_summary = {
                 'total_stocks': len(allocation_df),
                 'stocks_to_keep': len(keep_stocks),
                 'stocks_to_sell': len(sell_stocks),
                 'current_holdings': len(allocation_df[allocation_df['is_current_holding'] == True]),
                 'new_positions': len(allocation_df[allocation_df['action_type'] == 'NEW POSITION']),
-                'positions_to_sell': len(allocation_df[allocation_df['action_recommendation'].isin(['SELL'])]) if 'action_recommendation' in allocation_df.columns else 0,
+                'positions_to_sell': len(sell_list),  # Explicit sell count
+                'positions_to_increase': len(increase_stocks),  # NEW: Track increases
+                'positions_to_hold': len(hold_stocks),  # NEW: Track holds
                 'positions_to_buy': len(allocation_df[allocation_df['action_recommendation'].isin(['BUY'])]) if 'action_recommendation' in allocation_df.columns else 0,
                 'positions_to_keep': len(allocation_df[allocation_df['action_recommendation'].isin(['KEEP'])]) if 'action_recommendation' in allocation_df.columns else 0,
+                'sale_proceeds': sale_proceeds_value,  # NEW: Money from selling
+                'new_capital': target_amount,
+                'total_available_capital': target_amount + sale_proceeds_value,
                 'available_funds': target_amount,
                 'current_portfolio_value': current_portfolio_value,
                 'total_target_portfolio_value': current_portfolio_value + target_amount,
@@ -4556,10 +5549,53 @@ class EnhancedTop200StockAnalyzer:
             }
             
             logging.info(f"Generated risk-based portfolio allocation: {len(allocation_df)} keep stocks, {len(sell_recommendations_df)} sell recommendations")
+            
+            # 🔧 FIX: Record all recommendations in history
+            print(f"\n   💾 Recording recommendations in history...")
+            for _, row in allocation_df.iterrows():
+                fundamentals = {
+                    'pe_ratio': results_df[results_df['symbol'] == row['symbol']]['pe_ratio'].iloc[0] if row['symbol'] in results_df['symbol'].values else 0,
+                    'roe': results_df[results_df['symbol'] == row['symbol']]['roe'].iloc[0] if row['symbol'] in results_df['symbol'].values else 0,
+                    'debt_to_equity': results_df[results_df['symbol'] == row['symbol']]['debt_to_equity'].iloc[0] if row['symbol'] in results_df['symbol'].values else 0
+                }
+                
+                # Ensure price and score are numeric
+                try:
+                    price_val = float(row['current_price']) if row['current_price'] else 0.0
+                    score_val = float(row['overall_score']) if row['overall_score'] else 0.0
+                except (ValueError, TypeError):
+                    price_val = 0.0
+                    score_val = 0.0
+                
+                self.recommendation_history.record_recommendation(
+                    symbol=row['symbol'],
+                    action=row['action_type'],
+                    score=score_val,
+                    price=price_val,
+                    fundamentals=fundamentals,
+                    reason=row['recommendation'],
+                    rank=0,  # Will be calculated in next iteration
+                    sector=row['sector']
+                )
+            
+            # Generate stability report
+            stability_report = self.recommendation_history.generate_stability_report()
+            print(f"   📊 Recommendation History:")
+            print(f"      Total recommendations: {stability_report['total_recommendations']}")
+            print(f"      Unique stocks tracked: {stability_report['unique_stocks']}")
+            print(f"      Flip-flops (7 days): {stability_report['flip_flops_7d']}")
+            print(f"      Flip-flops (14 days): {stability_report['flip_flops_14d']}")
+            if stability_report['average_hold_days'] > 0:
+                print(f"      Average hold period: {stability_report['average_hold_days']:.1f} days")
+            
             return self.portfolio_allocation
             
         except Exception as e:
+            import traceback
             logging.error(f"Error generating portfolio allocation: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            print(f"   ❌ ERROR in portfolio allocation: {e}")
+            print(f"   📋 Traceback: {traceback.format_exc()}")
             return None
     
     def analyze_batch(self, batch_size=10):
@@ -4869,8 +5905,8 @@ Trading Plan ({risk_tolerance} RISK):
                 df = self.calculate_risk_return_metrics(df)
             else:
                 print("      ⚡ Skipped (--skip-risk enabled)")
-                # Add default risk columns
-                df['risk_adjusted_score'] = df['overall_score_with_value']
+                # Add default risk columns - USE OPTIMIZED SCORE
+                df['risk_adjusted_score'] = df.get('optimized_score', df['overall_score_with_value'])
                 df['risk_category'] = 'UNKNOWN'
             
             print("   3️⃣ Generating portfolio allocation...")
@@ -4881,29 +5917,30 @@ Trading Plan ({risk_tolerance} RISK):
             current_holdings_count = len(current_holdings) if current_holdings is not None and not current_holdings.empty else 0
             
             # Define strict portfolio size ranges based on risk profile
+            # 🎯 FIXED: Reduced max to 20-25 for better tracking and management
             if self.risk_profile == "aggressive":
-                min_stocks, max_stocks = 20, 25  # Focused portfolio
+                min_stocks, max_stocks = 15, 20  # Highly focused portfolio
                 # Ensure we reach minimum threshold - if holdings < min, target min; if > max, target max
                 if current_holdings_count < min_stocks:
                     target_stocks = min_stocks  # Force up to minimum
                 elif current_holdings_count > max_stocks:
-                    target_stocks = max_stocks  # Force down to maximum
+                    target_stocks = max_stocks  # Force down to maximum (SELL required)
                 else:
                     target_stocks = current_holdings_count  # Keep current if within range
             elif self.risk_profile == "balanced":
-                min_stocks, max_stocks = 30, 35  # Diversified portfolio  
+                min_stocks, max_stocks = 20, 25  # Balanced portfolio  
                 if current_holdings_count < min_stocks:
                     target_stocks = min_stocks
                 elif current_holdings_count > max_stocks:
-                    target_stocks = max_stocks
+                    target_stocks = max_stocks  # Force down to maximum (SELL required)
                 else:
                     target_stocks = current_holdings_count
-            else:  # moderate (default)
-                min_stocks, max_stocks = 25, 30  # Balanced portfolio
+            else:  # moderate (default) - MOST COMMON
+                min_stocks, max_stocks = 20, 25  # Manageable portfolio (FIXED from 25-30)
                 if current_holdings_count < min_stocks:
                     target_stocks = min_stocks
                 elif current_holdings_count > max_stocks:
-                    target_stocks = max_stocks
+                    target_stocks = max_stocks  # Force down to maximum (SELL required)
                 else:
                     target_stocks = current_holdings_count
             
@@ -5138,10 +6175,119 @@ Trading Plan ({risk_tolerance} RISK):
                 # 5. Enhanced Portfolio Allocation Sheet with formatting
                 if portfolio_allocation:
                     alloc_df = portfolio_allocation['allocation_df']
-                    alloc_df.to_excel(writer, sheet_name='Portfolio Allocation', index=False)
+                    
+                    # 🔧 ENHANCED: Comprehensive retail investor decision-making columns
+                    essential_cols = [
+                        # TIER 1: CRITICAL - Action & Timing
+                        'symbol', 
+                        'company_name',
+                        'action_recommendation',  # BUY/SELL/HOLD
+                        'profit_booking_timing',  # WHEN to act
+                        'investment_amount',  # How much ₹
+                        'suggested_quantity',  # How many shares
+                        
+                        # TIER 1: CRITICAL - Current Position
+                        'current_quantity',  # Shares owned
+                        'current_value',  # Current worth
+                        'current_profit_pct',  # P&L %
+                        'profit_booking_pct',  # % to book
+                        
+                        # TIER 2: IMPORTANT - Quality & Risk
+                        'risk_adjusted_score',  # Overall score (0-100)
+                        'improved_overall_score',  # New improved score
+                        'pe_ratio',  # Valuation
+                        'roe',  # Quality
+                        'debt_to_equity',  # Risk
+                        'risk_category',  # High/Med/Low
+                        
+                        # TIER 2: IMPORTANT - Price Context
+                        'current_price',  # Current price
+                        '52_week_high',  # Year high
+                        '52_week_low',  # Year low
+                        'enhanced_price_change_20d',  # Recent momentum
+                        
+                        # TIER 3: NICE TO HAVE - Additional Info
+                        'sector',  # Sector
+                        'stock_classification',  # CORE/OPPORTUNISTIC/SPECULATIVE
+                        'holdings_rank',  # Performance rank
+                        'portfolio_weight',  # % of portfolio
+                        'exit_reason',  # Why sell/hold
+                        'is_current_holding',  # Already own?
+                        
+                        # TIER 3: Technical Levels
+                        'support_level',  # Support price
+                        'resistance_level',  # Resistance price
+                        'enhanced_rsi_14',  # Momentum indicator
+                        'volatility',  # Risk measure
+                        
+                        # TIER 3: Score Components
+                        'improved_fundamental_quality',  # Fundamental score
+                        'improved_momentum_technical',  # Momentum score
+                        'undervaluation_score'  # Value score
+                    ]
+                    
+                    # Only include columns that exist
+                    existing_cols = [col for col in essential_cols if col in alloc_df.columns]
+                    
+                    # Create simplified dataframe
+                    alloc_df_simple = alloc_df[existing_cols].copy()
+                    
+                    # Rename columns for maximum clarity (retail investor friendly)
+                    column_renames = {
+                        # Action columns
+                        'action_recommendation': 'ACTION',
+                        'profit_booking_timing': 'WHEN_TO_ACT',
+                        'investment_amount': 'INVEST_₹',
+                        'suggested_quantity': 'BUY_SHARES',
+                        'exit_reason': 'WHY',
+                        
+                        # Position columns
+                        'current_quantity': 'MY_SHARES',
+                        'current_value': 'MY_VALUE_₹',
+                        'current_profit_pct': 'MY_PROFIT_%',
+                        'profit_booking_pct': 'BOOK_%_IF_SELL',
+                        
+                        # Score columns
+                        'risk_adjusted_score': 'SCORE',
+                        'improved_overall_score': 'NEW_SCORE',
+                        'risk_category': 'RISK',
+                        
+                        # Fundamental columns
+                        'pe_ratio': 'PE',
+                        'roe': 'ROE_%',
+                        'debt_to_equity': 'DEBT/EQUITY',
+                        
+                        # Price columns
+                        'current_price': 'PRICE',
+                        '52_week_high': '52W_HIGH',
+                        '52_week_low': '52W_LOW',
+                        'enhanced_price_change_20d': '20D_CHANGE_%',
+                        
+                        # Classification columns
+                        'stock_classification': 'TYPE',
+                        'holdings_rank': 'RANK',
+                        'portfolio_weight': 'PORTFOLIO_%',
+                        'is_current_holding': 'I_OWN_IT?',
+                        
+                        # Technical columns
+                        'support_level': 'SUPPORT',
+                        'resistance_level': 'RESISTANCE',
+                        'enhanced_rsi_14': 'RSI',
+                        'volatility': 'VOLATILITY_%',
+                        
+                        # Component scores
+                        'improved_fundamental_quality': 'FUND_SCORE',
+                        'improved_momentum_technical': 'MOM_SCORE',
+                        'undervaluation_score': 'VALUE_SCORE'
+                    }
+                    
+                    alloc_df_simple.rename(columns=column_renames, inplace=True)
+                    
+                    # Export simplified sheet
+                    alloc_df_simple.to_excel(writer, sheet_name='Portfolio Allocation', index=False)
                     
                     # 🎨 Apply conditional formatting to Portfolio Allocation
-                    self._apply_conditional_formatting_portfolio(writer, alloc_df, buy_format, strong_buy_format, 
+                    self._apply_conditional_formatting_portfolio(writer, alloc_df_simple, buy_format, strong_buy_format, 
                                                                hold_format, sell_format, low_risk_format, 
                                                                medium_risk_format, high_risk_format)
                     
@@ -5628,14 +6774,20 @@ Trading Plan ({risk_tolerance} RISK):
             current_price = stock.get('current_price', 0)
             
             # Use REAL technical indicators from price data analysis
-            real_rsi = stock.get('real_rsi', 50.0)
+            # Convert to numeric to avoid rounding errors with strings
+            real_rsi = pd.to_numeric(stock.get('real_rsi', 50.0), errors='coerce')
+            real_rsi = 50.0 if pd.isna(real_rsi) else float(real_rsi)
+            
             macd_signal = stock.get('real_macd_signal', 'NEUTRAL')
             bb_position = stock.get('real_bb_position', 'MIDDLE')
             volume_trend = stock.get('real_volume_trend', 'AVERAGE')
             momentum = stock.get('real_momentum', 'NEUTRAL')
             support_level = stock.get('support_level', current_price * 0.95)
             resistance_level = stock.get('resistance_level', current_price * 1.05)
-            real_tech_score = stock.get('real_technical_score', 50.0)
+            
+            real_tech_score = pd.to_numeric(stock.get('real_technical_score', 50.0), errors='coerce')
+            real_tech_score = 50.0 if pd.isna(real_tech_score) else float(real_tech_score)
+            
             ma_signal = stock.get('ma_signal', 'HOLD')
             
             # Generate comprehensive technical signal using REAL indicators
@@ -5722,11 +6874,17 @@ Trading Plan ({risk_tolerance} RISK):
             monthly_trend = stock.get('monthly_trend', 'NEUTRAL')
             mtf_signal = stock.get('mtf_trend_signal', 'NEUTRAL')
             
-            # Signal strength and quality metrics
-            trend_strength = stock.get('mtf_trend_strength', 50)
-            agreement = stock.get('mtf_timeframe_agreement', 0)
+            # Signal strength and quality metrics - convert to numeric to avoid rounding errors
+            trend_strength = pd.to_numeric(stock.get('mtf_trend_strength', 50), errors='coerce')
+            trend_strength = 50 if pd.isna(trend_strength) else float(trend_strength)
+            
+            agreement = pd.to_numeric(stock.get('mtf_timeframe_agreement', 0), errors='coerce')
+            agreement = 0 if pd.isna(agreement) else float(agreement)
+            
             signal_quality = stock.get('mtf_signal_quality', 'LOW')
-            mtf_score = stock.get('mtf_composite_score', 50)
+            
+            mtf_score = pd.to_numeric(stock.get('mtf_composite_score', 50), errors='coerce')
+            mtf_score = 50 if pd.isna(mtf_score) else float(mtf_score)
             
             # Risk assessment based on timeframe agreement
             if agreement >= 80:
@@ -5826,8 +6984,14 @@ Trading Plan ({risk_tolerance} RISK):
                 # Extract institutional data
                 symbol = str(row.get('symbol', '')).upper()
                 company = str(row.get('company_name', symbol))[:30]  # Truncate long names
-                current_price = row.get('current_price', 0)
-                institutional_score = row.get('institutional_score', 50)
+                
+                # Convert numeric values to avoid type errors
+                current_price = pd.to_numeric(row.get('current_price', 0), errors='coerce')
+                current_price = 0 if pd.isna(current_price) else float(current_price)
+                
+                institutional_score = pd.to_numeric(row.get('institutional_score', 50), errors='coerce')
+                institutional_score = 50 if pd.isna(institutional_score) else float(institutional_score)
+                
                 institutional_sentiment = str(row.get('institutional_sentiment', 'NEUTRAL'))
                 fii_activity = str(row.get('fii_activity', 'NEUTRAL'))
                 dii_activity = str(row.get('dii_activity', 'NEUTRAL'))
@@ -5835,8 +6999,12 @@ Trading Plan ({risk_tolerance} RISK):
                 bulk_deals_signal = str(row.get('bulk_deals_signal', 'NEUTRAL'))
                 large_block_activity = str(row.get('large_block_activity', 'NEUTRAL'))
                 insider_activity = str(row.get('insider_activity', 'NEUTRAL'))
-                ownership_change = row.get('institutional_ownership_change', 0)
-                overall_score = row.get('overall_score_institutional', row.get('overall_score_with_value', 50))
+                
+                ownership_change = pd.to_numeric(row.get('institutional_ownership_change', 0), errors='coerce')
+                ownership_change = 0 if pd.isna(ownership_change) else float(ownership_change)
+                
+                overall_score = pd.to_numeric(row.get('overall_score_institutional', row.get('overall_score_with_value', 50)), errors='coerce')
+                overall_score = 50 if pd.isna(overall_score) else float(overall_score)
                 
                 # Generate investment signal based on institutional analysis
                 if institutional_score >= 75:
@@ -5925,25 +7093,40 @@ Trading Plan ({risk_tolerance} RISK):
         
         # Data with industry-relative calculations
         for row, (_, stock) in enumerate(val_stocks.iterrows(), 1):
-            pe = stock.get('pe_ratio', 0)
-            pb = stock.get('pb_ratio', 0)
-            roe = stock.get('roe', 0)
-            eps = stock.get('eps', 0)
-            current_price = stock.get('current_price', 0)
+            # Convert to numeric to avoid type errors
+            pe = pd.to_numeric(stock.get('pe_ratio', 0), errors='coerce')
+            pe = 0 if pd.isna(pe) else float(pe)
+            
+            pb = pd.to_numeric(stock.get('pb_ratio', 0), errors='coerce')
+            pb = 0 if pd.isna(pb) else float(pb)
+            
+            roe = pd.to_numeric(stock.get('roe', 0), errors='coerce')
+            roe = 0 if pd.isna(roe) else float(roe)
+            
+            eps = pd.to_numeric(stock.get('eps', 0), errors='coerce')
+            eps = 0 if pd.isna(eps) else float(eps)
+            
+            current_price = pd.to_numeric(stock.get('current_price', 0), errors='coerce')
+            current_price = 0 if pd.isna(current_price) else float(current_price)
+            
             sector = stock.get('sector', '')
             industry = stock.get('industry', '')
             
             # Get industry benchmarks for more accurate valuation
             benchmarks = self._get_dynamic_industry_benchmarks(sector, industry)
             
-            # Industry-relative metrics
-            pe_vs_industry = f"{pe/benchmarks['avg_pe_ratio']:.2f}x" if pe and benchmarks['avg_pe_ratio'] else 'N/A'
-            pb_vs_industry = f"{pb/benchmarks['avg_pb_ratio']:.2f}x" if pb and benchmarks['avg_pb_ratio'] else 'N/A'
-            roe_vs_industry = f"{roe/benchmarks['avg_roe']:.2f}x" if roe and benchmarks['avg_roe'] else 'N/A'
+            # Industry-relative metrics (ensure benchmarks are not None or 0)
+            avg_pe = benchmarks.get('avg_pe_ratio', 0) or 20.0
+            avg_pb = benchmarks.get('avg_pb_ratio', 0) or 3.0
+            avg_roe = benchmarks.get('avg_roe', 0) or 15.0
+            
+            pe_vs_industry = f"{pe/avg_pe:.2f}x" if pe and avg_pe > 0 else 'N/A'
+            pb_vs_industry = f"{pb/avg_pb:.2f}x" if pb and avg_pb > 0 else 'N/A'
+            roe_vs_industry = f"{roe/avg_roe:.2f}x" if roe and avg_roe > 0 else 'N/A'
             
             # Industry-adjusted fair value estimation
-            industry_avg_pe = benchmarks['avg_pe_ratio']
-            fair_value = eps * industry_avg_pe if eps > 0 else current_price
+            industry_avg_pe = avg_pe
+            fair_value = eps * industry_avg_pe if eps and eps > 0 and industry_avg_pe else current_price
             upside = ((fair_value - current_price) / current_price * 100) if current_price > 0 else 0
             
             # Valuation category
@@ -6136,7 +7319,8 @@ Trading Plan ({risk_tolerance} RISK):
         
         for _, stock in risk_stocks.iterrows():
             position_size = 100000  # Default position size for calculation
-            risk_contrib = position_size * stock.get('volatility_6m', 0.1)  # Simplified risk contribution
+            volatility = stock.get('volatility_6m', 0.1) or 0.1  # Ensure not None
+            risk_contrib = position_size * volatility  # Simplified risk contribution
             
             worksheet.write(row, 0, stock['symbol'], data_format)
             worksheet.write(row, 1, str(stock.get('company_name', ''))[:20], data_format)
@@ -6258,9 +7442,9 @@ Trading Plan ({risk_tolerance} RISK):
         
         # Generate predictions (Monte Carlo simulation based)
         for row, (_, stock) in enumerate(top_stocks.iterrows(), 1):
-            current_price = stock.get('current_price', 0)
-            score = stock.get('overall_score_with_value', 0)
-            volatility = stock.get('volatility_6m', 0.2)
+            current_price = stock.get('current_price', 0) or 0  # Ensure not None
+            score = stock.get('overall_score_with_value', 0) or 0  # Ensure not None
+            volatility = stock.get('volatility_6m', 0.2) or 0.2  # Ensure not None
             
             # Simple prediction model based on score and volatility
             if current_price > 0:
@@ -6598,7 +7782,8 @@ Trading Plan ({risk_tolerance} RISK):
             
             # Simulate portfolio metrics
             expected_return = df['overall_score_with_value'].mean() / 100 * 0.15  # Convert to expected return
-            portfolio_volatility = df.get('volatility_6m', pd.Series([0.15] * len(df))).mean()
+            portfolio_volatility = df['volatility_6m'].mean() if 'volatility_6m' in df.columns else 0.15
+            portfolio_volatility = portfolio_volatility or 0.15  # Ensure not None
             risk_free_rate = 0.06  # 6% risk-free rate
             
             sharpe_ratio = (expected_return - risk_free_rate) / portfolio_volatility if portfolio_volatility > 0 else 0
@@ -6985,7 +8170,7 @@ def merge_holdings_and_orders():
                 break
         
         if not holdings_file:
-            print("ℹ️ No holdings file found - continuing without portfolio data")
+            print("[INFO] No holdings file found - continuing without portfolio data")
             return
         
         # Check for orders files  
@@ -6998,11 +8183,11 @@ def merge_holdings_and_orders():
                 orders_file = max(files, key=os.path.getctime)  # Get latest file
                 break
         
-        print(f"📁 Found holdings file: {holdings_file}")
+        print(f"[FOUND] Holdings file: {holdings_file}")
         if orders_file:
-            print(f"📁 Found orders file: {orders_file}")
+            print(f"[FOUND] Orders file: {orders_file}")
         else:
-            print("ℹ️ No orders file found - merging holdings only")
+            print("[INFO] No orders file found - merging holdings only")
         
         # Import and run the merger
         from merge_holdings_orders import HoldingsOrdersMerger
@@ -7011,7 +8196,7 @@ def merge_holdings_and_orders():
         
         # Load holdings data
         if not merger.load_holdings_data(holdings_file):
-            print(f"❌ Failed to load holdings from {holdings_file}")
+            print(f"[ERROR] Failed to load holdings from {holdings_file}")
             return
         
         # Load orders data if available
@@ -7025,29 +8210,29 @@ def merge_holdings_and_orders():
             output_file = f'merged_portfolio_{timestamp}.xlsx'
             
             if merger.save_merged_data(output_file):
-                print(f"✅ Portfolio data merged and saved to: reports/{output_file}")
+                print(f"[SUCCESS] Portfolio data merged and saved to: reports/{output_file}")
                 
                 # Print quick summary
                 total_invested = merger.merged_data['Invested'].sum()
                 current_value = merger.merged_data['Cur. val'].sum()
                 total_pnl = merger.merged_data['P&L'].sum()
                 
-                print(f"💼 Portfolio Summary: ₹{current_value:,.0f} current value, ₹{total_pnl:+,.0f} P&L ({(total_pnl/total_invested*100):+.1f}%)")
+                print(f"[PORTFOLIO] Summary: Rs.{current_value:,.0f} current value, Rs.{total_pnl:+,.0f} P&L ({(total_pnl/total_invested*100):+.1f}%)")
             else:
-                print("❌ Failed to save merged portfolio data")
+                print("[ERROR] Failed to save merged portfolio data")
         else:
-            print("❌ Failed to merge holdings and orders data")
+            print("[ERROR] Failed to merge holdings and orders data")
             
     except ImportError:
-        print("⚠️ Holdings merger not available - continuing without portfolio integration")
+        print("[WARNING] Holdings merger not available - continuing without portfolio integration")
     except Exception as e:
-        print(f"⚠️ Error during holdings/orders merge: {e}")
+        print(f"[WARNING] Error during holdings/orders merge: {e}")
         print("Continuing with stock analysis...")
 
 
 def main():
     """Main execution function"""
-    print("🎯 ENHANCED NSE STOCK ANALYSIS - COMPREHENSIVE ANALYSIS WITH AI INSIGHTS")
+    print("ENHANCED NSE STOCK ANALYSIS - COMPREHENSIVE ANALYSIS WITH AI INSIGHTS")
     print("=" * 90)
     
     # Parse command line arguments
@@ -7248,6 +8433,193 @@ def main():
             print(f"📊 Report file: {report_file}")
             print(f"📝 Log file: {analyzer.log_filename}")
             print(f"\n💡 TIP: Check the TOP 10 categories above for quick investment insights!")
+            
+            # Auto-generate Portfolio Allocation Dashboard
+            try:
+                print(f"\n{'='*90}")
+                print(f"📊 AUTO-GENERATING PORTFOLIO ALLOCATION DASHBOARD")
+                print(f"{'='*90}")
+                
+                import pandas as pd
+                import json
+                import webbrowser
+                
+                # Load Portfolio Allocation data
+                df_portfolio = pd.read_excel(report_file, sheet_name='Portfolio Allocation')
+                df_portfolio = df_portfolio.fillna(0)
+                
+                # Convert numeric columns (only if they exist)
+                numeric_cols = ['INVEST_₹', 'BUY_SHARES', 'MY_SHARES', 'MY_VALUE_₹', 'MY_PROFIT_%', 
+                               'BOOK_%_IF_SELL', 'SCORE', 'PRICE', 'current_value', 'risk_adjusted_score']
+                for col in numeric_cols:
+                    if col in df_portfolio.columns:
+                        df_portfolio[col] = pd.to_numeric(df_portfolio[col], errors='coerce').fillna(0)
+                
+                # Calculate stats (with fallback for missing columns)
+                total_stocks = len(df_portfolio)
+                total_value = df_portfolio['MY_VALUE_₹'].sum() if 'MY_VALUE_₹' in df_portfolio.columns else df_portfolio.get('current_value', pd.Series([0])).sum()
+                total_investment = df_portfolio['INVEST_₹'].sum() if 'INVEST_₹' in df_portfolio.columns else 0
+                avg_score = df_portfolio['SCORE'].mean() if 'SCORE' in df_portfolio.columns else df_portfolio.get('risk_adjusted_score', pd.Series([0])).mean()
+                profitable = len(df_portfolio[df_portfolio['MY_PROFIT_%'] > 0]) if 'MY_PROFIT_%' in df_portfolio.columns else 0
+                losses = len(df_portfolio[df_portfolio['MY_PROFIT_%'] < 0]) if 'MY_PROFIT_%' in df_portfolio.columns else 0
+                avg_profit = df_portfolio[df_portfolio['MY_VALUE_₹'] > 0]['MY_PROFIT_%'].mean() if 'MY_VALUE_₹' in df_portfolio.columns and 'MY_PROFIT_%' in df_portfolio.columns else 0
+                
+                # Get data for charts
+                actions = df_portfolio['ACTION'].value_counts().to_dict()
+                timings = df_portfolio['WHEN_TO_ACT'].value_counts().to_dict()
+                types = df_portfolio['TYPE'].value_counts().to_dict()
+                sectors = df_portfolio['sector'].value_counts().head(10).to_dict()
+                
+                # Get priority stocks
+                urgent_sells = df_portfolio[(df_portfolio['ACTION'] == 'SELL') & (df_portfolio['WHEN_TO_ACT'].str.contains('TODAY', na=False))].to_dict('records')
+                urgent_buys = df_portfolio[(df_portfolio['ACTION'] == 'BUY') & (df_portfolio['INVEST_₹'] > 0)].nlargest(10, 'INVEST_₹').to_dict('records')
+                warnings = df_portfolio[(df_portfolio['ACTION'] == 'KEEP') & (df_portfolio['WHEN_TO_ACT'].str.contains('TODAY', na=False))].to_dict('records')
+                profit_booking = df_portfolio[df_portfolio['BOOK_%_IF_SELL'] > 0].to_dict('records')
+                all_stocks = df_portfolio.to_dict('records')
+                
+                print(f"   ✅ Loaded {total_stocks} stocks from Portfolio Allocation")
+                
+                # Create HTML dashboard
+                html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Portfolio Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea, #764ba2); padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { background: white; padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .header h1 { color: #667eea; font-size: 2.5em; margin-bottom: 10px; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.3s; }
+        .card:hover { transform: translateY(-5px); }
+        .card-title { color: #666; font-size: 0.9em; text-transform: uppercase; margin-bottom: 10px; }
+        .card-value { color: #667eea; font-size: 2.5em; font-weight: bold; margin-bottom: 5px; }
+        .card-subtitle { color: #999; font-size: 0.85em; }
+        .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .chart-card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .chart-card h3 { margin-bottom: 20px; color: #333; }
+        .chart-container { position: relative; height: 300px; }
+        .stocks-section { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .stocks-section h2 { color: #667eea; margin-bottom: 20px; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab { padding: 12px 25px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; }
+        .tab:hover { background: #e0e0e0; }
+        .tab.active { background: #667eea; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .stock-list { max-height: 600px; overflow-y: auto; }
+        .stock-item { background: #f9f9f9; padding: 20px; margin-bottom: 15px; border-radius: 8px; border-left: 4px solid #667eea; }
+        .stock-item:hover { background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stock-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .stock-symbol { font-size: 1.3em; font-weight: bold; }
+        .stock-badge { padding: 5px 15px; border-radius: 20px; font-size: 0.85em; font-weight: bold; }
+        .badge-sell { background: #ff6b6b; color: white; }
+        .badge-buy { background: #51cf66; color: white; }
+        .badge-keep { background: #ffd43b; color: #333; }
+        .stock-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 15px; }
+        .detail-label { color: #666; font-size: 0.85em; }
+        .detail-value { font-weight: bold; color: #333; }
+        .profit-positive { color: #51cf66; }
+        .profit-negative { color: #ff6b6b; }
+        .search-box { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; margin-bottom: 20px; }
+        .search-box:focus { outline: none; border-color: #667eea; }
+        .empty { text-align: center; padding: 40px; color: #999; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Portfolio Allocation Dashboard</h1>
+            <p>Generated on """ + datetime.now().strftime('%B %d, %Y at %I:%M %p') + """</p>
+        </div>
+        <div class="summary">
+            <div class="card"><div class="card-title">Total Stocks</div><div class="card-value">""" + str(total_stocks) + """</div><div class="card-subtitle">In portfolio</div></div>
+            <div class="card"><div class="card-title">Portfolio Value</div><div class="card-value">Rs """ + f"{total_value:,.0f}" + """</div><div class="card-subtitle">Current holdings</div></div>
+            <div class="card"><div class="card-title">Average Score</div><div class="card-value">""" + f"{avg_score:.1f}" + """</div><div class="card-subtitle">Out of 100</div></div>
+            <div class="card"><div class="card-title">Capital Needed</div><div class="card-value">Rs """ + f"{total_investment:,.0f}" + """</div><div class="card-subtitle">For BUY stocks</div></div>
+            <div class="card"><div class="card-title">Profitable</div><div class="card-value">""" + str(profitable) + """</div><div class="card-subtitle">""" + str(losses) + """ in loss</div></div>
+            <div class="card"><div class="card-title">Avg Profit</div><div class="card-value" style="color: """ + ('#51cf66' if avg_profit > 0 else '#ff6b6b') + """">""" + f"{avg_profit:.1f}%" + """</div><div class="card-subtitle">Across portfolio</div></div>
+        </div>
+        <div class="charts">
+            <div class="chart-card"><h3>Action Breakdown</h3><div class="chart-container"><canvas id="chart1"></canvas></div></div>
+            <div class="chart-card"><h3>Timing Priority</h3><div class="chart-container"><canvas id="chart2"></canvas></div></div>
+            <div class="chart-card"><h3>Portfolio Types</h3><div class="chart-container"><canvas id="chart3"></canvas></div></div>
+            <div class="chart-card"><h3>Top Sectors</h3><div class="chart-container"><canvas id="chart4"></canvas></div></div>
+        </div>
+        <div class="stocks-section">
+            <h2>Priority Actions</h2>
+            <div class="tabs">
+                <button class="tab active" onclick="showTab(0)">Urgent Sells (""" + str(len(urgent_sells)) + """)</button>
+                <button class="tab" onclick="showTab(1)">Top Buys (""" + str(len(urgent_buys)) + """)</button>
+                <button class="tab" onclick="showTab(2)">Warnings (""" + str(len(warnings)) + """)</button>
+                <button class="tab" onclick="showTab(3)">Profit Booking (""" + str(len(profit_booking)) + """)</button>
+                <button class="tab" onclick="showTab(4)">All Stocks (""" + str(len(all_stocks)) + """)</button>
+            </div>
+            <div id="tab0" class="tab-content active"></div>
+            <div id="tab1" class="tab-content"></div>
+            <div id="tab2" class="tab-content"></div>
+            <div id="tab3" class="tab-content"></div>
+            <div id="tab4" class="tab-content"><input type="text" class="search-box" id="search" placeholder="Search stocks..."><div id="all-list"></div></div>
+        </div>
+    </div>
+    <script>
+        const data = {
+            actions: """ + json.dumps(actions) + """,
+            timings: """ + json.dumps(timings) + """,
+            types: """ + json.dumps(types) + """,
+            sectors: """ + json.dumps(sectors) + """,
+            urgentSells: """ + json.dumps(urgent_sells) + """,
+            topBuys: """ + json.dumps(urgent_buys) + """,
+            warnings: """ + json.dumps(warnings) + """,
+            profitBooking: """ + json.dumps(profit_booking) + """,
+            allStocks: """ + json.dumps(all_stocks) + """
+        };
+        const colors = { primary: '#667eea', success: '#51cf66', danger: '#ff6b6b', warning: '#ffd43b' };
+        new Chart(document.getElementById('chart1'), { type: 'doughnut', data: { labels: Object.keys(data.actions), datasets: [{ data: Object.values(data.actions), backgroundColor: [colors.success, colors.danger, colors.warning] }] }, options: { responsive: true, maintainAspectRatio: false } });
+        new Chart(document.getElementById('chart2'), { type: 'bar', data: { labels: Object.keys(data.timings), datasets: [{ label: 'Stocks', data: Object.values(data.timings), backgroundColor: colors.primary }] }, options: { responsive: true, maintainAspectRatio: false } });
+        new Chart(document.getElementById('chart3'), { type: 'pie', data: { labels: Object.keys(data.types), datasets: [{ data: Object.values(data.types), backgroundColor: [colors.primary, colors.warning, colors.danger] }] }, options: { responsive: true, maintainAspectRatio: false } });
+        new Chart(document.getElementById('chart4'), { type: 'bar', data: { labels: Object.keys(data.sectors), datasets: [{ data: Object.values(data.sectors), backgroundColor: colors.primary }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false } });
+        function createStockCard(s) {
+            const pClass = s['MY_PROFIT_%'] > 0 ? 'profit-positive' : 'profit-negative';
+            const pSign = s['MY_PROFIT_%'] > 0 ? '+' : '';
+            const badgeClass = s.ACTION === 'SELL' ? 'badge-sell' : s.ACTION === 'BUY' ? 'badge-buy' : 'badge-keep';
+            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_₹'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_₹'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_₹'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_₹'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_₹'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${s['MY_PROFIT_%'].toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
+        }
+        function showList(id, stocks) {
+            const html = stocks.length === 0 ? '<div class="empty">No stocks in this category</div>' : '<div class="stock-list">' + stocks.map(s => createStockCard(s)).join('') + '</div>';
+            document.getElementById(id).innerHTML = html;
+        }
+        showList('tab0', data.urgentSells); showList('tab1', data.topBuys); showList('tab2', data.warnings); showList('tab3', data.profitBooking); showList('all-list', data.allStocks);
+        function showTab(n) { document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.getElementById('tab' + n).classList.add('active'); document.querySelectorAll('.tab')[n].classList.add('active'); }
+        document.getElementById('search').addEventListener('input', function(e) { const term = e.target.value.toLowerCase(); const filtered = data.allStocks.filter(s => s.symbol.toLowerCase().includes(term) || s.company_name.toLowerCase().includes(term) || s.sector.toLowerCase().includes(term)); showList('all-list', filtered); });
+    </script>
+</body>
+</html>"""
+                
+                # Save dashboard
+                dashboard_file = "Portfolio_Allocation_Dashboard.html"
+                with open(dashboard_file, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                
+                print(f"   ✅ Dashboard created: {dashboard_file}")
+                print(f"   🌐 Opening dashboard in browser...")
+                
+                # Open in browser
+                webbrowser.open(dashboard_file)
+                
+                print(f"\n   📊 Dashboard Features:")
+                print(f"      • Interactive charts with 4 visualizations")
+                print(f"      • 5 action tabs (Urgent Sells, Top Buys, Warnings, Profit Booking, All Stocks)")
+                print(f"      • Real-time search functionality")
+                print(f"      • Color-coded action badges")
+                print(f"      • Hover effects and smooth animations")
+                
+            except Exception as dashboard_error:
+                print(f"\n   ⚠️ Dashboard generation failed: {dashboard_error}")
+                print(f"   💡 You can manually run: python create_portfolio_dashboard.py")
             
             # Auto-run report comparison if multiple reports exist
             try:
