@@ -1,0 +1,100 @@
+{
+  "current_regime": {
+    "regime": "CALM",
+    "return_30d": 1.7226594280294123,
+    "volatility": 7.405387890931698,
+    "price_vs_sma20": 0.7544730005970557,
+    "confidence": "LOW"
+  },
+  "market_performance": {
+    "BULL_MODERATE": {
+      "avg_return": 3.47,
+      "success_rate": 72.2,
+      "correlation": -0.115,
+      "volatility": 5.92,
+      "best_quintile": "Q3",
+      "strategy": "MOMENTUM_FOLLOW"
+    },
+    "CALM": {
+      "avg_return": 2.01,
+      "success_rate": 61.1,
+      "correlation": 0.061,
+      "volatility": 6.62,
+      "best_quintile": "Q3",
+      "strategy": "BALANCED_APPROACH"
+    },
+    "SIDEWAYS": {
+      "avg_return": 1.01,
+      "success_rate": 55.0,
+      "correlation": -0.185,
+      "volatility": 7.13,
+      "best_quintile": "Q1",
+      "strategy": "CONTRARIAN_VALUE"
+    },
+    "BEAR_MODERATE": {
+      "avg_return": 0.09,
+      "success_rate": 54.8,
+      "correlation": 0.0,
+      "volatility": 6.18,
+      "best_quintile": "Q2",
+      "strategy": "DEFENSIVE_QUALITY"
+    }
+  },
+  "adaptive_weights": {
+    "BULL_MODERATE": {
+      "momentum_technical": 0.4,
+      "fundamental_quality": 0.3,
+      "volume_strength": 0.2,
+      "sector_momentum": 0.1,
+      "risk_adjustment": 0.0
+    },
+    "CALM": {
+      "momentum_technical": 0.25,
+      "fundamental_quality": 0.45,
+      "volume_strength": 0.15,
+      "sector_momentum": 0.1,
+      "risk_adjustment": 0.05
+    },
+    "SIDEWAYS": {
+      "momentum_technical": 0.15,
+      "fundamental_quality": 0.5,
+      "volume_strength": 0.1,
+      "sector_momentum": 0.15,
+      "risk_adjustment": 0.1
+    },
+    "BEAR_MODERATE": {
+      "momentum_technical": 0.1,
+      "fundamental_quality": 0.6,
+      "volume_strength": 0.05,
+      "sector_momentum": 0.05,
+      "risk_adjustment": 0.2
+    }
+  },
+  "position_sizing": {
+    "BULL_MODERATE": {
+      "max_position": 0.15,
+      "portfolio_exposure": 0.95,
+      "top_quintile_weight": 0.7,
+      "cash_reserve": 0.05
+    },
+    "CALM": {
+      "max_position": 0.12,
+      "portfolio_exposure": 0.9,
+      "top_quintile_weight": 0.6,
+      "cash_reserve": 0.1
+    },
+    "SIDEWAYS": {
+      "max_position": 0.1,
+      "portfolio_exposure": 0.8,
+      "top_quintile_weight": 0.4,
+      "cash_reserve": 0.2
+    },
+    "BEAR_MODERATE": {
+      "max_position": 0.08,
+      "portfolio_exposure": 0.6,
+      "top_quintile_weight": 0.3,
+      "cash_reserve": 0.4
+    }
+  },
+  "generated_timestamp": "2025-11-03T15:08:31.153858"
+}

@@ -1,0 +1,18 @@
+{
+  "generation_date": "2025-11-03 18:42:43.360351",
+  "rebalancing_frequency": "monthly",
+  "total_stocks": 20,
+  "avg_score": 45.90862500000001,
+  "min_score": 42.0,
+  "max_score": 50.400000000000006,
+  "sectors": {
+    "Financial Services": 8,
+    "Healthcare": 3,
+    "Technology": 2,
+    "Utilities": 2,
+    "Basic Materials": 2,
+    "Consumer Defensive": 1,
+    "Consumer Cyclical": 1,
+    "Energy": 1
+  }
+}

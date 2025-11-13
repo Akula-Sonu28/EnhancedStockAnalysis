@@ -1,0 +1,57 @@
+{
+  "analysis_date": "2025-11-11T11:13:07.416354",
+  "best_engine": "Corrected_V2",
+  "optimal_period": 14,
+  "best_universe": "current_portfolio",
+  "key_findings": {
+    "corrected_v2_contrarian": true,
+    "improved_hybrid_momentum": true,
+    "fourteen_day_optimal": true,
+    "current_portfolio_best": true
+  },
+  "engine_rankings": {
+    "correlation": {
+      "Corrected_V2": 0.484,
+      "Hybrid_V4": 0.443,
+      "Improved": 0.443,
+      "Simple_Baseline": 0.443
+    },
+    "average_return": {
+      "Corrected_V2": 0.245,
+      "Hybrid_V4": 0.253,
+      "Improved": 0.25,
+      "Simple_Baseline": 0.255
+    },
+    "success_rate": {
+      "Corrected_V2": 46.35,
+      "Hybrid_V4": 46.35,
+      "Improved": 46.35,
+      "Simple_Baseline": 46.35
+    },
+    "alpha": {
+      "Corrected_V2": 0.049,
+      "Hybrid_V4": 0.051,
+      "Improved": 0.05,
+      "Simple_Baseline": 0.051
+    },
+    "total_tests": {
+      "Corrected_V2": 86,
+      "Hybrid_V4": 86,
+      "Improved": 86,
+      "Simple_Baseline": 86
+    },
+    "composite_score": {
+      "Corrected_V2": 0.616,
+      "Hybrid_V4": 0.604,
+      "Improved": 0.604,
+      "Simple_Baseline": 0.604
+    }
+  },
+  "recommendations": [
+    "Use Improved or Hybrid_V4 for momentum strategies",
+    "Use Corrected_V2 for contrarian strategies",
+    "Prefer 14-day holding periods",
+    "Focus on current portfolio universe",
+    "Investigate buy candidates underperformance"
+  ]
+}
