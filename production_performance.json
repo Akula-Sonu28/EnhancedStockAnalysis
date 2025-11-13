@@ -1,0 +1,18 @@
+[
+  {
+    "timestamp": "2025-11-03T15:29:52.744876",
+    "market_regime": "CALM",
+    "stocks_analyzed": 52,
+    "average_score": 72.54615384615386,
+    "score_distribution": {
+      "q1": 64.6,
+      "median": 72.2,
+      "q3": 78.075
+    },
+    "market_metrics": {
+      "nifty_30d_return": 1.7599759397568526,
+      "market_volatility": 7.407758828582643,
+      "regime_confidence": "LOW"
+    }
+  }
+]
