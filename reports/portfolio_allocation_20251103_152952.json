@@ -1,0 +1,26 @@
+{
+  "total_positions": 11,
+  "total_allocation": 0.9239999999999997,
+  "cash_reserve": 0.07600000000000029,
+  "average_score": 89.73636363636363,
+  "score_std_dev": 5.795966109329476,
+  "sector_allocation": {
+    "Banking": {
+      "count": 9,
+      "weight": 0.7559999999999998
+    },
+    "Energy": {
+      "count": 1,
+      "weight": 0.08399999999999999
+    },
+    "Others": {
+      "count": 1,
+      "weight": 0.08399999999999999
+    }
+  },
+  "risk_metrics": {
+    "max_single_position": 0.08399999999999999,
+    "top_5_concentration": 0.41999999999999993,
+    "diversification_ratio": 11.904761904761909
+  }
+}

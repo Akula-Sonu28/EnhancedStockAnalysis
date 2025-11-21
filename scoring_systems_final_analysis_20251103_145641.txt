@@ -1,0 +1,20 @@
+COMPREHENSIVE SCORING SYSTEMS ANALYSIS
+==================================================
+
+SYSTEM PERFORMANCE COMPARISON:
+1. Comprehensive (500 stocks): +0.401 correlation, +10.63% spread
+2. Enhanced Portfolio (36 stocks): +4.32% avg return, 56.9% success
+3. Optimization Analysis: Need to remove harmful components
+
+RECOMMENDATIONS:
+- Use comprehensive system as primary engine
+- Focus on scores >80 for top performance
+- Remove contrarian_technical and value_opportunity
+- Strengthen fundamental_quality component
+- 30-day evaluation period optimal
+
+TOP PERFORMING SECTORS:
+- Banking: Strong consistent performance
+- Financial Services: High growth potential
+- Energy: Moderate but stable returns
+- Materials: Mixed results, selective picks

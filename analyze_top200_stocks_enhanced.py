@@ -6115,11 +6115,6 @@ Trading Plan ({risk_tolerance} RISK):
             print(f"❌ Enhanced Excel generation failed: {e}")
             logging.error(f"Enhanced Excel generation failed: {e}")
             return None
-            
-        except Exception as e:
-            print(f"❌ Enhanced Excel generation failed: {e}")
-            logging.error(f"Enhanced Excel generation failed: {e}")
-            return None
     
     def generate_enhanced_excel_report(self, df, portfolio_allocation):
         """
@@ -6128,6 +6123,13 @@ Trading Plan ({risk_tolerance} RISK):
         try:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"reports/Enhanced_Stock_Report_{timestamp}.xlsx"
+            
+            # 🔧 FIX: Clean NaN/Inf values before Excel export
+            print("   🧹 Cleaning data for Excel export...")
+            df = self._clean_dataframe_for_excel(df.copy())
+            
+            if portfolio_allocation and 'allocation_df' in portfolio_allocation:
+                portfolio_allocation['allocation_df'] = self._clean_dataframe_for_excel(portfolio_allocation['allocation_df'].copy())
             
             print("   🔄 Calculating Support & Resistance levels for top stocks...")
             
@@ -6152,8 +6154,9 @@ Trading Plan ({risk_tolerance} RISK):
             
             sr_df = pd.DataFrame(support_resistance_data)
             
-            # Create Excel writer with xlsxwriter engine for charts
-            with pd.ExcelWriter(filename, engine='xlsxwriter') as writer:
+            # Create Excel writer with xlsxwriter engine for charts and NaN/Inf handling
+            with pd.ExcelWriter(filename, engine='xlsxwriter', 
+                               engine_kwargs={'options': {'nan_inf_to_errors': True}}) as writer:
                 workbook = writer.book
                 
                 # 🎨 ENHANCED FORMATTING SYSTEM
@@ -6513,6 +6516,33 @@ Trading Plan ({risk_tolerance} RISK):
             logging.error(f"Enhanced Excel generation error: {e}")
             print(f"❌ Enhanced Excel generation failed: {e}")
             return None
+    
+    def _clean_dataframe_for_excel(self, df):
+        """🔧 Clean DataFrame by replacing NaN/Inf values that Excel can't handle"""
+        try:
+            # Replace NaN and infinity values with appropriate defaults
+            for col in df.columns:
+                if df[col].dtype in ['float64', 'float32']:
+                    # Replace NaN with 0 for numeric columns
+                    df[col] = df[col].fillna(0)
+                    
+                    # Replace infinity values with reasonable limits
+                    df[col] = df[col].replace([np.inf, -np.inf], [999999, -999999])
+                    
+                elif df[col].dtype in ['int64', 'int32']:
+                    # Replace NaN with 0 for integer columns
+                    df[col] = df[col].fillna(0)
+                    
+                elif df[col].dtype == 'object':
+                    # Replace NaN with empty string for text columns
+                    df[col] = df[col].fillna('')
+                    
+            return df
+            
+        except Exception as e:
+            print(f"   ⚠️  Warning: Data cleaning failed: {e}")
+            # Fallback: Basic cleaning
+            return df.fillna(0)
     
     def _auto_resize_columns(self, worksheet, df=None, max_width=50, min_width=8):
         """🔧 Auto-resize columns based on content width"""
