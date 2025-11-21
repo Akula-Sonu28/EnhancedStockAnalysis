@@ -4505,6 +4505,18 @@ class EnhancedTop200StockAnalyzer:
             allocation_df['stock_type'] = 'VALUE'  # Default classification
             allocation_df['weight_capped'] = False
             
+            # 🔧 FIX: Initialize action_recommendation from action_type (if exists)
+            if 'action_type' in allocation_df.columns:
+                allocation_df['action_recommendation'] = allocation_df['action_type']
+            else:
+                allocation_df['action_recommendation'] = 'HOLD'
+            
+            # 🔧 FIX: Ensure all critical columns exist with defaults
+            if 'exit_reason' not in allocation_df.columns:
+                allocation_df['exit_reason'] = ''
+            if 'priority' not in allocation_df.columns:
+                allocation_df['priority'] = 'LOW'
+            
             # 🔧 FIX #1: Calculate portfolio_weight for ALL EXISTING holdings (not just new ones)
             print(f"   📊 Calculating portfolio weights for existing holdings...")
             if current_portfolio_value > 0:
@@ -4680,8 +4692,9 @@ class EnhancedTop200StockAnalyzer:
                             allocation_df.at[idx, 'profit_booking_pct'] = book_pct
                             allocation_df.at[idx, 'profit_booking_timing'] = timing
                         elif current_action == 'INCREASE':
-                            # For top performers, book partial profit AND increase remaining position
-                            allocation_df.at[idx, 'exit_reason'] = f"🏆 TOP PERFORMER + 💰 Book {book_pct}% profit | Then INCREASE position"
+                            # 🔧 FIX: For top performers with high profits, BOOK_PROFIT takes priority
+                            allocation_df.at[idx, 'action_recommendation'] = 'BOOK_PROFIT'
+                            allocation_df.at[idx, 'exit_reason'] = f"🏆 TOP PERFORMER + 💰 Book {book_pct}% profit | Then INCREASE remaining position"
                             allocation_df.at[idx, 'profit_booking_pct'] = book_pct
                             allocation_df.at[idx, 'profit_booking_timing'] = timing
                     
@@ -4771,7 +4784,11 @@ class EnhancedTop200StockAnalyzer:
             
             # Add priority ranking based on predictive score
             allocation_df['predictive_rank'] = allocation_df['predictive_score'].rank(method='dense', ascending=False).astype(int)
-            allocation_df['action_recommendation'] = 'HOLD'  # Default action
+            
+            # 🔧 FIX: Only set default if action_recommendation doesn't exist
+            # DO NOT use fillna as it would overwrite EXIT STRATEGY and PROFIT BOOKING updates
+            if 'action_recommendation' not in allocation_df.columns:
+                allocation_df['action_recommendation'] = 'HOLD'
             
             # 🎯 VALUE INVESTING: 40/30/20/10 STRATEGY CLASSIFICATION
             print(f"\n   🎯 Applying VALUE INVESTING Strategy (40/30/20/10)...")
@@ -4912,10 +4929,16 @@ class EnhancedTop200StockAnalyzer:
                             
                             if i < actual_count:
                                 allocation_df.at[idx, 'keep_stock'] = True
-                                allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
+                                # 🔧 FIX: Only set action if not already set by EXIT STRATEGY or PROFIT BOOKING
+                                current_action = allocation_df.at[idx, 'action_recommendation']
+                                if current_action in ['HOLD', '']:  # Only override default actions
+                                    allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
                             else:
                                 allocation_df.at[idx, 'keep_stock'] = False
-                                allocation_df.at[idx, 'action_recommendation'] = 'SELL' if row['is_current_holding'] else 'SKIP'
+                                # 🔧 FIX: Only set action if not already set
+                                current_action = allocation_df.at[idx, 'action_recommendation']
+                                if current_action in ['HOLD', '']:  # Only override default actions
+                                    allocation_df.at[idx, 'action_recommendation'] = 'SELL' if row['is_current_holding'] else 'SKIP'
                 
                 # Second pass: Backfill if any category is short
                 current_keep_count = len(allocation_df[allocation_df['keep_stock'] == True])
@@ -5016,9 +5039,14 @@ class EnhancedTop200StockAnalyzer:
                     if pd.notna(row.get('exit_strategy', '')) and row['exit_strategy'] != '':
                         # Use exit_reason to determine action (already set in lines 4028-4082)
                         exit_reason = row.get('exit_reason', '')
+                        current_action = allocation_df.at[idx, 'action_recommendation']
                         
+                        # 🔧 FIX: Preserve BOOK_PROFIT actions - don't re-derive if profit booking is set
+                        if current_action == 'BOOK_PROFIT' or '💰 PROFIT BOOKING' in exit_reason:
+                            # Keep BOOK_PROFIT action intact
+                            allocation_df.at[idx, 'keep_stock'] = True  # Always keep stocks with profit booking
                         # Parse the action from exit_reason
-                        if 'TOP PERFORMER' in exit_reason:
+                        elif 'TOP PERFORMER' in exit_reason:
                             # Top 30% - INCREASE
                             allocation_df.at[idx, 'action_recommendation'] = 'INCREASE'
                             allocation_df.at[idx, 'keep_stock'] = True
@@ -5057,45 +5085,62 @@ class EnhancedTop200StockAnalyzer:
             # Store all stocks marked for selling or skipping
             sell_recommendations_df = allocation_df[allocation_df['keep_stock'] == False].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
             
-            # STEP 3.4: 🎯 SALE PROCEEDS + NEW CAPITAL ALLOCATION
+            # STEP 3.4: 🎯 SALE PROCEEDS + PROFIT BOOKING + NEW CAPITAL ALLOCATION
             if 'keep_stock' in allocation_df.columns and target_amount > 0:
-                # Calculate sale proceeds from stocks marked for SELL
-                sale_proceeds = allocation_df[
+                # Calculate sale proceeds from stocks marked for SELL (100% of position)
+                sell_proceeds = allocation_df[
                     (allocation_df['action_recommendation'] == 'SELL') & 
                     (allocation_df['is_current_holding'] == True)
                 ]['current_value'].sum()
                 
-                total_available = target_amount + sale_proceeds
+                # Calculate profit booking proceeds from stocks marked for BOOK_PROFIT
+                # (based on profit_booking_pct % of current value)
+                book_profit_df = allocation_df[
+                    (allocation_df['action_recommendation'] == 'BOOK_PROFIT') & 
+                    (allocation_df['is_current_holding'] == True)
+                ].copy()
+                
+                book_profit_proceeds = 0
+                if not book_profit_df.empty:
+                    for idx, row in book_profit_df.iterrows():
+                        booking_pct = row.get('profit_booking_pct', 0)
+                        current_val = row.get('current_value', 0)
+                        proceeds = (booking_pct / 100.0) * current_val
+                        book_profit_proceeds += proceeds
+                
+                # Total available = new capital (user input) + sell proceeds + book profit proceeds
+                total_available = target_amount + sell_proceeds + book_profit_proceeds
                 
                 print(f"\n   💰 CAPITAL ALLOCATION:")
-                print(f"      🆕 New capital: ₹{target_amount:,.0f}")
-                print(f"      💵 Sale proceeds: ₹{sale_proceeds:,.0f}")
+                print(f"      🆕 New capital (user input): ₹{target_amount:,.0f}")
+                print(f"      💵 SELL proceeds: ₹{sell_proceeds:,.0f}")
+                print(f"      📈 BOOK_PROFIT proceeds: ₹{book_profit_proceeds:,.0f}")
                 print(f"      📊 Total available: ₹{total_available:,.0f}")
                 
-                # 🔧 FIXED STRATEGY: 80% strengthen existing winners, 20% new opportunities
-                # (Only add new if existing portfolio lacks quality stocks)
-                existing_winners_budget = int(total_available * 0.80)  # 80% to existing
-                new_positions_budget = int(total_available * 0.20)     # 20% to new
-                
-                print(f"\n   🎯 CAPITAL ALLOCATION STRATEGY:")
-                print(f"      🏆 Strengthen existing winners: ₹{existing_winners_budget:,} (80%)")
-                print(f"      🆕 New opportunities (only if needed): ₹{new_positions_budget:,} (20%)")
+                # 🎯 UNIFIED RANKING-BASED ALLOCATION (No 80/20 split)
+                # Combine ALL opportunities (existing INCREASE + new BUY) into ONE ranked list
+                print(f"\n   🎯 UNIFIED RANKING-BASED CAPITAL ALLOCATION:")
                 
                 keep_stocks = allocation_df[allocation_df['keep_stock'] == True].copy()
                 current_portfolio_value = allocation_df['current_value'].sum()
                 total_target_portfolio = current_portfolio_value + total_available
                 
-                # === PHASE 1: STRENGTHEN EXISTING WINNERS (80% of capital) ===
-                print(f"\n   🏆 PHASE 1: Strengthening existing top performers")
+                # === BUILD UNIFIED OPPORTUNITY LIST ===
+                all_opportunities = []
                 
-                existing_opportunities = []
+                # 1. EXISTING HOLDINGS - Calculate max additional investment
+                print(f"\n   📊 Analyzing existing holdings for additional investment...")
                 for idx, row in keep_stocks.iterrows():
-                    # Only consider stocks that are current holdings AND top performers
                     if row['current_value'] > 0:  # Already holding this stock
+                        # CRITICAL: Exclude SELL stocks from allocation
+                        action = str(row.get('action_recommendation', '')).upper()
+                        if action == 'SELL':
+                            continue  # Skip SELL stocks - they should get ₹0 allocation
+                        
                         rank = row.get('holdings_rank', 999)
                         exit_reason = str(row.get('exit_reason', ''))
                         
-                        # Prioritize: Top performers based on EXIT STRATEGY or top 15 rank
+                        # Only consider top performers for INCREASE
                         is_top_performer = 'TOP PERFORMER' in exit_reason or rank <= 15
                         
                         if is_top_performer:
@@ -5108,198 +5153,187 @@ class EnhancedTop200StockAnalyzer:
                             max_additional = max_allocation_per_stock - current_value
                             
                             if max_additional > 3000:  # Can add more
-                                existing_opportunities.append({
+                                all_opportunities.append({
+                                    'type': 'INCREASE',
                                     'index': idx,
                                     'symbol': row['symbol'],
                                     'score': row['risk_adjusted_score'],
                                     'rank': rank,
                                     'current_value': current_value,
-                                    'max_additional': max_additional,
+                                    'max_investment': max_additional,
                                     'current_price': row['current_price'],
+                                    'sector': row.get('sector', 'Unknown'),
                                     'market_cap_category': cap_category,
-                                    'stock_class': row.get('stock_classification', 'CORE')
+                                    'stock_class': row.get('stock_classification', 'CORE'),
+                                    'is_existing_holding': True
                                 })
                 
-                # Allocate to existing winners (80% of capital)
-                existing_opportunities.sort(key=lambda x: (x['rank'], -x['score']))  # Best rank first
-                remaining_existing_budget = existing_winners_budget
+                print(f"      ✅ Found {len(all_opportunities)} existing holdings eligible for INCREASE")
                 
-                for opportunity in existing_opportunities:
-                    if remaining_existing_budget <= 0:
-                        break
-                    
-                    # Conservative allocation for existing holdings
-                    optimal_investment = min(
-                        opportunity['max_additional'], 
-                        remaining_existing_budget, 
-                        12000  # Max ₹12K per existing holding
-                    )
-                    
-                    if optimal_investment >= 3000:  # Minimum threshold
-                        shares_to_buy = int(optimal_investment / opportunity['current_price'])
-                        actual_investment = shares_to_buy * opportunity['current_price']
-                        
-                        if actual_investment >= 3000:  # Final check
-                            idx = opportunity['index']
-                            allocation_df.loc[idx, 'investment_amount'] = actual_investment
-                            allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
-                            
-                            remaining_existing_budget -= actual_investment
-                            
-                            print(f"      ✅ {opportunity['symbol']} (Rank #{opportunity['rank']}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | {opportunity['stock_class']}")
+                # 2. NEW BUY OPPORTUNITIES
+                print(f"\n   🔍 Searching for NEW buy opportunities...")
                 
-                print(f"      💰 Existing holdings allocated: ₹{existing_winners_budget - remaining_existing_budget:,.0f}")
-                
-                # === PHASE 2: NEW POSITIONS (20% - Only if existing portfolio lacks quality) ===
-                print(f"\n   🆕 PHASE 2: New positions (only if needed - 20% allocation)")
-                
-                new_opportunities = []
-                
-                # Get current holdings symbols (FIX: Use actual portfolio holdings, not all analyzed stocks)
+                # Get current holdings symbols
                 actual_holdings_symbols = set()
                 if current_holdings is not None and not current_holdings.empty:
                     actual_holdings_symbols = set(current_holdings['Instrument'].str.upper())
-                print(f"      📊 Current holdings: {len(actual_holdings_symbols)} symbols")
                 
                 # Use the current analysis results to find NEW opportunities
-                all_analyzed_df = results_df.copy()  # Use the results that were just analyzed
-                print(f"      🔍 Analyzing {len(all_analyzed_df)} stocks for new opportunities...")
+                all_analyzed_df = results_df.copy()
                 
-                # FIXED 60/40 STRATEGY: Find NEW opportunities from analyzed stocks
                 new_opportunities_candidates = all_analyzed_df[
                     (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
                     (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
-                    (all_analyzed_df['risk_adjusted_score'] >= 65)  # High quality threshold first
+                    (all_analyzed_df['risk_adjusted_score'] >= 60)
                 ].copy()
                 
-                if len(new_opportunities_candidates) == 0:
-                    # Lower threshold if no high-quality found
-                    new_opportunities_candidates = all_analyzed_df[
-                        (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
-                        (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
-                        (all_analyzed_df['risk_adjusted_score'] >= 60)
-                    ].copy()
-                    print(f"      📊 Using 60+ score threshold: {len(new_opportunities_candidates)} candidates found")
-                else:
-                    print(f"      📊 High-quality candidates (65+): {len(new_opportunities_candidates)} found")
+                print(f"      📊 Found {len(new_opportunities_candidates)} new BUY candidates")
                 
-                # Convert to opportunities list for processing
+                # Add new opportunities to the unified list
                 for _, analyzed_stock in new_opportunities_candidates.iterrows():
                     symbol = str(analyzed_stock.get('symbol', '')).upper()
                     
-                    if symbol:  # Valid symbol check
-                            
-                            market_cap = analyzed_stock.get('market_cap', 0)
-                            
-                            # Get market cap category and max allocation percentage  
-                            cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
-                            max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                            
-                            new_opportunities.append({
-                                'symbol': symbol,
-                                'score': analyzed_stock.get('risk_adjusted_score', 0),
-                                'max_investment': max_allocation_per_stock,
-                                'current_price': analyzed_stock.get('current_price', 100),
-                                'market_cap_category': cap_category,
-                                'max_allocation_pct': max_allocation_pct * 100,
-                                'sector': analyzed_stock.get('sector', 'Unknown'),
-                                'recommendation': analyzed_stock.get('final_recommendation', '')
-                            })
+                    if symbol:
+                        market_cap = analyzed_stock.get('market_cap', 0)
+                        cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
+                        max_allocation_per_stock = total_target_portfolio * max_allocation_pct
+                        
+                        all_opportunities.append({
+                            'type': 'BUY',
+                            'symbol': symbol,
+                            'score': analyzed_stock.get('risk_adjusted_score', 0),
+                            'max_investment': max_allocation_per_stock,
+                            'current_price': analyzed_stock.get('current_price', 100),
+                            'sector': analyzed_stock.get('sector', 'Unknown'),
+                            'market_cap_category': cap_category,
+                            'max_allocation_pct': max_allocation_pct * 100,
+                            'is_existing_holding': False,
+                            'recommendation': analyzed_stock.get('final_recommendation', ''),
+                            'company_name': analyzed_stock.get('company_name', symbol),
+                            'market_cap': market_cap,
+                            'rank': 0  # New stocks don't have rank
+                        })
                 
-                # Allocate to new positions (60% budget) - Focus on diversification
-                new_opportunities.sort(key=lambda x: x['score'], reverse=True)
-                remaining_new_budget = new_positions_budget
+                print(f"      ✅ Total opportunities: {len(all_opportunities)} (INCREASE + BUY)")
+                
+                # === SORT BY SCORE (HIGHEST FIRST) ===
+                all_opportunities.sort(key=lambda x: x['score'], reverse=True)
+                
+                # === ALLOCATE FUNDS SEQUENTIALLY ===
+                print(f"\n   💰 Allocating ₹{total_available:,.0f} across ranked opportunities...")
+                
+                remaining_budget = total_available
                 sector_allocation = {}  # Track sector diversification
-                new_positions_added = 0
+                increase_count = 0
+                buy_count = 0
+                total_allocated = 0
                 
-                print(f"      🔍 Found {len(new_opportunities)} new investment opportunities")
-                
-                for opportunity in new_opportunities[:12]:  # Limit to top 12 new opportunities
-                    if remaining_new_budget <= 0 or new_positions_added >= 8:  # Max 8 new positions
+                for opportunity in all_opportunities:
+                    if remaining_budget < 3000:  # Minimum allocation
                         break
                     
-                    # Diversified allocation for new positions
+                    # SECTOR DIVERSIFICATION CHECK (max 3 stocks per sector)
                     sector = opportunity['sector']
                     sector_count = sector_allocation.get(sector, 0)
                     
-                    # Reduce allocation if too many stocks from same sector
-                    sector_penalty = 1.0 if sector_count < 3 else 0.6  # Allow up to 3 per sector
+                    if sector_count >= 3:
+                        continue  # Skip - too many stocks from this sector
                     
+                    # Calculate optimal investment
                     optimal_investment = min(
                         opportunity['max_investment'],
-                        remaining_new_budget,
-                        int(7000 * sector_penalty)  # Max ₹7K per new position (reduced if sector concentrated)
+                        remaining_budget
                     )
                     
-                    if optimal_investment >= 3500:  # Lower minimum threshold for new positions
-                        # Ensure current_price is a float
-                        current_price = float(opportunity['current_price']) if isinstance(opportunity['current_price'], str) else opportunity['current_price']
-                        shares_to_buy = int(optimal_investment / current_price)
-                        actual_investment = shares_to_buy * current_price
+                    # Ensure minimum ₹3,000 per stock
+                    if optimal_investment < 3000:
+                        continue
+                    
+                    # Calculate whole shares only
+                    current_price = float(opportunity['current_price'])
+                    shares_to_buy = int(optimal_investment / current_price)
+                    actual_investment = shares_to_buy * current_price
+                    
+                    # Final validation
+                    if actual_investment < 3000 or shares_to_buy < 1:
+                        continue
+                    
+                    # ALLOCATE FUNDS
+                    if opportunity['type'] == 'INCREASE':
+                        # Update existing holding in allocation_df
+                        idx = opportunity['index']
+                        allocation_df.loc[idx, 'investment_amount'] = actual_investment
+                        allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
                         
-                        if actual_investment >= 3500 and shares_to_buy > 0:  # Final check
-                            # Create new row with all required fields for Excel export
-                            new_row = pd.Series({
-                                'symbol': opportunity['symbol'],
-                                'company_name': opportunity['symbol'],  # Use symbol as company name for new positions
-                                'sector': opportunity['sector'],
-                                'current_price': opportunity['current_price'],
-                                'current_value': 0,  # New position
-                                'current_quantity': 0,
-                                'investment_amount': actual_investment,
-                                'suggested_quantity': shares_to_buy,
-                                'risk_adjusted_score': opportunity['score'],
-                                'market_cap_category': opportunity['market_cap_category'],
-                                'action_recommendation': 'BUY',
-                                'action_type': 'NEW POSITION',
-                                'keep_stock': True,
-                                'recommendation': opportunity['recommendation'],
-                                'market_cap': 0,  # Default for new positions
-                                'max_allocation_pct': opportunity['max_allocation_pct'],
-                                'is_current_holding': False,
-                                'exit_reason': 'New opportunity - Quality stock not in portfolio',
-                                'exit_strategy': '🆕 NEW POSITION',
-                                'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
-                                'holdings_rank': 0,
-                                'current_profit_pct': 0,
-                                'portfolio_weight': (actual_investment / total_target_portfolio) * 100 if total_target_portfolio > 0 else 0
-                            })
-                            
-                            # Actually ADD this row to the main allocation_df so it gets saved to Excel
-                            allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
-                            
-                            remaining_new_budget -= actual_investment
-                            sector_allocation[sector] = sector_count + 1
-                            new_positions_added += 1
-                            
-                            print(f"      🚀 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | {opportunity['market_cap_category']} - Growth | {sector}")
+                        increase_count += 1
+                        print(f"      🔼 {opportunity['symbol']} (Rank #{opportunity.get('rank', 'N/A')}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
+                    
+                    else:  # BUY
+                        # Create new row for new position
+                        new_row = pd.Series({
+                            'symbol': opportunity['symbol'],
+                            'company_name': opportunity.get('company_name', opportunity['symbol']),
+                            'sector': opportunity['sector'],
+                            'current_price': opportunity['current_price'],
+                            'current_value': 0,
+                            'current_quantity': 0,
+                            'investment_amount': actual_investment,
+                            'suggested_quantity': shares_to_buy,
+                            'risk_adjusted_score': opportunity['score'],
+                            'market_cap_category': opportunity['market_cap_category'],
+                            'action_recommendation': 'BUY',
+                            'action_type': 'NEW POSITION',
+                            'keep_stock': True,
+                            'recommendation': opportunity.get('recommendation', 'BUY'),
+                            'market_cap': opportunity.get('market_cap', 0),
+                            'max_allocation_pct': opportunity.get('max_allocation_pct', 5.0),
+                            'is_current_holding': False,
+                            'exit_reason': 'New opportunity - Quality stock not in portfolio',
+                            'exit_strategy': '🆕 NEW POSITION',
+                            'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
+                            'holdings_rank': 0,
+                            'current_profit_pct': 0,
+                            'portfolio_weight': (actual_investment / total_target_portfolio) * 100 if total_target_portfolio > 0 else 0
+                        })
+                        
+                        # Add to allocation_df
+                        allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
+                        
+                        buy_count += 1
+                        print(f"      🆕 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
+                    
+                    # Update tracking
+                    remaining_budget -= actual_investment
+                    total_allocated += actual_investment
+                    sector_allocation[sector] = sector_count + 1
                 
-                print(f"      💰 New positions allocated: ₹{new_positions_budget - remaining_new_budget:,.0f}")
-                print(f"      📊 New stocks added: {new_positions_added}")
-                
-                if len(new_opportunities) == 0:
-                    print(f"      ⚠️  No new opportunities found (all analyzed stocks already held)")
-                    print(f"      ✅ GOOD: Your existing portfolio has quality stocks!")
-                elif remaining_new_budget > new_positions_budget * 0.7:
-                    print(f"      💡 Most capital went to existing winners (as intended)")
-                
-                total_allocated = (existing_winners_budget - remaining_existing_budget) + (new_positions_budget - remaining_new_budget)
-                total_remaining = remaining_existing_budget + remaining_new_budget
-                
-                print(f"\n   🎯 CAPITAL ALLOCATION SUMMARY:")
-                print(f"      💰 Sale proceeds: ₹{sale_proceeds:,.0f}")
-                print(f"      🆕 New capital: ₹{target_amount:,.0f}")
+                # === ALLOCATION SUMMARY ===
+                print(f"\n   🎯 UNIFIED ALLOCATION SUMMARY:")
+                print(f"      💰 SELL proceeds: ₹{sell_proceeds:,.0f}")
+                print(f"      📈 BOOK_PROFIT proceeds: ₹{book_profit_proceeds:,.0f}")
+                print(f"      🆕 New capital (user input): ₹{target_amount:,.0f}")
+                print(f"      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"      📊 Total available: ₹{total_available:,.0f}")
                 print(f"      ✅ Total allocated: ₹{total_allocated:,.0f}")
-                print(f"      💵 Remaining funds: ₹{total_remaining:,.0f}")
-                print(f"      📊 Allocation: {((existing_winners_budget - remaining_existing_budget)/total_allocated*100):.1f}% to existing, {((new_positions_budget - remaining_new_budget)/total_allocated*100):.1f}% to new")
+                print(f"      🔼 INCREASE actions: {increase_count}")
+                print(f"      🆕 BUY actions: {buy_count}")
+                print(f"      💵 Remaining funds: ₹{remaining_budget:,.0f}")
+                
+                # Show sector diversification
+                if sector_allocation:
+                    print(f"\n   📊 Sector Diversification:")
+                    for sector, count in sorted(sector_allocation.items(), key=lambda x: x[1], reverse=True):
+                        print(f"      • {sector}: {count} stocks")
             
-            # Only allocate funds to stocks marked to KEEP/BUY (not SELL/SKIP)
-            new_positions = allocation_df[
-                (allocation_df['action_type'] == 'NEW POSITION') & 
-                (allocation_df['keep_stock'] == True)
-            ].copy()
+            # 🔧 DISABLED: Old enhanced allocation logic (was overriding unified allocation)
+            # The unified allocation above already handles everything correctly
+            if False:  # Skip this entire section
+                new_positions = allocation_df[
+                    (allocation_df['action_type'] == 'NEW POSITION') & 
+                    (allocation_df['keep_stock'] == True)
+                ].copy()
             
-            if not new_positions.empty and target_amount > 0:
+            if False and not new_positions.empty and target_amount > 0:  # DISABLED
                 try:
                     # Create a mock portfolio analyzer for the allocation analyzer
                     class MockPortfolioAnalyzer:
@@ -5376,6 +5410,8 @@ class EnhancedTop200StockAnalyzer:
                         
                         # Apply 7% weight limit (of total portfolio including existing holdings)
                         max_allocation = total_target_portfolio * 0.07  # 7% max weight
+                        
+                        # Use budget-based allocation (distributed from available funds)
                         allocation_amount = min(base_allocation, max_allocation)
                         
                         # Ensure minimum ₹5,000 allocation for meaningful investment
@@ -5417,23 +5453,19 @@ class EnhancedTop200StockAnalyzer:
                         else:  # VALUE
                             value_allocation += allocation_amount
                     
-                    # Ensure minimum defence allocation (10%)
+                    # 🔧 DISABLED: Defence allocation boost (use available funds only)
+                    # min_defence_needed = total_target_portfolio * enhanced_allocator.min_defence_allocation
+                    # if defence_allocation < min_defence_needed:
+                    #     defence_gap = min_defence_needed - defence_allocation
+                    #     print(f"      ℹ️  Defence allocation below 10%: ₹{defence_gap:,.0f} shortfall")
+                    #     NOTE: Not forcing allocation beyond available budget from BOOK_PROFIT/SELL
+                    
+                    # Report defence allocation without forcing
                     min_defence_needed = total_target_portfolio * enhanced_allocator.min_defence_allocation
                     if defence_allocation < min_defence_needed:
                         defence_gap = min_defence_needed - defence_allocation
-                        print(f"      ⚡ Defence allocation below 10%: Adding ₹{defence_gap:,.0f} to defence stocks")
-                        
-                        # Find defence candidates and boost their allocation
-                        for pos in enhanced_positions:
-                            if pos['stock_type'] == 'DEFENCE' and defence_gap > 0:
-                                boost = min(defence_gap, max_stock_value - pos['investment_amount'])
-                                pos['investment_amount'] += boost
-                                pos['allocation_percentage'] = (pos['investment_amount'] / total_target_portfolio) * 100
-                                pos['suggested_quantity'] = pos['investment_amount'] / max(
-                                    new_positions[new_positions['symbol'] == pos['symbol']]['current_price'].iloc[0], 1
-                                )
-                                defence_gap -= boost
-                                defence_allocation += boost
+                        print(f"      ℹ️  Defence allocation: ₹{defence_allocation:,.0f} (target: ₹{min_defence_needed:,.0f}, shortfall: ₹{defence_gap:,.0f})")
+                        print(f"      💡 Using available budget strategy - no forced allocation")
                     
                     # Update the allocation dataframe with enhanced rules
                     for pos in enhanced_positions:
@@ -5478,6 +5510,9 @@ class EnhancedTop200StockAnalyzer:
                         for idx, row in top_positions.iterrows():
                             weight = row['risk_adjusted_score'] / total_score
                             investment = max(min_allocation, weight * target_amount)
+                            
+                            # Budget-based allocation from available funds
+                            # (No artificial cap - uses proportional distribution)
                             
                             # Calculate whole shares only
                             price = max(row['current_price'], 1)
@@ -6344,11 +6379,34 @@ Trading Plan ({risk_tolerance} RISK):
                         'undervaluation_score'  # Value score
                     ]
                     
+                    # 🔧 FIX: Add missing columns with defaults before selection
+                    for col in essential_cols:
+                        if col not in alloc_df.columns:
+                            # Set appropriate defaults based on column type
+                            if col in ['investment_amount', 'suggested_quantity', 'current_quantity', 'current_value', 'current_profit_pct']:
+                                alloc_df[col] = 0
+                            elif col in ['profit_booking_pct', 'profit_booking_timing']:
+                                alloc_df[col] = None
+                            elif col in ['action_recommendation', 'exit_reason', 'stock_classification']:
+                                alloc_df[col] = ''
+                            elif col == 'is_current_holding':
+                                alloc_df[col] = False
+                            else:
+                                alloc_df[col] = None
+                    
                     # Only include columns that exist
                     existing_cols = [col for col in essential_cols if col in alloc_df.columns]
                     
                     # Create simplified dataframe
                     alloc_df_simple = alloc_df[existing_cols].copy()
+                    
+                    # 🔧 CRITICAL FIX: Reset investment_amount to 0 for HOLD/KEEP/SELL stocks
+                    # Only INCREASE and BUY stocks from unified allocation should have investment amounts
+                    print(f"   🔧 Resetting INVEST_₹ for non-INCREASE/BUY stocks...")
+                    non_action_mask = ~alloc_df_simple['action_recommendation'].isin(['INCREASE', 'BUY'])
+                    alloc_df_simple.loc[non_action_mask, 'investment_amount'] = 0
+                    alloc_df_simple.loc[non_action_mask, 'suggested_quantity'] = 0
+                    print(f"      ✅ Reset {non_action_mask.sum()} stocks (HOLD/KEEP/SELL) to ₹0")
                     
                     # Rename columns for maximum clarity (retail investor friendly)
                     column_renames = {
