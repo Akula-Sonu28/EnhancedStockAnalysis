@@ -1,36 +1,32 @@
 #!/usr/bin/env python3
 """
-# COMMENTED OUT - NOT NEEDED
-# Stock Analysis System - Main Entry Point
-# ========================================
-# 
-# A comprehensive stock analysis tool for NSE stocks with advanced features
-# for high-risk high-reward investors.
-# 
-# REDUNDANT: Use analyze.py or portfolio_analysis.py instead
-# 
-# Usage:
-#     python main.py [options]
-# 
-# Examples:
-#     # Quick aggressive analysis
-#     python main.py --risk-profile aggressive --focus-growth -n 10
-#     
-#     # Full analysis with portfolio optimization
-#     python main.py --risk-profile aggressive --portfolio-amount 500000
-#     
-#     # Interactive mode
-#     python main.py --interactive
-# 
-# Author: Enhanced Stock Analysis System
-# Version: 2.0.0
+Stock Analysis System - Main Entry Point
+========================================
+
+A comprehensive stock analysis tool for NSE stocks with advanced features
+for high-risk high-reward investors.
+
+Usage:
+    python main.py [options]
+
+Examples:
+    # Quick aggressive analysis
+    python main.py --risk-profile aggressive --focus-growth -n 10
+    
+    # Full analysis with portfolio optimization
+    python main.py --risk-profile aggressive --portfolio-amount 500000
+    
+    # Interactive mode
+    python main.py --interactive
+
+Author: Enhanced Stock Analysis System
+Version: 2.0.0
 """
 
-# COMMENTED OUT - FILE NOT NEEDED
-# import sys
-# import os
-# import argparse
-# from pathlib import Path
+import sys
+import os
+import argparse
+from pathlib import Path
 
 # Add the project root to Python path
 project_root = Path(__file__).parent
