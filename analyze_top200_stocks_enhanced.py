@@ -5265,7 +5265,8 @@ class EnhancedTop200StockAnalyzer:
                     for idx, row in book_profit_df.iterrows():
                         booking_pct = row.get('profit_booking_pct', 0)
                         current_val = row.get('current_value', 0)
-                        proceeds = (booking_pct / 100.0) * current_val
+                        # 🔧 FIX: profit_booking_pct is already stored as decimal (0.30 = 30%), don't divide by 100
+                        proceeds = booking_pct * current_val
                         book_profit_proceeds += proceeds
                 
                 # Total available = new capital (user input) + sell proceeds + book profit proceeds
@@ -5338,8 +5339,52 @@ class EnhancedTop200StockAnalyzer:
                 if current_holdings is not None and not current_holdings.empty:
                     actual_holdings_symbols = set(current_holdings['Instrument'].str.upper())
                 
-                # Use the current analysis results to find NEW opportunities
+                # 🔧 FIX: Load full analysis report to get ALL opportunities (not just current holdings)
                 all_analyzed_df = results_df.copy()
+                
+                # Try to load the most recent full Enhanced Stock Report
+                import glob
+                reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
+                if os.path.exists(reports_dir):
+                    report_files = glob.glob(os.path.join(reports_dir, 'Enhanced_Stock_Report_*.xlsx'))
+                    if report_files:
+                        # Get the most recent report (but exclude the current one being generated)
+                        report_files_sorted = sorted(report_files, key=os.path.getmtime, reverse=True)
+                        
+                        for latest_report in report_files_sorted:
+                            try:
+                                print(f"      📂 Loading full analysis from: {os.path.basename(latest_report)}")
+                                # Try 'Complete Data' sheet first, then fallback to other sheets
+                                try:
+                                    full_analysis_df = pd.read_excel(latest_report, sheet_name='Complete Data')
+                                except:
+                                    try:
+                                        full_analysis_df = pd.read_excel(latest_report, sheet_name='Stock Analysis')
+                                    except:
+                                        full_analysis_df = pd.read_excel(latest_report, sheet_name='Top Picks')
+                                
+                                # Merge full analysis with current results_df
+                                # Keep results_df data for overlapping stocks, add new stocks from full_analysis_df
+                                if not full_analysis_df.empty and 'symbol' in full_analysis_df.columns:
+                                    # Get symbols from results_df
+                                    current_symbols = set(results_df['symbol'].str.upper())
+                                    
+                                    # Add stocks from full_analysis_df that aren't in results_df
+                                    new_stocks_df = full_analysis_df[
+                                        ~full_analysis_df['symbol'].str.upper().isin(current_symbols)
+                                    ]
+                                    
+                                    if not new_stocks_df.empty:
+                                        all_analyzed_df = pd.concat([results_df, new_stocks_df], ignore_index=True)
+                                        print(f"      ✅ Merged {len(new_stocks_df)} additional stocks from full analysis")
+                                        print(f"      📊 Total stocks available: {len(all_analyzed_df)} (was {len(results_df)})")
+                                    break  # Successfully loaded, exit loop
+                            except Exception as e:
+                                continue  # Try next report file
+                        
+                        if len(all_analyzed_df) == len(results_df):
+                            print(f"      ⚠️  Could not load additional stocks from reports")
+                            print(f"      📊 Using current analysis only: {len(all_analyzed_df)} stocks")
                 
                 new_opportunities_candidates = all_analyzed_df[
                     (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
@@ -5870,16 +5915,22 @@ class EnhancedTop200StockAnalyzer:
                         cautious_count += 1
                         if regime_adjustment.get('market_regime') in ['BEARISH', 'ROTATION']:
                             if current_action == 'BUY' and not row.get('is_current_holding', False):
-                                allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
-                                allocation_df.at[idx, 'skip_reason'] = f"Low confidence (Score: {score:.1f}) in {regime_adjustment.get('market_regime')} market"
-                                confidence_filtered += 1
+                                # 🔧 FIX: Don't skip if funds were already allocated
+                                already_allocated = allocation_df.at[idx, 'investment_amount'] > 0
+                                if not already_allocated:
+                                    allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
+                                    allocation_df.at[idx, 'skip_reason'] = f"Low confidence (Score: {score:.1f}) in {regime_adjustment.get('market_regime')} market"
+                                    confidence_filtered += 1
                     
                     # AVOID: Skip new positions
                     elif confidence_level == 'AVOID':
                         if current_action == 'BUY' and not row.get('is_current_holding', False):
-                            allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
-                            allocation_df.at[idx, 'skip_reason'] = f"Below confidence threshold (Score: {score:.1f})"
-                            confidence_filtered += 1
+                            # 🔧 FIX: Don't skip if funds were already allocated
+                            already_allocated = allocation_df.at[idx, 'investment_amount'] > 0
+                            if not already_allocated:
+                                allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
+                                allocation_df.at[idx, 'skip_reason'] = f"Below confidence threshold (Score: {score:.1f})"
+                                confidence_filtered += 1
                     
                     if risk_warning:
                         allocation_df.at[idx, 'risk_warning'] = risk_warning
@@ -6624,6 +6675,7 @@ Trading Plan ({risk_tolerance} RISK):
                         'current_value',  # Current worth
                         'current_profit_pct',  # P&L %
                         'profit_booking_pct',  # % to book
+                        'profit_booking_amount',  # Rupee amount to book
                         
                         # TIER 2: IMPORTANT - Quality & Risk
                         'risk_adjusted_score',  # Overall score (0-100)
@@ -6696,6 +6748,21 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple.loc[keep_hold_mask, 'profit_booking_pct'] = None
                     print(f"      ✅ Cleared timing for {keep_hold_mask.sum()} KEEP/HOLD stocks")
                     
+                    # 💰 NEW: Calculate profit booking amount in rupees
+                    print(f"   💰 Calculating BOOK_PROFIT amounts in rupees...")
+                    alloc_df_simple['profit_booking_amount'] = 0.0
+                    
+                    # Convert to numeric to handle any string values
+                    alloc_df_simple['profit_booking_pct'] = pd.to_numeric(alloc_df_simple['profit_booking_pct'], errors='coerce')
+                    alloc_df_simple['current_value'] = pd.to_numeric(alloc_df_simple['current_value'], errors='coerce')
+                    
+                    book_profit_mask = alloc_df_simple['profit_booking_pct'].notna() & (alloc_df_simple['profit_booking_pct'] > 0)
+                    alloc_df_simple.loc[book_profit_mask, 'profit_booking_amount'] = (
+                        alloc_df_simple.loc[book_profit_mask, 'current_value'] * 
+                        alloc_df_simple.loc[book_profit_mask, 'profit_booking_pct']
+                    )
+                    print(f"      ✅ Calculated booking amounts for {book_profit_mask.sum()} stocks")
+                    
                     # Rename columns for maximum clarity (retail investor friendly)
                     column_renames = {
                         # Action columns
@@ -6710,6 +6777,7 @@ Trading Plan ({risk_tolerance} RISK):
                         'current_value': 'MY_VALUE_₹',
                         'current_profit_pct': 'MY_PROFIT_%',
                         'profit_booking_pct': 'BOOK_%_IF_SELL',
+                        'profit_booking_amount': 'BOOK_₹_AMOUNT',
                         
                         # Score columns
                         'risk_adjusted_score': 'SCORE',
