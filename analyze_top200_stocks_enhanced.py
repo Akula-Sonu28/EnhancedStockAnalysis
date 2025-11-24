@@ -7423,21 +7423,6 @@ Trading Plan ({risk_tolerance} RISK):
                 # Add padding (2 chars) and cap between 8 and 30
                 width = min(max(max_length + 2, 8), 30)
                 worksheet.set_column(col_idx, col_idx, width)
-        
-        # Set dynamic row height based on content length in WHY column
-        if 'WHY' in alloc_df.columns:
-            why_col_idx = list(alloc_df.columns).index('WHY')
-            for row_num in range(1, len(alloc_df) + 1):
-                why_text = str(alloc_df.iloc[row_num - 1, why_col_idx]) if pd.notna(alloc_df.iloc[row_num - 1, why_col_idx]) else ''
-                # Calculate lines needed (60 chars per line with wrap)
-                lines = max(1, len(why_text) // 60 + 1)
-                # Set height: 15 pixels per line, min 20, max 100
-                height = min(max(lines * 15, 20), 100)
-                worksheet.set_row(row_num, height)
-        else:
-            # Default row height if no WHY column
-            for row_num in range(1, len(alloc_df) + 1):
-                worksheet.set_row(row_num, 20)
     
     def _format_portfolio_summary(self, writer, summary_sheet, header_format, metric_value_format, price_format, percent_format):
         """📊 Format Portfolio Summary sheet"""
