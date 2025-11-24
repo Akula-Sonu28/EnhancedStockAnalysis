@@ -7309,19 +7309,15 @@ Trading Plan ({risk_tolerance} RISK):
         # ENHANCEMENT 4: ICON SETS & COLOR SCALES
         # ========================================================================
         
-        # Icon Set: 3-arrow for MY_PROFIT_% (up/flat/down trend)
-        # Since values are stored as decimals (0.071 = 7.1%), thresholds must be in decimal form
-        # Green up arrow for profit >=5%, Yellow for -5% to 5%, Red down for <-5%
+        # Color Scale: Green-to-Red for MY_PROFIT_% (profit/loss gradient)
+        # Since values are stored as decimals (0.071 = 7.1%), colors scale accordingly
         if 'MY_PROFIT_%' in alloc_df.columns:
             profit_col = chr(65 + list(alloc_df.columns).index('MY_PROFIT_%'))
             worksheet.conditional_format(f'{profit_col}2:{profit_col}{len(alloc_df)+1}', {
-                'type': 'icon_set',
-                'icon_style': '3_arrows',
-                'icons': [
-                    {'criteria': '>=', 'type': 'number', 'value': 0.05},   # Green up arrow: profit >= 5% (0.05)
-                    {'criteria': '>=', 'type': 'number', 'value': -0.05},  # Yellow sideways: -5% to +5%
-                    {'criteria': '<', 'type': 'number', 'value': -0.05}    # Red down arrow: loss < -5%
-                ]
+                'type': '3_color_scale',
+                'min_color': '#F8696B',  # Red for losses
+                'mid_color': '#FFEB84',  # Yellow for near zero
+                'max_color': '#63BE7B'   # Green for profits
             })
         
         # Color Scale: Green-to-Yellow-to-Red for SCORE column
@@ -7355,7 +7351,7 @@ Trading Plan ({risk_tolerance} RISK):
             worksheet.conditional_format(f'{profit_col}2:{profit_col}{len(alloc_df)+1}', {
                 'type': 'cell',
                 'criteria': '>=',
-                'value': 20,  # 20%
+                'value': 0.20,  # 20% in decimal format
                 'format': high_profit_format
             })
             
@@ -7364,7 +7360,7 @@ Trading Plan ({risk_tolerance} RISK):
             worksheet.conditional_format(f'{profit_col}2:{profit_col}{len(alloc_df)+1}', {
                 'type': 'cell',
                 'criteria': '<=',
-                'value': -5,  # -5%
+                'value': -0.05,  # -5% in decimal format
                 'format': loss_format
             })
         
@@ -7428,9 +7424,20 @@ Trading Plan ({risk_tolerance} RISK):
                 width = min(max(max_length + 2, 8), 30)
                 worksheet.set_column(col_idx, col_idx, width)
         
-        # Set row height for data rows to accommodate wrapped text
-        for row_num in range(1, len(alloc_df) + 1):
-            worksheet.set_row(row_num, 30)  # 30 pixels for better readability
+        # Set dynamic row height based on content length in WHY column
+        if 'WHY' in alloc_df.columns:
+            why_col_idx = list(alloc_df.columns).index('WHY')
+            for row_num in range(1, len(alloc_df) + 1):
+                why_text = str(alloc_df.iloc[row_num - 1, why_col_idx]) if pd.notna(alloc_df.iloc[row_num - 1, why_col_idx]) else ''
+                # Calculate lines needed (60 chars per line with wrap)
+                lines = max(1, len(why_text) // 60 + 1)
+                # Set height: 15 pixels per line, min 20, max 100
+                height = min(max(lines * 15, 20), 100)
+                worksheet.set_row(row_num, height)
+        else:
+            # Default row height if no WHY column
+            for row_num in range(1, len(alloc_df) + 1):
+                worksheet.set_row(row_num, 20)
     
     def _format_portfolio_summary(self, writer, summary_sheet, header_format, metric_value_format, price_format, percent_format):
         """📊 Format Portfolio Summary sheet"""
