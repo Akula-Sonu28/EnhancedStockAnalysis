@@ -20,12 +20,12 @@ import logging
 # Import existing project modules
 import sys
 sys.path.append('..')
-from config import AnalysisConfig
+# from config import AnalysisConfig  # Not available in current config
 
 class PortfolioAnalyzer:
     """Main Portfolio Analysis Engine"""
     
-    def __init__(self, available_funds: float = 0.0, config_file: str = 'config.py'):
+    def __init__(self, available_funds: float = 0.0, config_file: str = None):
         """
         Initialize Portfolio Analyzer
         
