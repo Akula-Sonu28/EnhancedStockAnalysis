@@ -1043,8 +1043,8 @@ class EnhancedTop200StockAnalyzer:
             if current_value <= 0 or invested_amount <= 0:
                 return "HOLD", 0, "No profit to book"
             
-            # Calculate base profit percentage
-            profit_pct = ((current_value - invested_amount) / invested_amount) * 100
+            # Calculate base profit percentage as decimal (0.15 = 15%)
+            profit_pct = (current_value - invested_amount) / invested_amount
             
             # 🧠 SMART BOOKING INTELLIGENCE - Dynamic thresholds based on stock characteristics
             
@@ -1072,31 +1072,31 @@ class EnhancedTop200StockAnalyzer:
             # 2. Adaptive thresholds based on stock quality and type (REFINED VERSION 2.0)
             if 'BANK' in symbol or 'Financial' in sector:
                 # Banking stocks - CONSERVATIVE after backtest (mature, dividend-paying)
-                mega_threshold = 40  # More conservative: 40% instead of 50%
-                big_threshold = 25   # More conservative: 25% instead of 30%
-                good_threshold = 12  # More conservative: 12% instead of 15%
-                stop_loss = -15      # Same as standard after backtest analysis
+                mega_threshold = 0.40  # 40% as decimal
+                big_threshold = 0.25   # 25% as decimal
+                good_threshold = 0.12  # 12% as decimal
+                stop_loss = -0.15      # -15% as decimal
                 category = "🏦 BANKING"
             elif overall_score >= 80:
                 # High-quality stocks - can hold longer for bigger gains
-                mega_threshold = 80
-                big_threshold = 60
-                good_threshold = 35
-                stop_loss = -18
+                mega_threshold = 0.80
+                big_threshold = 0.60
+                good_threshold = 0.35
+                stop_loss = -0.18
                 category = "⭐ HIGH QUALITY"
             elif 'GROWTH' in self.classify_stock_type(symbol, sector) if hasattr(self, 'classify_stock_type') else False:
                 # Growth stocks - higher risk, higher reward
-                mega_threshold = 100
-                big_threshold = 70
-                good_threshold = 40
-                stop_loss = -20
+                mega_threshold = 1.00
+                big_threshold = 0.70
+                good_threshold = 0.40
+                stop_loss = -0.20
                 category = "🚀 GROWTH"
             else:
                 # Standard stocks - balanced approach
-                mega_threshold = 60
-                big_threshold = 40
-                good_threshold = 20
-                stop_loss = -15
+                mega_threshold = 0.60
+                big_threshold = 0.40
+                good_threshold = 0.20
+                stop_loss = -0.15
                 category = "📊 STANDARD"
             
             # 3. Technical analysis adjustments
@@ -1123,32 +1123,32 @@ class EnhancedTop200StockAnalyzer:
             
             # 4. Apply smart booking logic with dynamic thresholds
             if profit_pct >= mega_threshold:
-                booking_pct = min(80, max(60, int(70 + (profit_pct - mega_threshold) / 10)))
-                return f"BOOK {booking_pct}% PROFITS", booking_pct, f"🎯 MEGA GAINS (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+                booking_pct = min(80, max(60, int(70 + (profit_pct - mega_threshold) * 100)))
+                return f"BOOK {booking_pct}% PROFITS", booking_pct / 100, f"🎯 MEGA GAINS (+{profit_pct*100:.1f}%) | {category} | {technical_signal}"
             
             elif profit_pct >= big_threshold:
-                booking_pct = min(60, max(40, int(50 + (profit_pct - big_threshold) / 20)))
-                return f"BOOK {booking_pct}% PROFITS", booking_pct, f"💰 BIG GAINS (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+                booking_pct = min(60, max(40, int(50 + (profit_pct - big_threshold) * 100 / 2)))
+                return f"BOOK {booking_pct}% PROFITS", booking_pct / 100, f"💰 BIG GAINS (+{profit_pct*100:.1f}%) | {category} | {technical_signal}"
             
             elif profit_pct >= good_threshold:
-                booking_pct = min(40, max(25, int(30 + (profit_pct - good_threshold) / 15)))
-                return f"BOOK {booking_pct}% PROFITS", booking_pct, f"📈 GOOD GAINS (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+                booking_pct = min(40, max(25, int(30 + (profit_pct - good_threshold) * 100 / 1.5)))
+                return f"BOOK {booking_pct}% PROFITS", booking_pct / 100, f"📈 GOOD GAINS (+{profit_pct*100:.1f}%) | {category} | {technical_signal}"
             
-            elif profit_pct >= 5:
-                trail_pct = max(5, min(12, int(8 + profit_pct / 10)))
-                return f"TRAILING STOP {trail_pct}%", 0, f"🔒 MODERATE GAINS (+{profit_pct:.1f}%) | {category} | Trail: {trail_pct}%"
+            elif profit_pct >= 0.05:
+                trail_pct = max(5, min(12, int(8 + profit_pct * 100 / 10)))
+                return f"TRAILING STOP {trail_pct}%", 0, f"🔒 MODERATE GAINS (+{profit_pct*100:.1f}%) | {category} | Trail: {trail_pct}%"
             
             elif profit_pct <= stop_loss:
-                return "STOP LOSS", 100, f"🛑 CUT LOSSES ({profit_pct:.1f}%) | {category} | Exit now"
+                return "STOP LOSS", 1.0, f"🛑 CUT LOSSES ({profit_pct*100:.1f}%) | {category} | Exit now"
             
-            elif profit_pct <= -10:  # Changed from -8% to -10% after backtest
-                return "REDUCE 25%", 25, f"⚠️ REDUCE RISK ({profit_pct:.1f}%) | {category} | Partial exit"
+            elif profit_pct <= -0.10:  # -10% as decimal
+                return "REDUCE 25%", 0.25, f"⚠️ REDUCE RISK ({profit_pct*100:.1f}%) | {category} | Partial exit"
             
             else:
                 if momentum_score >= 60:
-                    return "HOLD & ADD", 0, f"💎 HOLD STRONG (+{profit_pct:.1f}%) | {category} | {technical_signal}"
+                    return "HOLD & ADD", 0, f"💎 HOLD STRONG (+{profit_pct*100:.1f}%) | {category} | {technical_signal}"
                 else:
-                    return "HOLD & MONITOR", 0, f"📊 HOLD STEADY ({profit_pct:+.1f}%) | {category} | {technical_signal}"
+                    return "HOLD & MONITOR", 0, f"📊 HOLD STEADY ({profit_pct*100:+.1f}%) | {category} | {technical_signal}"
                 
         except Exception as e:
             return "HOLD", 0, f"Unable to calculate: {str(e)}"
@@ -2041,14 +2041,14 @@ class EnhancedTop200StockAnalyzer:
                         # Volatility (standard deviation of returns)
                         if len(hist) > 20:
                             returns = hist['Close'].pct_change().dropna()
-                            stock_data['volatility'] = float(returns.std() * 100)  # As percentage
+                            stock_data['volatility'] = float(returns.std())  # As decimal (0.155 = 15.5%)
                         else:
                             stock_data['volatility'] = 0.0
                         
                         # 20-day price change
                         if len(hist) >= 20:
                             price_20d_ago = hist['Close'].iloc[-20]
-                            stock_data['enhanced_price_change_20d'] = float(((current_price - price_20d_ago) / price_20d_ago) * 100)
+                            stock_data['enhanced_price_change_20d'] = float((current_price - price_20d_ago) / price_20d_ago)  # As decimal
                         else:
                             stock_data['enhanced_price_change_20d'] = 0.0
                         
@@ -2334,11 +2334,11 @@ class EnhancedTop200StockAnalyzer:
                         stock_metrics = {
                             'pe_ratio': info.get('trailingPE'),
                             'pb_ratio': info.get('priceToBook'),
-                            'roe': info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else None,
+                            'roe': info.get('returnOnEquity'),  # Already decimal (0.15 = 15%)
                             'debt_to_equity': info.get('debtToEquity'),
                             'current_ratio': info.get('currentRatio'),
-                            'operating_margin': info.get('operatingMargins', 0) * 100 if info.get('operatingMargins') else None,
-                            'revenue_growth': info.get('revenueGrowth', 0) * 100 if info.get('revenueGrowth') else None
+                            'operating_margin': info.get('operatingMargins'),  # Already decimal
+                            'revenue_growth': info.get('revenueGrowth')  # Already decimal
                         }
                         
                         # Filter out None and extreme values
@@ -2558,9 +2558,7 @@ class EnhancedTop200StockAnalyzer:
         # Revenue Growth Relative Score
         revenue_growth = stock_data.get('revenue_growth', 0)
         if revenue_growth is not None and benchmarks['avg_revenue_growth']:
-            # Convert to percentage if needed
-            if abs(revenue_growth) <= 2.0:  # Likely decimal format
-                revenue_growth = revenue_growth * 100
+            # Data already in decimal format (0.15 = 15%)
             
             growth_relative = revenue_growth / benchmarks['avg_revenue_growth'] if benchmarks['avg_revenue_growth'] > 0 else 0
             if growth_relative >= 1.5:
@@ -4504,7 +4502,7 @@ class EnhancedTop200StockAnalyzer:
                             'profit_booking_action': profit_action,
                             'profit_booking_pct': profit_pct,
                             'profit_booking_reason': profit_reason,
-                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) * 100 if holding.get('Invested', 0) > 0 else 0,
+                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) if holding.get('Invested', 0) > 0 else 0,
                             # ✅ ENHANCED: Additional retail investor columns
                             'improved_overall_score': stock_data.get('improved_overall_score', stock_data.get('risk_adjusted_score', 0)),
                             'pe_ratio': stock_data.get('pe_ratio', None),
@@ -4549,7 +4547,7 @@ class EnhancedTop200StockAnalyzer:
                             'profit_booking_action': 'HOLD (NOT ANALYZED)',
                             'profit_booking_pct': 0,
                             'profit_booking_reason': 'Stock not in analysis scope',
-                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) * 100 if holding.get('Invested', 0) > 0 else 0
+                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) if holding.get('Invested', 0) > 0 else 0
                         })
             
             # STEP 2: Find new investment candidates (not currently held)
@@ -4684,11 +4682,11 @@ class EnhancedTop200StockAnalyzer:
             if current_portfolio_value > 0:
                 for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
                     if row['current_value'] > 0:
-                        portfolio_weight = (row['current_value'] / current_portfolio_value) * 100
+                        portfolio_weight = row['current_value'] / current_portfolio_value  # As decimal
                         allocation_df.at[idx, 'portfolio_weight'] = portfolio_weight
                 
                 total_weight = allocation_df[allocation_df['is_current_holding'] == True]['portfolio_weight'].sum()
-                print(f"      ✅ Current holdings portfolio weight: {total_weight:.2f}% (should be ~100%)")
+                print(f"      ✅ Current holdings portfolio weight: {total_weight:.2%} (should be ~100%)")
             
             # 🔧 FIX #2: Add market cap classification for ALL stocks (not just new ones)
             print(f"   🏷️ Classifying market cap for all stocks...")
@@ -4731,7 +4729,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 # 🎯 VALUE INVESTING PROTECTION: Identify quality winners (don't sell these!)
                 quality_winners = current_holdings_df[
-                    (current_holdings_df['current_profit_pct'] > 20)  # High profit
+                    (current_holdings_df['current_profit_pct'] > 0.20)  # High profit (>20%)
                 ].copy()
                 
                 if len(quality_winners) > 0:
@@ -4754,16 +4752,16 @@ class EnhancedTop200StockAnalyzer:
                     
                     # 🏆 VALUE INVESTING RULE: Protect quality winners (>20% profit)
                     # These are SUCCESS stories - don't sell just because score is lower!
-                    is_quality_winner = profit_pct > 20
+                    is_quality_winner = profit_pct > 0.20
                     
                     if is_quality_winner:
                         # Quality winner - ALWAYS protect, suggest partial profit booking
-                        if profit_pct > 40:
+                        if profit_pct > 0.40:
                             action = 'HOLD'
                             reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Consider taking 50% profit, hold rest"
                             priority = 'HIGH'
                             allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - TAKE PARTIAL PROFIT'
-                        elif profit_pct > 30:
+                        elif profit_pct > 0.30:
                             action = 'HOLD'
                             reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Consider taking 30-40% profit"
                             priority = 'MEDIUM'
@@ -4784,17 +4782,17 @@ class EnhancedTop200StockAnalyzer:
                     # BOTTOM 20% - SELL (underperformers or need rebalancing)
                     elif rank > (total_holdings - bottom_20_pct):
                         # Check if it's actually profitable before recommending sell
-                        if profit_pct < -5:  # Loss > 5%
+                        if profit_pct < -0.05:  # Loss > 5%
                             action = 'SELL'
                             reason = f"❌ UNDERPERFORMER (Rank #{rank}/{total_holdings}) | Score: {score:.1f} | Loss: {profit_pct:.1f}%"
                             priority = 'HIGH'
                             allocation_df.at[idx, 'exit_strategy'] = '🔴 SELL - CUT LOSSES'
-                        elif score < 50 and profit_pct < 5:  # Low score AND minimal profit
+                        elif score < 50 and profit_pct < 0.05:  # Low score AND minimal profit
                             action = 'SELL'
                             reason = f"⚠️ WEAK FUNDAMENTALS (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
                             priority = 'MEDIUM'
                             allocation_df.at[idx, 'exit_strategy'] = '🟠 SELL - WEAK STOCK'
-                        elif profit_pct < 5:  # Minimal profit, better opportunities exist
+                        elif profit_pct < 0.05:  # Minimal profit, better opportunities exist
                             action = 'SELL'
                             reason = f"🔄 REBALANCE (Rank #{rank}/{total_holdings}) | Better opportunities available"
                             priority = 'MEDIUM'
@@ -4829,7 +4827,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 # PROFIT BOOKING RULES - Apply to all holdings with >20% profit
                 print(f"\n   💰 Applying PROFIT BOOKING rules (>20% gains)...")
-                profit_book_candidates = current_holdings_df[current_holdings_df['current_profit_pct'] > 20].copy()
+                profit_book_candidates = current_holdings_df[current_holdings_df['current_profit_pct'] > 0.20].copy()
                 
                 if len(profit_book_candidates) > 0:
                     for idx, row in profit_book_candidates.iterrows():
@@ -4837,14 +4835,14 @@ class EnhancedTop200StockAnalyzer:
                         current_action = allocation_df.at[idx, 'action_recommendation']
                         
                         # Determine profit booking percentage based on gain level
-                        if profit_pct > 40:
-                            book_pct = 50
+                        if profit_pct > 0.40:
+                            book_pct = 0.50
                             timing = "Within 1 week"
-                        elif profit_pct > 30:
-                            book_pct = 40
+                        elif profit_pct > 0.30:
+                            book_pct = 0.40
                             timing = "Within 2 weeks"
                         else:  # 20-30%
-                            book_pct = 30
+                            book_pct = 0.30
                             timing = "Within 3 weeks"
                         
                         # Override action to include profit booking
@@ -4912,15 +4910,15 @@ class EnhancedTop200StockAnalyzer:
                         score = row.get('risk_adjusted_score', 0)
                         
                         # Timing based on urgency
-                        if profit_pct < -5:  # Loss >5%
+                        if profit_pct < -0.05:  # Loss >5%
                             timing = "TODAY (cut losses)"
-                            book_pct = 100
+                            book_pct = 1.0
                         elif score < 50:  # Weak fundamentals
                             timing = "Next 1-2 days"
-                            book_pct = 100
+                            book_pct = 1.0
                         else:  # Rebalancing
                             timing = "Within 1 week"
-                            book_pct = 100
+                            book_pct = 1.0
                         
                         allocation_df.at[idx, 'profit_booking_pct'] = book_pct
                         allocation_df.at[idx, 'profit_booking_timing'] = timing
@@ -5455,7 +5453,7 @@ class EnhancedTop200StockAnalyzer:
                             'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
                             'holdings_rank': 0,
                             'current_profit_pct': 0,
-                            'portfolio_weight': (actual_investment / total_target_portfolio) * 100 if total_target_portfolio > 0 else 0
+                            'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0
                         })
                         
                         # Add to allocation_df
@@ -5757,7 +5755,7 @@ class EnhancedTop200StockAnalyzer:
                                     allocation_df.at[idx, 'action_recommendation'] = 'SELL'
                                     allocation_df.at[idx, 'exit_reason'] = f"🔄 SECTOR ROTATION | {sector} over-concentrated ({sector_pct:.1f}%)"
                                     allocation_df.at[idx, 'priority'] = 'MEDIUM'
-                                    allocation_df.at[idx, 'profit_booking_pct'] = 100
+                                    allocation_df.at[idx, 'profit_booking_pct'] = 1.0
                                     allocation_df.at[idx, 'profit_booking_timing'] = "Within 2 weeks"
                 
                 # Check for sector rotation opportunities (find undervalued sectors)
@@ -6690,6 +6688,14 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple.loc[non_action_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Reset {non_action_mask.sum()} stocks (HOLD/KEEP/SELL) to ₹0")
                     
+                    # 🔧 FIX: Clear profit_booking_timing and profit_booking_pct for KEEP/HOLD actions
+                    # These fields should only have values for actionable items (SELL, BOOK_PROFIT, BUY, INCREASE)
+                    print(f"   🔧 Clearing timing/booking % for KEEP/HOLD stocks...")
+                    keep_hold_mask = alloc_df_simple['action_recommendation'].isin(['KEEP', 'HOLD'])
+                    alloc_df_simple.loc[keep_hold_mask, 'profit_booking_timing'] = None
+                    alloc_df_simple.loc[keep_hold_mask, 'profit_booking_pct'] = None
+                    print(f"      ✅ Cleared timing for {keep_hold_mask.sum()} KEEP/HOLD stocks")
+                    
                     # Rename columns for maximum clarity (retail investor friendly)
                     column_renames = {
                         # Action columns
@@ -7159,9 +7165,97 @@ Trading Plan ({risk_tolerance} RISK):
     def _apply_conditional_formatting_portfolio(self, writer, alloc_df, buy_format, strong_buy_format, 
                                               hold_format, sell_format, low_risk_format, 
                                               medium_risk_format, high_risk_format):
-        """🎨 Apply conditional formatting to Portfolio Allocation sheet"""
+        """🎨 Apply conditional formatting to Portfolio Allocation sheet with enhanced visual formatting"""
         
+        workbook = writer.book
         worksheet = writer.sheets['Portfolio Allocation']
+        
+        # ========================================================================
+        # ENHANCEMENT 1: FREEZE PANES - Lock headers and key columns
+        # ========================================================================
+        # Freeze row 1 (headers) and columns A-C (symbol, company_name, ACTION)
+        worksheet.freeze_panes(1, 3)  # Freeze at row 1, column D
+        
+        # ========================================================================
+        # ENHANCEMENT 2: HEADER FORMATTING - Bold, colored background
+        # ========================================================================
+        header_format = workbook.add_format({
+            'bold': True,
+            'font_color': 'white',
+            'bg_color': '#2E5984',  # Dark blue
+            'align': 'center',
+            'valign': 'vcenter',
+            'border': 1,
+            'text_wrap': True
+        })
+        
+        # Apply header formatting to first row
+        for col_num, value in enumerate(alloc_df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+        
+        # ========================================================================
+        # ENHANCEMENT 3: NUMBER FORMATTING - Apply using set_column for efficiency
+        # ========================================================================
+        
+        # Define formats
+        currency_format = workbook.add_format({'num_format': '₹#,##0.00', 'align': 'right'})
+        percent_format_style = workbook.add_format({'num_format': '0.00%', 'align': 'right'})
+        score_format_style = workbook.add_format({'num_format': '0.0', 'align': 'right'})
+        integer_format = workbook.add_format({'num_format': '0', 'align': 'right'})
+        
+        # Map column names to their formats
+        format_map = {
+            # Currency columns
+            'INVEST_₹': currency_format,
+            'MY_VALUE_₹': currency_format,
+            'PRICE': currency_format,
+            'SUPPORT': currency_format,
+            'RESISTANCE': currency_format,
+            '52W_HIGH': currency_format,
+            '52W_LOW': currency_format,
+            # Percentage columns (need special handling - values already in decimal form)
+            'MY_PROFIT_%': percent_format_style,
+            '20D_CHANGE_%': percent_format_style,
+            'PORTFOLIO_%': percent_format_style,
+            'ROE_%': percent_format_style,
+            'VOLATILITY_%': percent_format_style,
+            'BOOK_%_IF_SELL': percent_format_style,
+            # Score columns
+            'SCORE': score_format_style,
+            'NEW_SCORE': score_format_style,
+            'PE': score_format_style,
+            'DEBT/EQUITY': score_format_style,
+            'RSI': score_format_style,
+            'FUND_SCORE': score_format_style,
+            'MOM_SCORE': score_format_style,
+            'VALUE_SCORE': score_format_style,
+            # Integer columns
+            'BUY_SHARES': integer_format,
+            'MY_SHARES': integer_format,
+            'RANK': integer_format
+        }
+        
+        # Apply formatting to each formatted column
+        for col_name, fmt in format_map.items():
+            if col_name in alloc_df.columns:
+                col_idx = list(alloc_df.columns).index(col_name)
+                
+                # For percentage columns - data is already in decimal form (0.071 = 7.1%)
+                # Just apply the percentage format, DO NOT divide by 100
+                if col_name in ['MY_PROFIT_%', '20D_CHANGE_%', 'PORTFOLIO_%', 'ROE_%', 'VOLATILITY_%', 'BOOK_%_IF_SELL']:
+                    # Write each cell with percentage format
+                    for row_num in range(len(alloc_df)):
+                        value = alloc_df.iloc[row_num, col_idx]
+                        if pd.notna(value) and isinstance(value, (int, float)):
+                            # Data is already decimal, just apply percentage format
+                            worksheet.write(row_num + 1, col_idx, value, fmt)
+                else:
+                    # For non-percentage columns, just apply the format to the range
+                    # This overwrites pandas default formatting
+                    for row_num in range(len(alloc_df)):
+                        value = alloc_df.iloc[row_num, col_idx]
+                        if pd.notna(value):
+                            worksheet.write(row_num + 1, col_idx, value, fmt)
         
         # Format recommendation column
         if 'recommendation' in alloc_df.columns:
@@ -7211,8 +7305,132 @@ Trading Plan ({risk_tolerance} RISK):
                 'bar_solid': True
             })
         
-        # 🔧 Auto-resize columns for optimal display
-        self._auto_resize_columns(worksheet, alloc_df)
+        # ========================================================================
+        # ENHANCEMENT 4: ICON SETS & COLOR SCALES
+        # ========================================================================
+        
+        # Icon Set: 3-arrow for MY_PROFIT_% (up/flat/down trend)
+        # Since values are stored as decimals (0.071 = 7.1%), thresholds must be in decimal form
+        # Green up arrow for profit >=5%, Yellow for -5% to 5%, Red down for <-5%
+        if 'MY_PROFIT_%' in alloc_df.columns:
+            profit_col = chr(65 + list(alloc_df.columns).index('MY_PROFIT_%'))
+            worksheet.conditional_format(f'{profit_col}2:{profit_col}{len(alloc_df)+1}', {
+                'type': 'icon_set',
+                'icon_style': '3_arrows',
+                'icons': [
+                    {'criteria': '>=', 'type': 'number', 'value': 0.05},   # Green up arrow: profit >= 5% (0.05)
+                    {'criteria': '>=', 'type': 'number', 'value': -0.05},  # Yellow sideways: -5% to +5%
+                    {'criteria': '<', 'type': 'number', 'value': -0.05}    # Red down arrow: loss < -5%
+                ]
+            })
+        
+        # Color Scale: Green-to-Yellow-to-Red for SCORE column
+        if 'SCORE' in alloc_df.columns:
+            score_col = chr(65 + list(alloc_df.columns).index('SCORE'))
+            worksheet.conditional_format(f'{score_col}2:{score_col}{len(alloc_df)+1}', {
+                'type': '3_color_scale',
+                'min_color': '#F8696B',  # Red for low scores
+                'mid_color': '#FFEB84',  # Yellow for medium scores
+                'max_color': '#63BE7B'   # Green for high scores
+            })
+        
+        # Color Scale: Green-to-Yellow-to-Red for NEW_SCORE column
+        if 'NEW_SCORE' in alloc_df.columns:
+            new_score_col = chr(65 + list(alloc_df.columns).index('NEW_SCORE'))
+            worksheet.conditional_format(f'{new_score_col}2:{new_score_col}{len(alloc_df)+1}', {
+                'type': '3_color_scale',
+                'min_color': '#F8696B',
+                'mid_color': '#FFEB84',
+                'max_color': '#63BE7B'
+            })
+        
+        # ========================================================================
+        # ENHANCEMENT 5: NUMERIC THRESHOLD CONDITIONAL FORMATTING
+        # ========================================================================
+        
+        # Highlight high profits (>20%) in green
+        if 'MY_PROFIT_%' in alloc_df.columns:
+            profit_col = chr(65 + list(alloc_df.columns).index('MY_PROFIT_%'))
+            high_profit_format = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100'})
+            worksheet.conditional_format(f'{profit_col}2:{profit_col}{len(alloc_df)+1}', {
+                'type': 'cell',
+                'criteria': '>=',
+                'value': 20,  # 20%
+                'format': high_profit_format
+            })
+            
+            # Highlight losses (<-5%) in red
+            loss_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+            worksheet.conditional_format(f'{profit_col}2:{profit_col}{len(alloc_df)+1}', {
+                'type': 'cell',
+                'criteria': '<=',
+                'value': -5,  # -5%
+                'format': loss_format
+            })
+        
+        # Highlight undervalued stocks (PE < 15) in light green
+        if 'PE' in alloc_df.columns:
+            pe_col = chr(65 + list(alloc_df.columns).index('PE'))
+            undervalued_format = workbook.add_format({'bg_color': '#E2EFDA'})
+            worksheet.conditional_format(f'{pe_col}2:{pe_col}{len(alloc_df)+1}', {
+                'type': 'cell',
+                'criteria': '<',
+                'value': 15,
+                'format': undervalued_format
+            })
+        
+        # Highlight high debt (DEBT/EQUITY > 2) in light red
+        if 'DEBT/EQUITY' in alloc_df.columns:
+            debt_col = chr(65 + list(alloc_df.columns).index('DEBT/EQUITY'))
+            high_debt_format = workbook.add_format({'bg_color': '#FCE4D6'})
+            worksheet.conditional_format(f'{debt_col}2:{debt_col}{len(alloc_df)+1}', {
+                'type': 'cell',
+                'criteria': '>',
+                'value': 2,
+                'format': high_debt_format
+            })
+        
+        # Alternating row bands for better readability
+        worksheet.conditional_format(f'A2:{chr(65 + len(alloc_df.columns) - 1)}{len(alloc_df)+1}', {
+            'type': 'formula',
+            'criteria': '=MOD(ROW(),2)=0',
+            'format': workbook.add_format({'bg_color': '#F2F2F2'})
+        })
+        
+        # ========================================================================
+        # ENHANCEMENT 6: AUTO-SIZED COLUMN WIDTHS & ROW HEIGHTS
+        # ========================================================================
+        
+        # Calculate optimal column widths based on content
+        for col_idx, col_name in enumerate(alloc_df.columns):
+            # Start with column header length
+            max_length = len(str(col_name))
+            
+            # Check content length for each row
+            for value in alloc_df[col_name]:
+                if pd.notna(value):
+                    # Convert to string and measure length
+                    value_str = str(value)
+                    max_length = max(max_length, len(value_str))
+            
+            # Apply width with limits and special handling
+            if col_name == 'WHY':
+                # WHY column gets text wrapping with fixed comfortable width
+                wrap_format = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+                worksheet.set_column(col_idx, col_idx, 60, wrap_format)
+            elif col_name == 'company_name':
+                # Company name gets wider but capped
+                width = min(max(max_length, 20), 40)
+                worksheet.set_column(col_idx, col_idx, width)
+            else:
+                # Other columns: auto-size with reasonable limits
+                # Add padding (2 chars) and cap between 8 and 30
+                width = min(max(max_length + 2, 8), 30)
+                worksheet.set_column(col_idx, col_idx, width)
+        
+        # Set row height for data rows to accommodate wrapped text
+        for row_num in range(1, len(alloc_df) + 1):
+            worksheet.set_row(row_num, 30)  # 30 pixels for better readability
     
     def _format_portfolio_summary(self, writer, summary_sheet, header_format, metric_value_format, price_format, percent_format):
         """📊 Format Portfolio Summary sheet"""
