@@ -1,7 +1,0 @@
-2025-09-01 10:01:00,926 - INFO - Top 200 NSE Stock Analysis Initialized
-2025-09-01 10:01:00,926 - INFO - Loading stocks from ind_nifty200list (2).csv
-2025-09-01 10:01:00,983 - INFO - Loaded 200 stocks from ind_nifty200list (2).csv
-2025-09-01 10:01:02,354 - INFO - Comprehensive data extracted for HINDALCO
-2025-09-01 10:01:02,360 - INFO - Fundamental analysis completed for HINDALCO: 58 fields
-2025-09-01 10:01:02,680 - INFO - Enhanced technical analysis completed for HINDALCO: 52 fields
-2025-09-01 10:01:02,752 - ERROR - Export failed: 'ExcelReportGenerator' object has no attribute 'export_stock_analysis'

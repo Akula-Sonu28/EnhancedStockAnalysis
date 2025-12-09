@@ -1,8 +1,0 @@
-2025-09-04 10:32:37,466 - INFO - Dynamic NSE Stock Analysis Initialized
-2025-09-04 10:32:37,466 - INFO - Risk profile set to: aggressive
-2025-09-04 10:32:37,469 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=True, Momentum=True, MinVol=0.0
-2025-09-04 10:32:37,470 - INFO - Using default stock list from stock_list_template.csv
-2025-09-04 10:32:37,471 - INFO - Loading stocks from CSV: stock_list_template.csv
-2025-09-04 10:32:37,484 - INFO - Loaded 200 stocks with company names
-2025-09-04 10:32:37,484 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
-2025-09-04 10:32:37,496 - INFO - Starting batch analysis of 0 stocks

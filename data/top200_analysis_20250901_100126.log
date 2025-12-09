@@ -1,9 +1,0 @@
-2025-09-01 10:01:26,562 - INFO - Top 200 NSE Stock Analysis Initialized
-2025-09-01 10:01:26,568 - INFO - Starting batch analysis of 1 stocks
-2025-09-01 10:01:27,853 - INFO - Comprehensive data extracted for HINDALCO
-2025-09-01 10:01:27,862 - INFO - Fundamental analysis completed for HINDALCO: 58 fields
-2025-09-01 10:01:28,194 - INFO - Enhanced technical analysis completed for HINDALCO: 52 fields
-2025-09-01 10:01:28,265 - INFO - Completed analysis for HINDALCO: Score=77.5, Recommendation=STRONG BUY
-2025-09-01 10:01:28,276 - INFO - Batch analysis completed: 1 results, 0 failures
-2025-09-01 10:01:28,683 - INFO - Comprehensive Excel report saved: reports\Stock_Report_2025-09-01.xlsx
-2025-09-01 10:01:28,683 - INFO - Excel report generated: reports\Stock_Report_2025-09-01.xlsx, Size: 13760 bytes

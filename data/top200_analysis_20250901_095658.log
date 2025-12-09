@@ -1,7 +1,0 @@
-2025-09-01 09:56:58,894 - INFO - Top 200 NSE Stock Analysis Initialized
-2025-09-01 09:56:58,894 - INFO - Loading stocks from ind_nifty200list (2).csv
-2025-09-01 09:56:58,911 - INFO - Loaded 200 stocks from ind_nifty200list (2).csv
-2025-09-01 09:57:00,177 - INFO - Comprehensive data extracted for INFY
-2025-09-01 09:57:00,180 - INFO - Fundamental analysis completed for INFY: 58 fields
-2025-09-01 09:57:00,430 - INFO - Enhanced technical analysis completed for INFY: 52 fields
-2025-09-01 09:57:00,501 - ERROR - Export failed: 'ExcelReportGenerator' object has no attribute 'export_stock_analysis'
