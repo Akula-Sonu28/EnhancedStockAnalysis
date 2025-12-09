@@ -1,0 +1,28 @@
+2025-09-19 11:50:12,903 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-19 11:50:12,903 - INFO - Risk profile set to: aggressive
+2025-09-19 11:50:12,903 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=True, Momentum=False, MinVol=0.0
+2025-09-19 11:50:12,903 - INFO - Using default stock list from stock_list_template.csv
+2025-09-19 11:50:12,909 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-19 11:50:12,911 - INFO - Loaded 200 stocks with company names
+2025-09-19 11:50:12,911 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-19 11:50:12,926 - INFO - Starting batch analysis of 200 stocks
+2025-09-19 11:50:14,046 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-19 11:50:14,046 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-19 11:50:14,274 - INFO - Comprehensive data extracted for ABB
+2025-09-19 11:50:14,276 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-19 11:50:14,276 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-19 11:50:14,344 - INFO - Completed analysis for APLAPOLLO: Score=32.0, Recommendation=SELL
+2025-09-19 11:50:14,510 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-19 11:50:14,593 - INFO - Completed analysis for ABB: Score=50.5, Recommendation=HOLD
+2025-09-19 11:50:15,095 - INFO - Comprehensive data extracted for AUBANK
+2025-09-19 11:50:15,096 - INFO - Fundamental analysis completed for AUBANK: 58 fields
+2025-09-19 11:50:15,290 - INFO - Enhanced technical analysis completed for AUBANK: 52 fields
+2025-09-19 11:50:15,368 - INFO - Completed analysis for AUBANK: Score=70.2, Recommendation=STRONG BUY
+2025-09-19 11:50:15,581 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-09-19 11:50:15,581 - INFO - Fundamental analysis completed for ADANIENSOL: 58 fields
+2025-09-19 11:50:15,761 - INFO - Enhanced technical analysis completed for ADANIENSOL: 52 fields
+2025-09-19 11:50:15,817 - INFO - Completed analysis for ADANIENSOL: Score=30.2, Recommendation=SELL
+2025-09-19 11:50:19,919 - INFO - Comprehensive data extracted for ACC
+2025-09-19 11:50:19,931 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-19 11:50:20,251 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-19 11:50:20,320 - INFO - Completed analysis for ACC: Score=60.8, Recommendation=BUY (VALUE)

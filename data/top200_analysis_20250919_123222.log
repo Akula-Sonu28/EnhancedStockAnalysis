@@ -1,0 +1,73 @@
+2025-09-19 12:32:22,772 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-19 12:32:22,774 - INFO - Risk profile set to: moderate
+2025-09-19 12:32:22,776 - INFO - Using default stock list from stock_list_template.csv
+2025-09-19 12:32:22,777 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-19 12:32:22,784 - INFO - Loaded 200 stocks with company names
+2025-09-19 12:32:22,784 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-19 12:32:22,790 - INFO - Starting batch analysis of 15 stocks
+2025-09-19 12:32:25,068 - INFO - Comprehensive data extracted for ACC
+2025-09-19 12:32:25,088 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-19 12:32:25,369 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-19 12:32:25,440 - INFO - Completed analysis for ACC: Score=60.8, Recommendation=BUY (VALUE)
+2025-09-19 12:32:25,660 - INFO - Comprehensive data extracted for ABB
+2025-09-19 12:32:25,660 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-19 12:32:26,033 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-19 12:32:26,106 - INFO - Completed analysis for ABB: Score=53.0, Recommendation=HOLD
+2025-09-19 12:32:26,480 - INFO - Comprehensive data extracted for AUBANK
+2025-09-19 12:32:26,482 - INFO - Fundamental analysis completed for AUBANK: 58 fields
+2025-09-19 12:32:26,830 - INFO - Enhanced technical analysis completed for AUBANK: 52 fields
+2025-09-19 12:32:26,908 - INFO - Completed analysis for AUBANK: Score=70.1, Recommendation=STRONG BUY
+2025-09-19 12:32:26,963 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-09-19 12:32:26,963 - INFO - Fundamental analysis completed for ADANIENSOL: 58 fields
+2025-09-19 12:32:27,131 - INFO - Enhanced technical analysis completed for ADANIENSOL: 52 fields
+2025-09-19 12:32:27,196 - INFO - Completed analysis for ADANIENSOL: Score=33.5, Recommendation=SELL
+2025-09-19 12:32:30,994 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-19 12:32:30,994 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-19 12:32:31,499 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-19 12:32:31,560 - INFO - Completed analysis for APLAPOLLO: Score=32.0, Recommendation=SELL
+2025-09-19 12:32:37,548 - INFO - Comprehensive data extracted for ADANIGREEN
+2025-09-19 12:32:37,548 - INFO - Fundamental analysis completed for ADANIGREEN: 58 fields
+2025-09-19 12:32:37,880 - INFO - Enhanced technical analysis completed for ADANIGREEN: 52 fields
+2025-09-19 12:32:37,946 - INFO - Completed analysis for ADANIGREEN: Score=37.4, Recommendation=SELL
+2025-09-19 12:32:38,262 - INFO - Comprehensive data extracted for ADANIENT
+2025-09-19 12:32:38,262 - INFO - Fundamental analysis completed for ADANIENT: 58 fields
+2025-09-19 12:32:38,597 - INFO - Enhanced technical analysis completed for ADANIENT: 52 fields
+2025-09-19 12:32:38,672 - INFO - Completed analysis for ADANIENT: Score=27.6, Recommendation=SELL
+2025-09-19 12:32:40,497 - INFO - Comprehensive data extracted for ADANIPOWER
+2025-09-19 12:32:40,499 - INFO - Fundamental analysis completed for ADANIPOWER: 58 fields
+2025-09-19 12:32:40,759 - INFO - Enhanced technical analysis completed for ADANIPOWER: 52 fields
+2025-09-19 12:32:40,823 - INFO - Completed analysis for ADANIPOWER: Score=31.9, Recommendation=SELL
+2025-09-19 12:32:41,343 - INFO - Comprehensive data extracted for ADANIPORTS
+2025-09-19 12:32:41,343 - INFO - Fundamental analysis completed for ADANIPORTS: 58 fields
+2025-09-19 12:32:41,764 - INFO - Comprehensive data extracted for ATGL
+2025-09-19 12:32:41,789 - INFO - Fundamental analysis completed for ATGL: 58 fields
+2025-09-19 12:32:41,843 - INFO - Enhanced technical analysis completed for ADANIPORTS: 52 fields
+2025-09-19 12:32:41,913 - INFO - Completed analysis for ADANIPORTS: Score=46.4, Recommendation=WEAK SELL
+2025-09-19 12:32:42,080 - INFO - Enhanced technical analysis completed for ATGL: 52 fields
+2025-09-19 12:32:42,146 - INFO - Completed analysis for ATGL: Score=35.3, Recommendation=SELL
+2025-09-19 12:32:48,312 - INFO - Comprehensive data extracted for ABCAPITAL
+2025-09-19 12:32:48,312 - INFO - Fundamental analysis completed for ABCAPITAL: 58 fields
+2025-09-19 12:32:48,330 - INFO - Comprehensive data extracted for ALKEM
+2025-09-19 12:32:48,334 - INFO - Fundamental analysis completed for ALKEM: 58 fields
+2025-09-19 12:32:48,547 - INFO - Enhanced technical analysis completed for ALKEM: 52 fields
+2025-09-19 12:32:48,612 - INFO - Completed analysis for ALKEM: Score=45.7, Recommendation=WEAK SELL
+2025-09-19 12:32:48,848 - INFO - Enhanced technical analysis completed for ABCAPITAL: 52 fields
+2025-09-19 12:32:48,896 - INFO - Completed analysis for ABCAPITAL: Score=41.8, Recommendation=WEAK SELL
+2025-09-19 12:32:49,160 - INFO - Comprehensive data extracted for ABFRL
+2025-09-19 12:32:49,160 - INFO - Fundamental analysis completed for ABFRL: 58 fields
+2025-09-19 12:32:49,614 - INFO - Enhanced technical analysis completed for ABFRL: 52 fields
+2025-09-19 12:32:49,672 - INFO - Completed analysis for ABFRL: Score=30.4, Recommendation=SELL
+2025-09-19 12:32:49,729 - INFO - Comprehensive data extracted for APOLLOHOSP
+2025-09-19 12:32:49,729 - INFO - Fundamental analysis completed for APOLLOHOSP: 58 fields
+2025-09-19 12:32:49,841 - INFO - Comprehensive data extracted for AMBUJACEM
+2025-09-19 12:32:49,843 - INFO - Fundamental analysis completed for AMBUJACEM: 58 fields
+2025-09-19 12:32:50,320 - INFO - Enhanced technical analysis completed for APOLLOHOSP: 52 fields
+2025-09-19 12:32:50,351 - INFO - Enhanced technical analysis completed for AMBUJACEM: 52 fields
+2025-09-19 12:32:50,445 - INFO - Completed analysis for AMBUJACEM: Score=50.9, Recommendation=HOLD
+2025-09-19 12:32:50,445 - INFO - Completed analysis for APOLLOHOSP: Score=37.6, Recommendation=SELL
+2025-09-19 12:32:50,460 - INFO - Batch analysis completed: 15 results, 0 failures
+2025-09-19 12:32:50,512 - INFO - Calculated sector rankings for 7 sectors
+2025-09-19 12:32:57,572 - INFO - Completed risk-return analysis
+2025-09-19 12:32:57,641 - INFO - Generated complete portfolio allocation: 35 total stocks (Current: 34, New: 1)
+2025-09-19 12:32:59,001 - INFO - Enhanced Excel report generated: reports/Enhanced_Stock_Report_20250919_123257.xlsx, Size: 40825 bytes
+2025-09-19 12:32:59,034 - ERROR - Enhanced Excel generation failed: 'low_risk_percentage'

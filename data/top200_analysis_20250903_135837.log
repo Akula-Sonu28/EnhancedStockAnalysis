@@ -1,0 +1,32 @@
+2025-09-03 13:58:37,265 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-09-03 13:58:37,280 - INFO - Using default stock list from stock_list_template.csv
+2025-09-03 13:58:37,281 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-03 13:58:37,290 - INFO - Loaded 200 stocks with company names
+2025-09-03 13:58:37,290 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-03 13:58:37,293 - INFO - Starting batch analysis of 5 stocks
+2025-09-03 13:58:38,731 - INFO - Comprehensive data extracted for ABB
+2025-09-03 13:58:38,731 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-03 13:58:38,920 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-03 13:58:38,979 - INFO - Completed analysis for ABB: Score=56.6, Recommendation=HOLD
+2025-09-03 13:58:39,412 - INFO - Comprehensive data extracted for AUBANK
+2025-09-03 13:58:39,412 - INFO - Fundamental analysis completed for AUBANK: 58 fields
+2025-09-03 13:58:39,673 - INFO - Enhanced technical analysis completed for AUBANK: 52 fields
+2025-09-03 13:58:39,727 - INFO - Completed analysis for AUBANK: Score=64.6, Recommendation=BUY
+2025-09-03 13:58:40,330 - INFO - Comprehensive data extracted for ADANIENSOL
+2025-09-03 13:58:40,330 - INFO - Fundamental analysis completed for ADANIENSOL: 58 fields
+2025-09-03 13:58:40,482 - INFO - Enhanced technical analysis completed for ADANIENSOL: 52 fields
+2025-09-03 13:58:40,535 - INFO - Completed analysis for ADANIENSOL: Score=28.4, Recommendation=SELL
+2025-09-03 13:58:41,162 - INFO - Comprehensive data extracted for APLAPOLLO
+2025-09-03 13:58:41,163 - INFO - Fundamental analysis completed for APLAPOLLO: 58 fields
+2025-09-03 13:58:41,240 - INFO - Comprehensive data extracted for ACC
+2025-09-03 13:58:41,240 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-03 13:58:41,336 - INFO - Enhanced technical analysis completed for APLAPOLLO: 52 fields
+2025-09-03 13:58:41,417 - INFO - Completed analysis for APLAPOLLO: Score=30.3, Recommendation=SELL
+2025-09-03 13:58:41,449 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-03 13:58:41,503 - INFO - Completed analysis for ACC: Score=68.2, Recommendation=BUY (VALUE)
+2025-09-03 13:58:41,503 - INFO - Batch analysis completed: 5 results, 0 failures
+2025-09-03 13:58:41,535 - INFO - Calculated sector rankings for 4 sectors
+2025-09-03 13:58:41,539 - WARNING - No suitable investment candidates found
+2025-09-03 13:58:41,713 - ERROR - Enhanced Excel generation error: "['volatility_6m', 'max_drawdown_6m'] not in index"
+2025-09-03 13:58:42,113 - INFO - Comprehensive Excel report saved: reports\Stock_Report_2025-09-03.xlsx
+2025-09-03 13:58:42,113 - INFO - Enhanced Excel report generated: reports\Stock_Report_2025-09-03.xlsx, Size: 23084 bytes

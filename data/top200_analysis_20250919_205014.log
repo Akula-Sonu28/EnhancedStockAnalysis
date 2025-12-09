@@ -1,0 +1,19 @@
+2025-09-19 20:50:14,652 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-19 20:50:14,654 - INFO - Risk profile set to: aggressive
+2025-09-19 20:50:14,696 - INFO - HIGH-RISK MODE: Profile=aggressive, Growth=False, Momentum=False, MinVol=0.0
+2025-09-19 20:50:14,696 - INFO - Using default stock list from stock_list_template.csv
+2025-09-19 20:50:14,696 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-19 20:50:14,698 - INFO - Loaded 200 stocks with company names
+2025-09-19 20:50:14,698 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-19 20:50:14,713 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-19 20:50:14,713 - INFO - Risk profile set to: moderate
+2025-09-19 20:50:14,713 - INFO - Using default stock list from stock_list_template.csv
+2025-09-19 20:50:14,713 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-19 20:50:14,721 - INFO - Loaded 200 stocks with company names
+2025-09-19 20:50:14,721 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-19 20:50:14,729 - INFO - Dynamic NSE Stock Analysis Initialized
+2025-09-19 20:50:14,729 - INFO - Risk profile set to: balanced
+2025-09-19 20:50:14,729 - INFO - Using default stock list from stock_list_template.csv
+2025-09-19 20:50:14,729 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-19 20:50:14,736 - INFO - Loaded 200 stocks with company names
+2025-09-19 20:50:14,736 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL

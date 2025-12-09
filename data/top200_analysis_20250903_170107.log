@@ -1,0 +1,19 @@
+2025-09-03 17:01:07,477 - INFO - Top 200 NSE Stock Analysis Initialized
+2025-09-03 17:01:07,478 - INFO - Using default stock list from stock_list_template.csv
+2025-09-03 17:01:07,478 - INFO - Loading stocks from CSV: stock_list_template.csv
+2025-09-03 17:01:07,523 - INFO - Loaded 200 stocks with company names
+2025-09-03 17:01:07,523 - INFO - Sample stocks: ABB, ACC, APLAPOLLO, AUBANK, ADANIENSOL
+2025-09-03 17:01:07,523 - INFO - Starting batch analysis of 2 stocks
+2025-09-03 17:01:08,848 - INFO - Comprehensive data extracted for ABB
+2025-09-03 17:01:08,850 - INFO - Fundamental analysis completed for ABB: 58 fields
+2025-09-03 17:01:09,140 - INFO - Enhanced technical analysis completed for ABB: 52 fields
+2025-09-03 17:01:09,199 - INFO - Completed analysis for ABB: Score=56.6, Recommendation=HOLD
+2025-09-03 17:01:14,842 - INFO - Comprehensive data extracted for ACC
+2025-09-03 17:01:14,842 - INFO - Fundamental analysis completed for ACC: 58 fields
+2025-09-03 17:01:15,262 - INFO - Enhanced technical analysis completed for ACC: 52 fields
+2025-09-03 17:01:15,335 - INFO - Completed analysis for ACC: Score=68.3, Recommendation=BUY (VALUE)
+2025-09-03 17:01:15,342 - INFO - Batch analysis completed: 2 results, 0 failures
+2025-09-03 17:01:15,362 - INFO - Calculated sector rankings for 2 sectors
+2025-09-03 17:01:15,766 - INFO - Completed risk-return analysis
+2025-09-03 17:01:15,799 - INFO - Generated portfolio allocation for 1 stocks
+2025-09-03 17:01:16,134 - INFO - Enhanced Excel report generated: reports/Enhanced_Stock_Report_20250903_170115.xlsx, Size: 14733 bytes
