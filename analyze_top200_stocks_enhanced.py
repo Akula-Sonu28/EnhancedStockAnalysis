@@ -51,6 +51,11 @@ from volume_analyzer import VolumeAnalyzer  # Phase 2: Volume Profile & Order Fl
 from recommendation_history import RecommendationHistory  # 🔧 FIX: Recommendation consistency tracking
 import yfinance as yf
 
+# Suppress yfinance verbose error logging for cleaner output
+logging.getLogger('yfinance').setLevel(logging.CRITICAL)
+logging.getLogger('urllib3').setLevel(logging.CRITICAL)
+logging.getLogger('requests').setLevel(logging.CRITICAL)
+
 class EnhancedTop200StockAnalyzer:
     """Enhanced comprehensive analyzer for top 200 NSE stocks with undervaluation detection"""
     
@@ -77,6 +82,7 @@ class EnhancedTop200StockAnalyzer:
         self.setup_logging()
         self.results = []
         self.failed_stocks = []
+        self.low_quality_stocks = []  # Track stocks with low data quality for retry
         self.total_stocks = 0
         self.processed_stocks = 0
         self.company_names = {}  # Map symbols to company names
@@ -2160,6 +2166,9 @@ class EnhancedTop200StockAnalyzer:
             if data_quality < 30:
                 # Very poor data quality - downgrade to HOLD at best
                 phase2_recommendation = "🟡 HOLD (LOW DATA QUALITY)"
+                # Track for retry
+                if symbol not in self.low_quality_stocks:
+                    self.low_quality_stocks.append(symbol)
             elif final_blended_score >= 70 and is_undervalued:
                 phase2_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
             elif final_blended_score >= 70:
@@ -6157,8 +6166,8 @@ class EnhancedTop200StockAnalyzer:
             
             # Brief pause between batches
             if batch_end < total_stocks:
-                print(f"      ⏳ Pausing 2 seconds before next batch...")
-                time.sleep(2)
+                print(f"      ⏳ Pausing 5 seconds before next batch...")
+                time.sleep(5)
         
         total_duration = time.time() - start_time
         
@@ -6176,7 +6185,84 @@ class EnhancedTop200StockAnalyzer:
         # Use emoji-free text for logging to avoid encoding issues
         logging.info(f"Batch analysis completed: {len(self.results)} results, {len(self.failed_stocks)} failures")
         
+        # 🔄 RETRY MECHANISM: Retry failed and low data quality stocks
+        if self.failed_stocks or self.low_quality_stocks:
+            self._retry_failed_stocks()
+        
         return self.results
+    
+    def _retry_failed_stocks(self):
+        """Retry failed and low data quality stocks with increased timeout and delay"""
+        retry_candidates = list(set(self.failed_stocks + self.low_quality_stocks))
+        
+        if not retry_candidates:
+            return
+        
+        print(f"\n🔄 RETRYING FAILED/LOW QUALITY STOCKS")
+        print("=" * 50)
+        print(f"   📊 Stocks to retry: {len(retry_candidates)}")
+        print(f"   ⏳ Using extended timeout and delays...")
+        
+        retried_count = 0
+        improved_count = 0
+        
+        for i, symbol in enumerate(retry_candidates, 1):
+            try:
+                print(f"\n   🔄 Retry {i}/{len(retry_candidates)}: {symbol}")
+                
+                # Add delay before retry to avoid rate limiting
+                if i > 1:
+                    time.sleep(5)  # 5 second delay between retries
+                
+                # Re-analyze the stock
+                result = self.analyze_single_stock(symbol)
+                
+                if result:
+                    # Check if quality improved
+                    old_result = next((r for r in self.results if r['symbol'] == symbol), None)
+                    
+                    if old_result:
+                        # Replace old result with new one
+                        old_quality = 'LOW DATA QUALITY' in old_result.get('recommendation', '')
+                        new_quality = 'LOW DATA QUALITY' in result.get('recommendation', '')
+                        
+                        if old_quality and not new_quality:
+                            improved_count += 1
+                            print(f"      ✅ Data quality IMPROVED for {symbol}")
+                            # Update the result in self.results
+                            idx = self.results.index(old_result)
+                            self.results[idx] = result
+                        elif not new_quality:
+                            print(f"      ✅ {symbol} successfully re-analyzed")
+                            idx = self.results.index(old_result)
+                            self.results[idx] = result
+                        else:
+                            print(f"      ⚠️  {symbol} still has low data quality")
+                    else:
+                        # Stock wasn't in results before, add it now
+                        self.results.append(result)
+                        improved_count += 1
+                        print(f"      ✅ {symbol} successfully analyzed on retry")
+                    
+                    retried_count += 1
+                    
+                    # Remove from failed/low quality lists
+                    if symbol in self.failed_stocks:
+                        self.failed_stocks.remove(symbol)
+                    if symbol in self.low_quality_stocks:
+                        self.low_quality_stocks.remove(symbol)
+                        
+            except Exception as e:
+                print(f"      ❌ Retry failed for {symbol}: {str(e)[:50]}...")
+                logging.debug(f"Retry failed for {symbol}: {e}")
+        
+        print(f"\n   📊 Retry Summary:")
+        print(f"      Attempted: {len(retry_candidates)}")
+        print(f"      Successful: {retried_count}")
+        print(f"      Improved quality: {improved_count}")
+        print(f"      Still failed: {len(self.failed_stocks) + len(self.low_quality_stocks)}")
+        
+        logging.info(f"Retry completed: {retried_count}/{len(retry_candidates)} successful, {improved_count} improved")
     
     def calculate_support_resistance_levels(self, symbol: str, risk_profile: str = "moderate") -> Dict[str, Any]:
         """
@@ -6958,43 +7044,61 @@ Trading Plan ({risk_tolerance} RISK):
             # Fallback: Basic cleaning
             return df.fillna(0)
     
+    def _num_to_col_letter(self, n):
+        """Convert column number to Excel column letter (0=A, 25=Z, 26=AA, etc.)"""
+        result = ""
+        while n >= 0:
+            result = chr(65 + (n % 26)) + result
+            n = n // 26 - 1
+            if n < 0:
+                break
+        return result if result else 'A'
+    
     def _auto_resize_columns(self, worksheet, df=None, max_width=50, min_width=8):
         """🔧 Auto-resize columns based on content width"""
         try:
             # If dataframe is provided, use it to calculate optimal widths
             if df is not None:
                 for col_num, column in enumerate(df.columns):
-                    # Calculate width based on column name and data
-                    header_width = len(str(column)) + 2
-                    
-                    # Sample some values to get max content width
-                    sample_data = df[column].dropna().head(10)
-                    if len(sample_data) > 0:
-                        max_content_width = max(len(str(val)) for val in sample_data) + 2
-                    else:
-                        max_content_width = header_width
-                    
-                    # Use the larger of header or content width
-                    optimal_width = max(header_width, max_content_width)
-                    
-                    # Apply min/max constraints
-                    final_width = max(min_width, min(optimal_width, max_width))
-                    
-                    # Convert column number to letter
-                    col_letter = chr(65 + col_num) if col_num < 26 else f"A{chr(65 + col_num - 26)}"
-                    worksheet.set_column(f'{col_letter}:{col_letter}', final_width)
+                    try:
+                        # Calculate width based on column name and data
+                        header_width = len(str(column)) + 2
+                        
+                        # Sample some values to get max content width
+                        sample_data = df[column].dropna().head(10)
+                        if len(sample_data) > 0:
+                            # Convert all values to string and get max length
+                            max_content_width = max(len(str(val)) for val in sample_data) + 2
+                        else:
+                            max_content_width = header_width
+                        
+                        # Use the larger of header or content width
+                        optimal_width = max(header_width, max_content_width)
+                        
+                        # Apply min/max constraints - ensure it's a float
+                        final_width = float(max(min_width, min(optimal_width, max_width)))
+                        
+                        # Convert column number to Excel column letter (works for any column)
+                        col_letter = self._num_to_col_letter(col_num)
+                        worksheet.set_column(f'{col_letter}:{col_letter}', final_width)
+                    except Exception as col_error:
+                        # Skip problematic columns
+                        continue
             else:
                 # Default auto-resize for sheets without dataframes
                 # Set common column widths based on typical content
-                worksheet.set_column('A:A', 15)  # Symbol/ID columns
-                worksheet.set_column('B:B', 30)  # Company/Description columns  
-                worksheet.set_column('C:Z', 14)  # Data columns
+                worksheet.set_column('A:A', 15.0)  # Symbol/ID columns
+                worksheet.set_column('B:B', 30.0)  # Company/Description columns  
+                worksheet.set_column('C:Z', 14.0)  # Data columns
                 
         except Exception as e:
             # Fallback to basic widths if auto-resize fails
-            worksheet.set_column('A:A', 12)
-            worksheet.set_column('B:B', 25)
-            worksheet.set_column('C:Z', 12)
+            try:
+                worksheet.set_column('A:A', 12.0)
+                worksheet.set_column('B:B', 25.0)
+                worksheet.set_column('C:Z', 12.0)
+            except:
+                pass  # Ignore if even fallback fails
     
     def _create_dashboard_sheet(self, workbook, df, portfolio_allocation, dashboard_title_format, 
                                metric_title_format, metric_value_format, header_format, data_format, 
@@ -8756,6 +8860,15 @@ Trading Plan ({risk_tolerance} RISK):
                 print(f"   • {stock}")
             if len(self.failed_stocks) > 10:
                 print(f"   ... and {len(self.failed_stocks) - 10} more")
+        
+        # Low quality stocks
+        if self.low_quality_stocks:
+            print(f"\n⚠️  LOW DATA QUALITY ({len(self.low_quality_stocks)} stocks):")
+            print("-" * 30)
+            for stock in self.low_quality_stocks[:10]:  # Show first 10
+                print(f"   • {stock}")
+            if len(self.low_quality_stocks) > 10:
+                print(f"   ... and {len(self.low_quality_stocks) - 10} more")
 
 def export_default_stocks_to_csv(output_path="default_stock_list.csv"):
     """Export the default stock list to a CSV file"""
@@ -9002,7 +9115,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description='Enhanced Analysis of Top 200 NSE stocks with undervaluation detection')
     parser.add_argument('-w', '--workers', type=int, default=3, help='Max worker threads')
-    parser.add_argument('-b', '--batch', type=int, default=5, help='Batch size')
+    parser.add_argument('-b', '--batch', type=int, default=15, help='Batch size (default: 15)')
     parser.add_argument('-s', '--symbol', type=str, help='Single stock symbol to analyze')
     parser.add_argument('-n', '--num', type=int, default=0, help='Number of stocks to analyze (0 = all stocks in CSV, default: all available)')
     parser.add_argument('-c', '--csv', type=str, help='Path to CSV file with stock symbols (defaults to stock_list_template.csv if available)')
