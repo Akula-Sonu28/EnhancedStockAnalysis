@@ -1,1 +1,57 @@
-Portfolio_Allocation_Dashboard.html
+# Python cache files
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# Machine learning models
+models/*.pkl
+models/*.joblib
+models/*.h5
+
+# Generated log files
+data/top200_analysis_*.log
+data/*.log
+logs/
+*.log
+
+# Generated Excel reports
+reports/*.xlsx
+reports/**/*.xlsx
+reports/comparisons/*.xlsx
+reports/merged_portfolio_*.xlsx
+
+# Generated CSV data files
+Holding/holdings*.csv
+data/nse_analysis_*.json
+data/nse_top150_*.csv
+
+# Backup files
+backups/
+*.bak
+*~
+
+# Temporary files
+stock_list_template1.csv
+
+# Virtual environments  
+venv/
+ENV/
+env/
+.venv/
+
+# IDE files
+.idea/
+.vscode/
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
