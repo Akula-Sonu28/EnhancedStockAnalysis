@@ -4493,7 +4493,9 @@ class EnhancedTop200StockAnalyzer:
                             'current_price': stock_data.get('current_price', holding.get('LTP', 0)),
                             'avg_cost': holding.get('Avg. cost', 0),
                             'holding_percentage': holding_percentage,
-                            'overall_score': stock_data.get('overall_score_with_value', 0),
+                            'holding_percentage': holding_percentage,
+                            # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
+                            'overall_score': stock_data.get('hybrid_overall_score') or stock_data.get('overall_score_with_value') or stock_data.get('improved_overall_score') or stock_data.get('risk_adjusted_score', 0),
                             'risk_adjusted_score': stock_data.get('risk_adjusted_score', 0),
                             'undervaluation_score': stock_data.get('undervaluation_score', 50),
                             'risk_category': stock_data.get('risk_category', 'MODERATE'),
@@ -4581,7 +4583,10 @@ class EnhancedTop200StockAnalyzer:
             remaining_slots = target_stocks - current_holdings_count
             
             if remaining_slots > 0 and not new_candidates.empty:
-                new_candidates = new_candidates.sort_values('risk_adjusted_score', ascending=False).head(remaining_slots)
+                # ✅ UPDATED: Sort by Hybrid V4 Score (hybrid_overall_score) instead of Risk-Adjusted
+                # First ensure hybrid_overall_score is numeric
+                new_candidates['hybrid_overall_score'] = pd.to_numeric(new_candidates.get('hybrid_overall_score', new_candidates['overall_score_with_value']), errors='coerce').fillna(0)
+                new_candidates = new_candidates.sort_values('hybrid_overall_score', ascending=False).head(remaining_slots)
                 
                 for idx, stock in new_candidates.iterrows():
                     # Calculate predictive metrics for new positions
@@ -4628,7 +4633,9 @@ class EnhancedTop200StockAnalyzer:
                         'current_quantity': 0,
                         'current_price': stock.get('current_price', 0),
                         'avg_cost': 0,
-                        'overall_score': stock['overall_score_with_value'],
+                        'avg_cost': 0,
+                        # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
+                        'overall_score': stock.get('hybrid_overall_score') or stock.get('overall_score_with_value') or stock.get('improved_overall_score') or stock.get('risk_adjusted_score', 0),
                         'risk_adjusted_score': stock['risk_adjusted_score'],
                         'undervaluation_score': stock['undervaluation_score'],
                         'risk_category': stock.get('risk_category', 'MODERATE'),
@@ -4717,8 +4724,8 @@ class EnhancedTop200StockAnalyzer:
             print(f"   📊 Ranking current holdings by performance...")
             current_holdings_df = allocation_df[allocation_df['is_current_holding'] == True].copy()
             if not current_holdings_df.empty:
-                # Rank by risk_adjusted_score (best to worst)
-                current_holdings_df['holdings_rank'] = current_holdings_df['risk_adjusted_score'].rank(method='dense', ascending=False).astype(int)
+                # Rank by overall_score (best to worst) - USING HYBRID V4 SCORE for better returns
+                current_holdings_df['holdings_rank'] = current_holdings_df['overall_score'].rank(method='dense', ascending=False).astype(int)
                 
                 # Update main dataframe with rankings
                 for idx, row in current_holdings_df.iterrows():
@@ -4755,7 +4762,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 for idx, row in current_holdings_df.iterrows():
                     rank = row['holdings_rank']
-                    score = row['risk_adjusted_score']
+                    score = row['overall_score']  # Use Hybrid V4 score
                     profit_pct = row.get('current_profit_pct', 0)
                     symbol = row['symbol']
                     
@@ -5327,7 +5334,8 @@ class EnhancedTop200StockAnalyzer:
                                     'type': 'INCREASE',
                                     'index': idx,
                                     'symbol': row['symbol'],
-                                    'score': row['risk_adjusted_score'],
+                                    # ✅ UPDATED: Robust Score fallback for Unified Allocation
+                                    'score': row.get('overall_score') or row.get('hybrid_overall_score') or row.get('risk_adjusted_score', 0),
                                     'rank': rank,
                                     'current_value': current_value,
                                     'max_investment': max_additional,
@@ -5351,49 +5359,15 @@ class EnhancedTop200StockAnalyzer:
                 # 🔧 FIX: Load full analysis report to get ALL opportunities (not just current holdings)
                 all_analyzed_df = results_df.copy()
                 
-                # Try to load the most recent full Enhanced Stock Report
-                import glob
-                reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
-                if os.path.exists(reports_dir):
-                    report_files = glob.glob(os.path.join(reports_dir, 'Enhanced_Stock_Report_*.xlsx'))
-                    if report_files:
-                        # Get the most recent report (but exclude the current one being generated)
-                        report_files_sorted = sorted(report_files, key=os.path.getmtime, reverse=True)
+                # 🔧 DISABLED: Implicit merging of previous reports causes confusion (e.g. phantom AUBANK)
+                # If users want full allocation, they should run full analysis.
+                # import glob
+                # reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
+                # ... (disabled logic)
                         
-                        for latest_report in report_files_sorted:
-                            try:
-                                print(f"      📂 Loading full analysis from: {os.path.basename(latest_report)}")
-                                # Try 'Complete Data' sheet first, then fallback to other sheets
-                                try:
-                                    full_analysis_df = pd.read_excel(latest_report, sheet_name='Complete Data')
-                                except:
-                                    try:
-                                        full_analysis_df = pd.read_excel(latest_report, sheet_name='Stock Analysis')
-                                    except:
-                                        full_analysis_df = pd.read_excel(latest_report, sheet_name='Top Picks')
-                                
-                                # Merge full analysis with current results_df
-                                # Keep results_df data for overlapping stocks, add new stocks from full_analysis_df
-                                if not full_analysis_df.empty and 'symbol' in full_analysis_df.columns:
-                                    # Get symbols from results_df
-                                    current_symbols = set(results_df['symbol'].str.upper())
-                                    
-                                    # Add stocks from full_analysis_df that aren't in results_df
-                                    new_stocks_df = full_analysis_df[
-                                        ~full_analysis_df['symbol'].str.upper().isin(current_symbols)
-                                    ]
-                                    
-                                    if not new_stocks_df.empty:
-                                        all_analyzed_df = pd.concat([results_df, new_stocks_df], ignore_index=True)
-                                        print(f"      ✅ Merged {len(new_stocks_df)} additional stocks from full analysis")
-                                        print(f"      📊 Total stocks available: {len(all_analyzed_df)} (was {len(results_df)})")
-                                    break  # Successfully loaded, exit loop
-                            except Exception as e:
-                                continue  # Try next report file
-                        
-                        if len(all_analyzed_df) == len(results_df):
-                            print(f"      ⚠️  Could not load additional stocks from reports")
-                            print(f"      📊 Using current analysis only: {len(all_analyzed_df)} stocks")
+                if len(all_analyzed_df) == len(results_df):
+                    # print(f"      ⚠️  Could not load additional stocks from reports")
+                    print(f"      📊 Using current analysis only: {len(all_analyzed_df)} stocks")
                 
                 new_opportunities_candidates = all_analyzed_df[
                     (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
@@ -5415,7 +5389,8 @@ class EnhancedTop200StockAnalyzer:
                         all_opportunities.append({
                             'type': 'BUY',
                             'symbol': symbol,
-                            'score': analyzed_stock.get('risk_adjusted_score', 0),
+                            # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
+                            'score': analyzed_stock.get('hybrid_overall_score') or analyzed_stock.get('overall_score_with_value') or analyzed_stock.get('improved_overall_score') or analyzed_stock.get('risk_adjusted_score', 0),
                             'max_investment': max_allocation_per_stock,
                             'current_price': analyzed_stock.get('current_price', 100),
                             'sector': analyzed_stock.get('sector', 'Unknown'),
@@ -5450,7 +5425,8 @@ class EnhancedTop200StockAnalyzer:
                     sector = opportunity['sector']
                     sector_count = sector_allocation.get(sector, 0)
                     
-                    if sector_count >= 3:
+                    if sector_count >= 10: # ✅ TUNED: Increased from 3 to 10 to prioritize top scorers
+                        # print(f"      Running sector cap check: {sector} has {sector_count} stocks") 
                         continue  # Skip - too many stocks from this sector
                     
                     # Calculate optimal investment
@@ -5494,8 +5470,9 @@ class EnhancedTop200StockAnalyzer:
                             'investment_amount': actual_investment,
                             'suggested_quantity': shares_to_buy,
                             'risk_adjusted_score': opportunity['score'],
+                            'overall_score': opportunity['score'], # ✅ FIX: Map Score to overall_score for display
                             'market_cap_category': opportunity['market_cap_category'],
-                            'action_recommendation': 'BUY',
+                            'action_recommendation': 'NEW POSITION', # ✅ FIX: User requested "NEW POSITION" label
                             'action_type': 'NEW POSITION',
                             'keep_stock': True,
                             'recommendation': opportunity.get('recommendation', 'BUY'),
@@ -5510,8 +5487,23 @@ class EnhancedTop200StockAnalyzer:
                             'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0
                         })
                         
-                        # Add to allocation_df
-                        allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
+                        # Check if symbol already exists to prevent DUPLICATES
+                        existing_mask = allocation_df['symbol'] == opportunity['symbol']
+                        if existing_mask.any():
+                            # Update existing row
+                            existing_idx = allocation_df.index[existing_mask][0]
+                            allocation_df.loc[existing_idx, 'investment_amount'] = actual_investment
+                            allocation_df.loc[existing_idx, 'suggested_quantity'] = shares_to_buy
+                            # Only update if current is generic BUY, otherwise keep specific label (e.g. HIGH MOMENTUM)
+                            current_action = allocation_df.loc[existing_idx, 'action_recommendation']
+                            if current_action == 'BUY':
+                                allocation_df.loc[existing_idx, 'action_recommendation'] = 'NEW POSITION'
+                            # Also ensure score is updated if missing
+                            if allocation_df.loc[existing_idx, 'overall_score'] == 0:
+                                allocation_df.loc[existing_idx, 'overall_score'] = opportunity['score']
+                        else:
+                            # Add to allocation_df
+                            allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
                         
                         buy_count += 1
                         print(f"      🆕 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
@@ -6028,8 +6020,67 @@ class EnhancedTop200StockAnalyzer:
                 'portfolio_utilization': (len(keep_stocks) / target_stocks) * 100 if target_stocks > 0 else 0
             }
             
-            # Sell recommendations are already stored above as sell_recommendations_df
             # No additional processing needed
+            
+            # ✅ FIX: Explicitly sort by Score (Highest First) for final display
+            if 'overall_score' in allocation_df.columns:
+                allocation_df.sort_values(by='overall_score', ascending=False, inplace=True)
+
+            # ✅ FIX: Ensure consistent "NEW POSITION" label for all BUY recommendations
+            if 'action_recommendation' in allocation_df.columns:
+                allocation_df.loc[allocation_df['action_recommendation'] == 'BUY', 'action_recommendation'] = 'NEW POSITION'
+
+            # ✅ FIX: Re-calculate Investment Amounts & Limit to Top 20
+            # This ensures (1) Values are not empty/zero, (2) User gets a focused list
+            
+            # 1. Identify New Positions
+            new_pos_mask = allocation_df['action_recommendation'] == 'NEW POSITION'
+            new_positions_df = allocation_df[new_pos_mask].copy()
+            
+            if not new_positions_df.empty and 'overall_score' in new_positions_df.columns:
+                # 2. Sort by Score and Limit to Top 20
+                new_positions_df.sort_values(by='overall_score', ascending=False, inplace=True)
+                top_20_symbols = new_positions_df.head(20)['symbol'].tolist()
+                
+                # 3. Mark excess as SKIP
+                allocation_df.loc[(new_pos_mask) & (~allocation_df['symbol'].isin(top_20_symbols)), 'action_recommendation'] = 'SKIP'
+                
+                # 4. Re-calculate Allocation for Top 20 (Hypothetical ₹10L Budget for Clarity)
+                final_new_count = len(top_20_symbols)
+                if final_new_count > 0:
+                    hypothetical_budget = 1000000.0  # ₹10 Lakhs (Float)
+                    per_stock_alloc = hypothetical_budget / final_new_count
+                    
+                    print(f"      🔧 RE-CALCULATION: Updating {final_new_count} top positions with ₹{per_stock_alloc:,.0f} each")
+
+                    # Vectorized update using loc (More robust than .at loop)
+                    update_mask = allocation_df['symbol'].isin(top_20_symbols)
+                    
+                    # Ensure numeric types (Force Float)
+                    allocation_df['investment_amount'] = pd.to_numeric(allocation_df['investment_amount'], errors='coerce').fillna(0.0).astype(float)
+                    allocation_df.loc[update_mask, 'current_price'] = pd.to_numeric(allocation_df.loc[update_mask, 'current_price'], errors='coerce').fillna(0)
+                    
+                    # Update Investment Amount (Fixed amount)
+                    allocation_df.loc[update_mask, 'investment_amount'] = float(per_stock_alloc)
+                    
+                    # Update Quantity (Investment / Price)
+                    prices = allocation_df.loc[update_mask, 'current_price']
+                    # Avoid division by zero
+                    shares = (per_stock_alloc / prices.replace(0, float('inf'))).fillna(0).astype(int)
+                    allocation_df.loc[update_mask, 'suggested_quantity'] = shares
+                    
+                    # Update Portfolio Weight (Equal weight)
+                    # Avoid division by zero
+                    shares = (per_stock_alloc / prices.replace(0, float('inf'))).fillna(0).astype(int)
+                    allocation_df.loc[update_mask, 'suggested_quantity'] = shares
+                    
+                    # Update Portfolio Weight (Equal weight)
+                    allocation_df.loc[update_mask, 'portfolio_weight'] = (1.0 / final_new_count)
+                            
+            # Filter out SKIPPED stocks from the final allocation_df to clean up report
+            allocation_df = allocation_df[allocation_df['action_recommendation'] != 'SKIP']
+
+            portfolio_summary['allocation_df_count'] = len(allocation_df)
             
             self.portfolio_allocation = {
                 'allocation_df': allocation_df,
@@ -6764,6 +6815,7 @@ Trading Plan ({risk_tolerance} RISK):
                         'profit_booking_amount',  # Rupee amount to book
                         
                         # TIER 2: IMPORTANT - Quality & Risk
+                        'overall_score', # Hybrid V4 Score (Primary)
                         'risk_adjusted_score',  # Overall score (0-100)
                         'improved_overall_score',  # New improved score
                         'pe_ratio',  # Valuation
@@ -6866,8 +6918,9 @@ Trading Plan ({risk_tolerance} RISK):
                         'profit_booking_amount': 'BOOK_₹_AMOUNT',
                         
                         # Score columns
-                        'risk_adjusted_score': 'SCORE',
-                        'improved_overall_score': 'NEW_SCORE',
+                        'overall_score': 'SCORE', # Hybrid V4
+                        'risk_adjusted_score': 'RISK_SCORE', # V3 Risk Adjusted
+                        'improved_overall_score': 'V3_SCORE',
                         'risk_category': 'RISK',
                         
                         # Fundamental columns
