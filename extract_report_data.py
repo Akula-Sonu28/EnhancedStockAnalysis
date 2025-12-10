@@ -1,7 +1,7 @@
 import pandas as pd
 import json
 
-excel_path = r"c:\Users\A KAVYA SHREE\OneDrive\Documents\Sanji\Stock Analyis\Stock_Analysis - Copy\reports\Enhanced_Stock_Report_20251210_153136.xlsx"
+excel_path = r"c:\Users\A KAVYA SHREE\OneDrive\Documents\Sanji\Stock Analyis\Stock_Analysis - Copy\reports\Enhanced_Stock_Report_20251210_202457.xlsx"
 
 try:
     # Read the excel file
@@ -62,5 +62,7 @@ try:
         print(hindalco_row.iloc[0][cols_of_interest].to_json(indent=2))
 
             
+    print(f"\nTotal 'NEW POSITION' Investment: ₹{new_position_df['INVEST_₹'].sum():,.2f}")
+    
 except Exception as e:
     print(f"Error reading excel: {e}")

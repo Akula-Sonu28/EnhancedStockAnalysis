@@ -6045,38 +6045,50 @@ class EnhancedTop200StockAnalyzer:
                 # 3. Mark excess as SKIP
                 allocation_df.loc[(new_pos_mask) & (~allocation_df['symbol'].isin(top_20_symbols)), 'action_recommendation'] = 'SKIP'
                 
-                # 4. Re-calculate Allocation for Top 20 (Hypothetical ₹10L Budget for Clarity)
+                # 4. Re-calculate Allocation for Top 20 (Dynamic User Budget)
+                # Strategy: Score-Based Allocation (Normalized to use full budget)
                 final_new_count = len(top_20_symbols)
                 if final_new_count > 0:
-                    hypothetical_budget = 1000000.0  # ₹10 Lakhs (Float)
-                    per_stock_alloc = hypothetical_budget / final_new_count
+                    # ✅ DYNAMIC BUDGET: Use the portfolio amount passed via command line arguments
+                    user_budget = getattr(self, 'portfolio_amount', 100000.0)
                     
-                    print(f"      🔧 RE-CALCULATION: Updating {final_new_count} top positions with ₹{per_stock_alloc:,.0f} each")
-
-                    # Vectorized update using loc (More robust than .at loop)
+                    print(f"      🔧 RE-CALCULATION: allocating ₹{user_budget:,.2f} across {final_new_count} stocks (Score-Based)")
+                    
+                    # Vectorized update using loc
                     update_mask = allocation_df['symbol'].isin(top_20_symbols)
                     
-                    # Ensure numeric types (Force Float)
+                    # Ensure numeric types
                     allocation_df['investment_amount'] = pd.to_numeric(allocation_df['investment_amount'], errors='coerce').fillna(0.0).astype(float)
+                    allocation_df['overall_score'] = pd.to_numeric(allocation_df['overall_score'], errors='coerce').fillna(0.0).astype(float)
                     allocation_df.loc[update_mask, 'current_price'] = pd.to_numeric(allocation_df.loc[update_mask, 'current_price'], errors='coerce').fillna(0)
                     
-                    # Update Investment Amount (Fixed amount)
-                    allocation_df.loc[update_mask, 'investment_amount'] = float(per_stock_alloc)
+                    # Calculate Variable Weights based on Score
+                    scores = allocation_df.loc[update_mask, 'overall_score']
+                    min_score = scores.min()
+                    max_score = scores.max()
+                    
+                    if max_score > min_score:
+                        # Normalize score 0 to 1
+                        normalized_scores = (scores - min_score) / (max_score - min_score)
+                        # Base weight factor (Score 70->1, Score 90->2 approx)
+                        raw_weights = 1.0 + normalized_scores 
+                    else:
+                        raw_weights = pd.Series(1.0, index=scores.index)
+
+                    # Normalize weights to ensure they sum to Exactly 1.0 (Fit 100% of User Budget)
+                    # This ensures we use the full ₹1.56L
+                    final_weights = raw_weights / raw_weights.sum()
+
+                    allocation_df.loc[update_mask, 'portfolio_weight'] = final_weights
+                    
+                    # Update Investment Amount (Budget * Weight)
+                    allocation_df.loc[update_mask, 'investment_amount'] = final_weights * user_budget
                     
                     # Update Quantity (Investment / Price)
                     prices = allocation_df.loc[update_mask, 'current_price']
-                    # Avoid division by zero
-                    shares = (per_stock_alloc / prices.replace(0, float('inf'))).fillna(0).astype(int)
+                    shares = (allocation_df.loc[update_mask, 'investment_amount']  / prices.replace(0, float('inf'))).fillna(0).astype(int)
                     allocation_df.loc[update_mask, 'suggested_quantity'] = shares
                     
-                    # Update Portfolio Weight (Equal weight)
-                    # Avoid division by zero
-                    shares = (per_stock_alloc / prices.replace(0, float('inf'))).fillna(0).astype(int)
-                    allocation_df.loc[update_mask, 'suggested_quantity'] = shares
-                    
-                    # Update Portfolio Weight (Equal weight)
-                    allocation_df.loc[update_mask, 'portfolio_weight'] = (1.0 / final_new_count)
-                            
             # Filter out SKIPPED stocks from the final allocation_df to clean up report
             allocation_df = allocation_df[allocation_df['action_recommendation'] != 'SKIP']
 
@@ -6871,12 +6883,37 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple = alloc_df[existing_cols].copy()
                     
                     # 🔧 CRITICAL FIX: Reset investment_amount to 0 for HOLD/KEEP/SELL stocks
-                    # Only INCREASE and BUY stocks from unified allocation should have investment amounts
-                    print(f"   🔧 Resetting INVEST_₹ for non-INCREASE/BUY stocks...")
-                    non_action_mask = ~alloc_df_simple['action_recommendation'].isin(['INCREASE', 'BUY'])
+                    # Only INCREASE and BUY/NEW POSITION stocks from unified allocation should have investment amounts
+                    print(f"   🔧 Resetting INVEST_₹ for non-INCREASE/BUY/NEW POSITION stocks...")
+                    # ✅ FIX: Added 'NEW POSITION' to the allowed list so they are NOT reset to 0
+                    non_action_mask = ~alloc_df_simple['action_recommendation'].isin(['INCREASE', 'BUY', 'NEW POSITION'])
                     alloc_df_simple.loc[non_action_mask, 'investment_amount'] = 0
                     alloc_df_simple.loc[non_action_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Reset {non_action_mask.sum()} stocks (HOLD/KEEP/SELL) to ₹0")
+
+                    # 🔧 FAILSAFE RE-CALCULATION for NEW POSITIONS
+                    # Ensure non-zero values for report.
+                    # Updates Investment Amount based on Portfolio Weight (Score-Based)
+                    print(f"   🔧 Failsafe: Ensuring non-zero INVEST_₹ for NEW POSITIONS...")
+                    new_pos_mask = alloc_df_simple['action_recommendation'] == 'NEW POSITION'
+                    if new_pos_mask.any():
+                        # If weights are missing/zero, apply 5% default (SAFE FALLBACK)
+                        if (alloc_df_simple.loc[new_pos_mask, 'portfolio_weight'].fillna(0) == 0).all():
+                             print("      ⚠️ Weights missing in failsafe. Applying 5% default fallback.")
+                             alloc_df_simple.loc[new_pos_mask, 'portfolio_weight'] = 0.05
+                        
+                        # Calculate Amount: Weight * Dynamic Budget
+                        # This preserves the variable weighting calculated earlier
+                        # Access portfolio_amount from self if available (this function is inside the class)
+                        user_budget_failsafe = getattr(self, 'portfolio_amount', 100000.0)
+                        
+                        alloc_df_simple.loc[new_pos_mask, 'investment_amount'] = alloc_df_simple.loc[new_pos_mask, 'portfolio_weight'] * user_budget_failsafe
+                        
+                        # Calculate Quantity: Amount / Price
+                        prices = alloc_df_simple.loc[new_pos_mask, 'current_price'].replace(0, float('inf'))
+                        shares = (alloc_df_simple.loc[new_pos_mask, 'investment_amount'] / prices).fillna(0).astype(int)
+                        alloc_df_simple.loc[new_pos_mask, 'suggested_quantity'] = shares
+                        print(f"      ✅ Recalculated amounts for {new_pos_mask.sum()} NEW POSITIONS (Base: ₹{user_budget_failsafe:,.2f})")
                     
                     # 🔧 FIX: Clear profit_booking_timing and profit_booking_pct for KEEP/HOLD actions
                     # These fields should only have values for actionable items (SELL, BOOK_PROFIT, BUY, INCREASE)
