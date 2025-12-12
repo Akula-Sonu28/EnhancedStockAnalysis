@@ -164,13 +164,12 @@ class EnhancedTop200StockAnalyzer:
     def get_default_stock_list(self):
         """Return the default list of stocks"""
         logging.info("Using default stock list")
+        # NIFTY 50 core stocks - Default list of 25 stocks
         return [
-            # NIFTY 50 core stocks
             "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY", "HINDUNILVR", "ITC", 
             "SBIN", "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "BAJFINANCE", 
             "ASIANPAINT", "MARUTI", "HCLTECH", "ULTRACEMCO", "SUNPHARMA", "WIPRO",
             "TITAN", "NESTLEIND", "TECHM", "BAJAJFINSV", "POWERGRID", "NTPC",
-            # Default list reduced to 25 stocks for brevity
         ]
         
     # 🚀 ENHANCEMENT: Caching System
@@ -2112,9 +2111,10 @@ class EnhancedTop200StockAnalyzer:
             hybrid_score = stock_data.get('hybrid_overall_score', improved_score)  # Fallback to improved if hybrid failed
             old_phase1_blend = (0.70 * corrected_score) + (0.30 * phase1_score)
             
-            # LATEST: Use hybrid optimized score (primary) + ML adjustment
-            # Hybrid score includes market regime adaptation and cross-market validation
-            final_blended_score = hybrid_score + ml_score_adjustment
+            # LATEST: Use IMPROVED V3 SCORING (Primary)
+            # User chose V3 based on 6-year & 15-year benchmarks (Highest Return)
+            final_blended_score = improved_score 
+            # Note: Explicitly ignoring ml_score_adjustment as requested (Pure V3)
             
             # Store all scoring versions for analysis and backtesting
             stock_data['phase1_blended_score'] = old_phase1_blend  # Legacy comparison
@@ -4258,7 +4258,7 @@ class EnhancedTop200StockAnalyzer:
                         results_df.at[idx, 'max_drawdown_6m'] = None
                         results_df.at[idx, 'beta'] = None
                         results_df.at[idx, 'sharpe_proxy'] = None
-                        results_df.at[idx, 'risk_adjusted_score'] = row.get('optimized_score', row.get('overall_score_with_value', 50))
+                        results_df.at[idx, 'risk_adjusted_score'] = row.get('final_blended_score', row.get('improved_overall_score', 50))
                         results_df.at[idx, 'risk_category'] = "UNKNOWN"
                         
                 except Exception as e:
@@ -4268,7 +4268,7 @@ class EnhancedTop200StockAnalyzer:
                     results_df.at[idx, 'max_drawdown_6m'] = None
                     results_df.at[idx, 'beta'] = None
                     results_df.at[idx, 'sharpe_proxy'] = None
-                    results_df.at[idx, 'risk_adjusted_score'] = row.get('optimized_score', row.get('overall_score_with_value', 50))
+                    results_df.at[idx, 'risk_adjusted_score'] = row.get('final_blended_score', row.get('improved_overall_score', 50))
                     results_df.at[idx, 'risk_category'] = "UNKNOWN"
                     continue
             
@@ -4333,8 +4333,14 @@ class EnhancedTop200StockAnalyzer:
             # If only holdings file exists, use it directly (prioritize fresh data)
             elif holdings_files:
                 latest_holdings = max(holdings_files, key=os.path.getmtime)
-                holdings_df = pd.read_csv(latest_holdings)
-                print(f"   📁 Loaded holdings from: {latest_holdings} (direct holdings file)")
+                # Try different encodings
+                try:
+                    holdings_df = pd.read_csv(latest_holdings) # Try default (utf-8)
+                except UnicodeDecodeError:
+                    print(f"   ⚠️  UTF-8 decoding failed, retrying with 'latin1'...")
+                    holdings_df = pd.read_csv(latest_holdings, encoding='latin1')
+                
+                print(f"   [FILE] Loaded holdings from: {latest_holdings} (direct holdings file)")
                 
                 # Filter out zero quantity stocks
                 if 'Qty.' in holdings_df.columns:
@@ -4495,7 +4501,7 @@ class EnhancedTop200StockAnalyzer:
                             'holding_percentage': holding_percentage,
                             'holding_percentage': holding_percentage,
                             # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
-                            'overall_score': stock_data.get('hybrid_overall_score') or stock_data.get('overall_score_with_value') or stock_data.get('improved_overall_score') or stock_data.get('risk_adjusted_score', 0),
+                            'overall_score': stock_data.get('final_blended_score', stock_data.get('improved_score_used', 0)),
                             'risk_adjusted_score': stock_data.get('risk_adjusted_score', 0),
                             'undervaluation_score': stock_data.get('undervaluation_score', 50),
                             'risk_category': stock_data.get('risk_category', 'MODERATE'),
@@ -4635,7 +4641,7 @@ class EnhancedTop200StockAnalyzer:
                         'avg_cost': 0,
                         'avg_cost': 0,
                         # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
-                        'overall_score': stock.get('hybrid_overall_score') or stock.get('overall_score_with_value') or stock.get('improved_overall_score') or stock.get('risk_adjusted_score', 0),
+                        'overall_score': stock.get('final_blended_score', stock.get('improved_score_used', 0)),
                         'risk_adjusted_score': stock['risk_adjusted_score'],
                         'undervaluation_score': stock['undervaluation_score'],
                         'risk_category': stock.get('risk_category', 'MODERATE'),
@@ -5317,8 +5323,9 @@ class EnhancedTop200StockAnalyzer:
                         rank = row.get('holdings_rank', 999)
                         exit_reason = str(row.get('exit_reason', ''))
                         
-                        # Only consider top performers for INCREASE
-                        is_top_performer = 'TOP PERFORMER' in exit_reason or rank <= 15
+                        # 🚀 UPDATED: Include ALL holdings for analysis (even mediocre ones for potential SWAP)
+                        # We used to filter by rank, but now we let the Unified Allocation logic decide.
+                        is_top_performer = True # 'TOP PERFORMER' in exit_reason or rank <= 15
                         
                         if is_top_performer:
                             current_value = row['current_value']
@@ -5327,15 +5334,16 @@ class EnhancedTop200StockAnalyzer:
                             # Get market cap category and max allocation percentage
                             cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
                             max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                            max_additional = max_allocation_per_stock - current_value
+                            max_additional = max(0, max_allocation_per_stock - current_value)
                             
-                            if max_additional > 3000:  # Can add more
+                            # allow all holdings to be added (for SWAP analysis), even if fully allocated
+                            if True: 
                                 all_opportunities.append({
                                     'type': 'INCREASE',
                                     'index': idx,
                                     'symbol': row['symbol'],
                                     # ✅ UPDATED: Robust Score fallback for Unified Allocation
-                                    'score': row.get('overall_score') or row.get('hybrid_overall_score') or row.get('risk_adjusted_score', 0),
+                                    'score': row.get('final_blended_score', row.get('improved_overall_score', 0)),
                                     'rank': rank,
                                     'current_value': current_value,
                                     'max_investment': max_additional,
@@ -5390,7 +5398,7 @@ class EnhancedTop200StockAnalyzer:
                             'type': 'BUY',
                             'symbol': symbol,
                             # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
-                            'score': analyzed_stock.get('hybrid_overall_score') or analyzed_stock.get('overall_score_with_value') or analyzed_stock.get('improved_overall_score') or analyzed_stock.get('risk_adjusted_score', 0),
+                            'score': analyzed_stock.get('final_blended_score', analyzed_stock.get('improved_overall_score', 0)),
                             'max_investment': max_allocation_per_stock,
                             'current_price': analyzed_stock.get('current_price', 100),
                             'sector': analyzed_stock.get('sector', 'Unknown'),
@@ -5408,6 +5416,65 @@ class EnhancedTop200StockAnalyzer:
                 # === SORT BY SCORE (HIGHEST FIRST) ===
                 all_opportunities.sort(key=lambda x: x['score'], reverse=True)
                 
+                # 🔄 SMART ROTATION LOGIC (Expert Portfolio Management)
+                print(f"\n   🔄 Analyzing Portfolio Rotation Opportunities...")
+                
+                # 1. Identify "Weak" Holdings (Score < 50) - CUT
+                weak_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and op['score'] < 50]
+                for wh in weak_holdings:
+                    print(f"      ❌ CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
+                    wh['recommendation'] = "SELL (WEAK)"
+                    wh['action_comment'] = "Score < 50: Fundamental momentum lost"
+                
+                # 2. Identify "Mediocre" Holdings (Score 50-70) - SWAP CANDIDATES
+                mediocre_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and 50 <= op['score'] < 70]
+                
+                # 3. Identify "Superstar" Opportunities (Score > 70, Not Held) - UPGRADE TARGETS
+                # Lowered to 70 to capture solid upgrades (e.g. 55 -> 71 is a +16 gap and worth it)
+                superstars = [op for op in all_opportunities if not op.get('is_existing_holding') and op['score'] >= 70]
+                
+                # 4. Find Valid Swaps (Gap > 15 points)
+                swaps_found = 0
+                
+                # DEBUG PRINTS
+                print(f"      🔍 DEBUG: Mediocre Holdings: {len(mediocre_holdings)}")
+                for m in mediocre_holdings:
+                    print(f"         - {m['symbol']}: {m['score']:.2f}")
+                print(f"      🔍 DEBUG: Superstars: {len(superstars)}")
+                for s in superstars:
+                    print(f"         - {s['symbol']}: {s['score']:.2f}")
+
+                if mediocre_holdings and superstars:
+                    # Match worst mediocre with best superstar
+                    mediocre_holdings.sort(key=lambda x: x['score']) # Lowest first
+                    superstars.sort(key=lambda x: x['score'], reverse=True) # Highest first
+                    
+                    for med in mediocre_holdings:
+                        if swaps_found >= 3: break # Limit recommendations to top 3 swaps
+                        
+                        # Find best available superstar
+                        for star in superstars:
+                            if star.get('is_matched'): continue
+                            
+                            score_gap = star['score'] - med['score']
+                            if score_gap >= 15:
+                                # FOUND SWAP!
+                                print(f"      🔄 SWAP FOUND: Sell {med['symbol']} ({med['score']:.1f}) -> Buy {star['symbol']} ({star['score']:.1f}) | Gap: +{score_gap:.1f}")
+                                
+                                # Update Mediocre Holding Action
+                                med['recommendation'] = f"SWAP -> {star['symbol']}"
+                                med['action_comment'] = f"Upgrade to {star['symbol']} (Score +{score_gap:.1f})"
+                                med['priority_sell'] = True
+                                
+                                # Update Superstar Action
+                                star['recommendation'] = "BUY (SWAP)"
+                                star['action_comment'] = f"Funded by selling {med['symbol']}"
+                                star['is_matched'] = True
+                                
+                                swaps_found += 1
+                                break
+
+                
                 # === ALLOCATE FUNDS SEQUENTIALLY ===
                 print(f"\n   💰 Allocating ₹{total_available:,.0f} across ranked opportunities...")
                 
@@ -5417,7 +5484,22 @@ class EnhancedTop200StockAnalyzer:
                 buy_count = 0
                 total_allocated = 0
                 
+                
                 for opportunity in all_opportunities:
+                    # 🔄 HANDLE SWAPS / SELLS (Priority Over Allocation)
+                    if opportunity.get('priority_sell'):
+                        idx = opportunity['index']
+                        action_rec = opportunity['recommendation'] # e.g. "SWAP -> NMDC"
+                        reason = opportunity.get('action_comment', 'Better opportunity available')
+                        
+                        print(f"      🔄 {opportunity['symbol']}: MARKED FOR SWAP ({action_rec})")
+                        
+                        # Update Allocation DF directly
+                        allocation_df.loc[idx, 'action_recommendation'] = action_rec
+                        allocation_df.loc[idx, 'exit_reason'] = reason
+                        allocation_df.loc[idx, 'investment_amount'] = 0 # Do not invest more
+                        continue # Skip standard allocation
+                        
                     if remaining_budget < 3000:  # Minimum allocation
                         break
                     
@@ -6156,11 +6238,11 @@ class EnhancedTop200StockAnalyzer:
         total_stocks = len(self.stock_list)
         self.total_stocks = total_stocks
         
-        print(f"🚀 Starting Dynamic NSE Stock Analysis")
-        print(f"📊 Total stocks to analyze: {total_stocks}")
-        print(f"🔄 Batch size: {batch_size}")
-        print(f"👥 Max workers: {self.max_workers}")
-        print(f"🗂️  Company names available: {len(self.company_names) > 0}")
+        print(f"[START] Starting Dynamic NSE Stock Analysis")
+        print(f"[DATA] Total stocks to analyze: {total_stocks}")
+        print(f"[CONFIG] Batch size: {batch_size}")
+        print(f"[CONFIG] Max workers: {self.max_workers}")
+        print(f"[DATA] Company names available: {len(self.company_names) > 0}")
         print("=" * 80)
         
         logging.info(f"Starting batch analysis of {total_stocks} stocks")
@@ -6172,7 +6254,7 @@ class EnhancedTop200StockAnalyzer:
             batch_end = min(batch_start + batch_size, total_stocks)
             current_batch = self.stock_list[batch_start:batch_end]
             
-            print(f"\n📦 Processing Batch {(batch_start//batch_size)+1}: Stocks {batch_start+1}-{batch_end}")
+            print(f"\n[BATCH] Processing Batch {(batch_start//batch_size)+1}: Stocks {batch_start+1}-{batch_end}")
             print("-" * 60)
             
             batch_results = []
@@ -6566,13 +6648,13 @@ Trading Plan ({risk_tolerance} RISK):
                 else:
                     target_stocks = current_holdings_count
             else:  # moderate (default) - MOST COMMON
-                min_stocks, max_stocks = 20, 25  # Manageable portfolio (FIXED from 25-30)
+                min_stocks, max_stocks = 30, 40  # 🚀 EXPANDED: Allow up to 40 stocks to show more opportunities
                 if current_holdings_count < min_stocks:
-                    target_stocks = min_stocks
+                    target_stocks = min_stocks # Force up to 30
                 elif current_holdings_count > max_stocks:
-                    target_stocks = max_stocks  # Force down to maximum (SELL required)
+                    target_stocks = current_holdings_count # Keep current if huge
                 else:
-                    target_stocks = current_holdings_count
+                    target_stocks = max(current_holdings_count + 10, 30) # Always show room for 10+ new stocks
             
             # Set allocation parameters for strict targeting
             portfolio_size_info = {
@@ -9357,12 +9439,12 @@ def main():
         analyzer.stock_list = final_stock_list
         
         if portfolio_symbols:
-            print(f"🔍 Analysis will include:")
-            print(f"   📊 Current Holdings: {len(portfolio_symbols)} stocks (ALL)")
-            print(f"   🔍 Additional Template Stocks: {len(final_stock_list) - len(portfolio_symbols)}")
-            print(f"   � Total to analyze: {len(final_stock_list)} stocks (Holdings + Full Template)")
+            print(f"[SEARCH] Analysis will include:")
+            print(f"   [DATA] Current Holdings: {len(portfolio_symbols)} stocks (ALL)")
+            print(f"   [SEARCH] Additional Template Stocks: {len(final_stock_list) - len(portfolio_symbols)}")
+            print(f"   [DATA] Total to analyze: {len(final_stock_list)} stocks (Holdings + Full Template)")
         else:
-            print(f"�🔍 Analyzing all {len(analyzer.stock_list)} stocks from CSV template")
+            print(f"[SEARCH] Analyzing all {len(analyzer.stock_list)} stocks from CSV template")
         
     # Display info about CSV if used
     if hasattr(analyzer, '_csv_path') and analyzer._csv_path:
@@ -9370,18 +9452,18 @@ def main():
         is_default = csv_path == "stock_list_template.csv" and not args.csv
         
         if is_default:
-            print(f"📄 Using default stock list template: {csv_path}")
+            print(f"Using default stock list template: {csv_path}")
         else:
-            print(f"📄 Using stock list from CSV: {csv_path}")
+            print(f"[CSV] Using stock list from CSV: {csv_path}")
             
         print(f"   - Stocks loaded: {len(analyzer.stock_list)}")
         print(f"   - Company names: {'Available' if len(analyzer.company_names) > 0 else 'Not available'}")
     
     # Display enhancement options
-    print(f"\n🚀 ENHANCEMENT OPTIONS:")
-    print(f"   💰 Portfolio Amount: ₹{args.portfolio_amount:,.0f}")
-    print(f"   ⚡ Skip Risk Analysis: {'Yes' if args.skip_risk else 'No'}")
-    print(f"   💎 Undervalued Focus: {'Yes' if args.undervalued_only else 'No'}")
+    print(f"\n[CONFIG] ENHANCEMENT OPTIONS:")
+    print(f"   [MONEY] Portfolio Amount: {args.portfolio_amount:,.0f}")
+    print(f"   [RISK] Skip Risk Analysis: {'Yes' if args.skip_risk else 'No'}")
+    print(f"   [CONFIG] Undervalued Focus: {'Yes' if args.undervalued_only else 'No'}")
     
     # Run batch analysis
     results = analyzer.analyze_batch(batch_size=args.batch)
