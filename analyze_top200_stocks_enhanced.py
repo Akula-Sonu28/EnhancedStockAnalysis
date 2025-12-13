@@ -63,13 +63,13 @@ class EnhancedTop200StockAnalyzer:
                  focus_growth=False, focus_momentum=False, min_volatility=0.0):
         self.max_workers = max_workers
         self.corrected_scoring_engine = CorrectedScoringEngine()  # OLD: Keep for comparison
-        self.improved_scoring_engine = ImprovedScoringEngine()  # ✅ NEW: Validated +46% correlation, 12% spread
-        self.hybrid_scoring_engine = HybridOptimizedScoringEngine()  # 🚀 LATEST: V4.0 Multi-market validated
-        self.adaptive_strategy = AdaptiveMarketRegimeStrategy()  # 🎯 NEW: Regime-adaptive recommendations
-        self.ml_predictor = get_ml_predictor()  # 🤖 Phase 2: ML Price Prediction
-        self.regime_detector = MarketRegimeDetector()  # 🌐 Phase 2: Market Regime Detection
-        self.sentiment_analyzer = SentimentAnalyzer()  # 🎭 Phase 2: Sentiment Analysis
-        self.volume_analyzer = VolumeAnalyzer()  # 📊 Phase 2: Volume Profile & Order Flow
+        self.improved_scoring_engine = ImprovedScoringEngine()  # [NEW] NEW: Validated +46% correlation, 12% spread
+        self.hybrid_scoring_engine = HybridOptimizedScoringEngine()  # [LATEST] LATEST: V4.0 Multi-market validated
+        self.adaptive_strategy = AdaptiveMarketRegimeStrategy()  # [NEW] NEW: Regime-adaptive recommendations
+        self.ml_predictor = get_ml_predictor()  # [PHASE 2] Phase 2: ML Price Prediction
+        self.regime_detector = MarketRegimeDetector()  # [PHASE 2] Phase 2: Market Regime Detection
+        self.sentiment_analyzer = SentimentAnalyzer()  # [PHASE 2] Phase 2: Sentiment Analysis
+        self.volume_analyzer = VolumeAnalyzer()  # [PHASE 2] Phase 2: Volume Profile & Order Flow
         self.recommendation_history = RecommendationHistory()  # 🔧 FIX: Track recommendation consistency
         
         # 🚀 NEW: Market Regime Adaptive System
@@ -271,7 +271,7 @@ class EnhancedTop200StockAnalyzer:
                     safe_msg = safe_msg.replace('👀', '[HOLD]')
                     safe_msg = safe_msg.replace('⚠️', '[WEAK]')
                     safe_msg = safe_msg.replace('🚀', '[BUY]')
-                    safe_msg = safe_msg.replace('📊', '[INFO]')
+                    # safe_msg = safe_msg.replace('[CHART]', '[INFO]')
                     safe_msg = safe_msg.replace('✅', '[OK]')
                     safe_msg = safe_msg.replace('❌', '[X]')
                     safe_msg = safe_msg.replace('💰', '[PROFIT]')
@@ -1102,7 +1102,7 @@ class EnhancedTop200StockAnalyzer:
                 big_threshold = 0.40
                 good_threshold = 0.20
                 stop_loss = -0.15
-                category = "📊 STANDARD"
+                category = "[STD] STANDARD"
             
             # 3. Technical analysis adjustments
             if momentum_score >= 70:
@@ -1124,7 +1124,7 @@ class EnhancedTop200StockAnalyzer:
                 stop_loss *= 0.8  # Wider stop loss
                 technical_signal = "💎 OVERSOLD"
             else:
-                technical_signal = "📊 NEUTRAL"
+                technical_signal = "[NEUTRAL] NEUTRAL"
             
             # 4. Apply smart booking logic with dynamic thresholds
             if profit_pct >= mega_threshold:
@@ -1153,7 +1153,7 @@ class EnhancedTop200StockAnalyzer:
                 if momentum_score >= 60:
                     return "HOLD & ADD", 0, f"💎 HOLD STRONG (+{profit_pct*100:.1f}%) | {category} | {technical_signal}"
                 else:
-                    return "HOLD & MONITOR", 0, f"📊 HOLD STEADY ({profit_pct*100:+.1f}%) | {category} | {technical_signal}"
+                    return "HOLD & MONITOR", 0, f"[HOLD] HOLD STEADY ({profit_pct*100:+.1f}%) | {category} | {technical_signal}"
                 
         except Exception as e:
             return "HOLD", 0, f"Unable to calculate: {str(e)}"
@@ -2274,7 +2274,7 @@ class EnhancedTop200StockAnalyzer:
                 'error_message': str(e),
                 'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
-            logging.error(f"Analysis failed for {symbol}: {e}")
+            logging.error(f"Analysis failed for {symbol}: {str(e).encode('ascii', 'replace').decode('ascii')}")
             return error_data
     
     def _get_dynamic_industry_benchmarks(self, sector: str, industry: str) -> dict:
@@ -4844,7 +4844,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 print(f"      🚀 INCREASE: {increase_count} stocks (top 30%)")
                 print(f"      ⚪ HOLD: {hold_count} stocks (middle 50%)")
-                print(f"      ❌ SELL: {sell_count} stocks (bottom 20%)")
+                print(f"      [SELL] SELL: {sell_count} stocks (bottom 20%)")
                 print(f"      📊 Net change: {increase_count} to add, {sell_count} to remove")
                 
                 # PROFIT BOOKING RULES - Apply to all holdings with >20% profit
@@ -5201,7 +5201,7 @@ class EnhancedTop200StockAnalyzer:
                 if not sell_stocks.empty:
                     sell_counts = sell_stocks['stock_type'].value_counts()
                     if not sell_counts.empty:
-                        print(f"      ❌ Not Selected: {len(sell_stocks)} stocks")
+                        print(f"      [SKIP] Not Selected: {len(sell_stocks)} stocks")
                         for category in ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']:
                             count = sell_counts.get(category, 0)
                             if count > 0:
@@ -5294,15 +5294,15 @@ class EnhancedTop200StockAnalyzer:
                 # Total available = new capital (user input) + sell proceeds + book profit proceeds
                 total_available = target_amount + sell_proceeds + book_profit_proceeds
                 
-                print(f"\n   💰 CAPITAL ALLOCATION:")
-                print(f"      🆕 New capital (user input): ₹{target_amount:,.0f}")
-                print(f"      💵 SELL proceeds: ₹{sell_proceeds:,.0f}")
-                print(f"      📈 BOOK_PROFIT proceeds: ₹{book_profit_proceeds:,.0f}")
-                print(f"      📊 Total available: ₹{total_available:,.0f}")
+                print(f"\n   [MONEY] CAPITAL ALLOCATION:")
+                print(f"      [NEW] New capital (user input): Rs{target_amount:,.0f}")
+                print(f"      [SELL] SELL proceeds: Rs{sell_proceeds:,.0f}")
+                print(f"      [BOOK] BOOK_PROFIT proceeds: Rs{book_profit_proceeds:,.0f}")
+                print(f"      [DATA] Total available: Rs{total_available:,.0f}")
                 
-                # 🎯 UNIFIED RANKING-BASED ALLOCATION (No 80/20 split)
+                # [RANK] UNIFIED RANKING-BASED ALLOCATION (No 80/20 split)
                 # Combine ALL opportunities (existing INCREASE + new BUY) into ONE ranked list
-                print(f"\n   🎯 UNIFIED RANKING-BASED CAPITAL ALLOCATION:")
+                print(f"\n   [RANK] UNIFIED RANKING-BASED CAPITAL ALLOCATION:")
                 
                 keep_stocks = allocation_df[allocation_df['keep_stock'] == True].copy()
                 current_portfolio_value = allocation_df['current_value'].sum()
@@ -5422,7 +5422,7 @@ class EnhancedTop200StockAnalyzer:
                 # 1. Identify "Weak" Holdings (Score < 50) - CUT
                 weak_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and op['score'] < 50]
                 for wh in weak_holdings:
-                    print(f"      ❌ CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
+                    print(f"      [CUT] CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
                     wh['recommendation'] = "SELL (WEAK)"
                     wh['action_comment'] = "Score < 50: Fundamental momentum lost"
                 
@@ -5432,22 +5432,18 @@ class EnhancedTop200StockAnalyzer:
                 # 3. Identify "Superstar" Opportunities (Score > 70, Not Held) - UPGRADE TARGETS
                 # Lowered to 70 to capture solid upgrades (e.g. 55 -> 71 is a +16 gap and worth it)
                 superstars = [op for op in all_opportunities if not op.get('is_existing_holding') and op['score'] >= 70]
+
+
                 
                 # 4. Find Valid Swaps (Gap > 15 points)
                 swaps_found = 0
                 
-                # DEBUG PRINTS
-                print(f"      🔍 DEBUG: Mediocre Holdings: {len(mediocre_holdings)}")
-                for m in mediocre_holdings:
-                    print(f"         - {m['symbol']}: {m['score']:.2f}")
-                print(f"      🔍 DEBUG: Superstars: {len(superstars)}")
-                for s in superstars:
-                    print(f"         - {s['symbol']}: {s['score']:.2f}")
-
+                # Match worst mediocre with best superstar
                 if mediocre_holdings and superstars:
-                    # Match worst mediocre with best superstar
                     mediocre_holdings.sort(key=lambda x: x['score']) # Lowest first
                     superstars.sort(key=lambda x: x['score'], reverse=True) # Highest first
+                    
+
                     
                     for med in mediocre_holdings:
                         if swaps_found >= 3: break # Limit recommendations to top 3 swaps
@@ -5457,10 +5453,15 @@ class EnhancedTop200StockAnalyzer:
                             if star.get('is_matched'): continue
                             
                             score_gap = star['score'] - med['score']
+                            
+
+
                             if score_gap >= 15:
                                 # FOUND SWAP!
                                 print(f"      🔄 SWAP FOUND: Sell {med['symbol']} ({med['score']:.1f}) -> Buy {star['symbol']} ({star['score']:.1f}) | Gap: +{score_gap:.1f}")
                                 
+
+
                                 # Update Mediocre Holding Action
                                 med['recommendation'] = f"SWAP -> {star['symbol']}"
                                 med['action_comment'] = f"Upgrade to {star['symbol']} (Score +{score_gap:.1f})"
@@ -5484,8 +5485,34 @@ class EnhancedTop200StockAnalyzer:
                 buy_count = 0
                 total_allocated = 0
                 
-                
+                # 🔄 CRITICAL FIX: Process Priority Sells/Swaps FIRST & RECYCLE CAPITAL
+                # This ensures funds from swaps are available for high-score buys (which appear earlier in the sorted list).
+                print(f"\n   🔄 Applying Priority Swap Actions & Recycling Capital...")
                 for opportunity in all_opportunities:
+                    if opportunity.get('priority_sell'):
+                        idx = opportunity['index']
+                        action_rec = opportunity['recommendation']
+                        reason = opportunity.get('action_comment', '')
+                        current_val = opportunity.get('current_value', 0)
+                        
+                        print(f"      ✅ Executing Swap: {opportunity['symbol']} | Recycling Rs{current_val:,.0f}")
+                        
+                        # Apply to Allocation DF
+                        allocation_df.loc[idx, 'action_recommendation'] = action_rec
+                        allocation_df.loc[idx, 'exit_reason'] = reason
+                        allocation_df.loc[idx, 'investment_amount'] = 0
+                        allocation_df.loc[idx, 'priority'] = 'HIGH'
+                        
+                        # 💰 RECYCLE CAPITAL back to budget
+                        remaining_budget += current_val
+                        print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f}")
+                        with open("critical_debug.txt", "a") as f: f.write(f"PNB Recycled {current_val} -> New Budget {remaining_budget}\n")
+
+                for opportunity in all_opportunities:
+                    if opportunity['symbol'] == 'NMDC':
+                        with open("critical_debug.txt", "a") as f: f.write(f"NMDC Found. Rec='{opportunity.get('recommendation')}' Budget={remaining_budget} MaxInv={opportunity.get('max_investment')}\n")
+
+
                     # 🔄 HANDLE SWAPS / SELLS (Priority Over Allocation)
                     if opportunity.get('priority_sell'):
                         idx = opportunity['index']
@@ -5511,11 +5538,18 @@ class EnhancedTop200StockAnalyzer:
                         # print(f"      Running sector cap check: {sector} has {sector_count} stocks") 
                         continue  # Skip - too many stocks from this sector
                     
+                    
                     # Calculate optimal investment
-                    optimal_investment = min(
-                        opportunity['max_investment'],
-                        remaining_budget
-                    )
+                    # 🚀 SWAP TARGET: Use available budget (mimic previous position size)
+                    if opportunity.get('recommendation') == 'BUY (SWAP)':
+                        optimal_investment = remaining_budget
+                        print(f"      🚀 SWAP TARGET {opportunity['symbol']}: Bypassing cap -> ₹{optimal_investment:,.0f} (Budget: ₹{remaining_budget:,.0f})")
+                    else:
+                        optimal_investment = min(
+                            opportunity['max_investment'],
+                            remaining_budget
+                        )
+                        print(f"DEBUG: Normal Calc for {opportunity['symbol']}: Min({opportunity.get('max_investment'):.0f}, {remaining_budget:.0f}) -> {optimal_investment}")
                     
                     # Ensure minimum ₹3,000 per stock
                     if optimal_investment < 3000:
@@ -5526,6 +5560,9 @@ class EnhancedTop200StockAnalyzer:
                     shares_to_buy = int(optimal_investment / current_price)
                     actual_investment = shares_to_buy * current_price
                     
+                    if opportunity['symbol'] == 'NMDC':
+                         with open("critical_debug.txt", "a") as f: f.write(f"CALC: Opt={optimal_investment} Price={current_price} Shares={shares_to_buy} Actual={actual_investment}\n")
+
                     # Final validation
                     if actual_investment < 3000 or shares_to_buy < 1:
                         continue
@@ -5911,6 +5948,11 @@ class EnhancedTop200StockAnalyzer:
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🎯 ENHANCEMENT #2: MARKET REGIME DETECTION
+            # (Just before this, verify NMDC)
+            for _, row_debug in allocation_df.iterrows():
+                if row_debug['symbol'] == 'NMDC':
+                     with open("critical_debug.txt", "a") as f: f.write(f"LATE_CHECK: NMDC Investment={row_debug['investment_amount']} Action={row_debug['action_recommendation']}\n")
+
             # ═══════════════════════════════════════════════════════════════════════
             print(f"\n   🌐 DETECTING MARKET REGIME (Enhancement #2)...")
             
@@ -6040,7 +6082,7 @@ class EnhancedTop200StockAnalyzer:
             ].copy()
             
             if not sell_list.empty:
-                print(f"\n   ❌ EXPLICIT SELL LIST: {len(sell_list)} stocks to remove")
+                print(f"\n   [SELL] EXPLICIT SELL LIST: {len(sell_list)} stocks to remove")
                 print(f"   " + "="*80)
                 sell_list_sorted = sell_list.sort_values('holdings_rank', ascending=False)  # Worst first
                 for idx, stock in sell_list_sorted.iterrows():
@@ -6136,13 +6178,19 @@ class EnhancedTop200StockAnalyzer:
                     
                     print(f"      🔧 RE-CALCULATION: allocating ₹{user_budget:,.2f} across {final_new_count} stocks (Score-Based)")
                     
-                    # Vectorized update using loc
-                    update_mask = allocation_df['symbol'].isin(top_20_symbols)
-                    
-                    # Ensure numeric types
+                    # Ensure numeric types first
                     allocation_df['investment_amount'] = pd.to_numeric(allocation_df['investment_amount'], errors='coerce').fillna(0.0).astype(float)
                     allocation_df['overall_score'] = pd.to_numeric(allocation_df['overall_score'], errors='coerce').fillna(0.0).astype(float)
+                    
+                    # Vectorized update using loc
+                    # 🔧 FIX: Exclude SWAP/Recycled positions from re-calculation
+                    # If Investment Amount > User Budget, it means it was funded by recycling (SWAP), so DO NOT overwrite it.
+                    update_mask = (allocation_df['symbol'].isin(top_20_symbols)) & \
+                                  (allocation_df['investment_amount'] <= user_budget + 10.0)
+                    
+                    # Continue updates
                     allocation_df.loc[update_mask, 'current_price'] = pd.to_numeric(allocation_df.loc[update_mask, 'current_price'], errors='coerce').fillna(0)
+
                     
                     # Calculate Variable Weights based on Score
                     scores = allocation_df.loc[update_mask, 'overall_score']
@@ -6229,7 +6277,7 @@ class EnhancedTop200StockAnalyzer:
             import traceback
             logging.error(f"Error generating portfolio allocation: {e}")
             logging.error(f"Traceback: {traceback.format_exc()}")
-            print(f"   ❌ ERROR in portfolio allocation: {e}")
+            print(f"   [ERROR] ERROR in portfolio allocation: {e}")
             print(f"   📋 Traceback: {traceback.format_exc()}")
             return None
     
@@ -6281,19 +6329,19 @@ class EnhancedTop200StockAnalyzer:
                             score = result.get('overall_score_triple', 0)
                             recommendation = result.get('final_recommendation', 'N/A')
                             
-                            print(f"   ✅ {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
+                            print(f"   [DONE] {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
                             
                             if status == 'error':
                                 self.failed_stocks.append(stock)
                         else:
                             # Handle case where result is None
-                            print(f"   ⚠️ {stock:<12}: no data returned")
+                            print(f"   [WARN] {stock:<12}: no data returned")
                             self.failed_stocks.append(stock)
                             logging.warning(f"No data returned for {stock}")
                             self.processed_stocks += 1
                             
                     except Exception as e:
-                        print(f"   ❌ {stock:<12}: timeout/error - {str(e)[:50]}")
+                        print(f"   [FAIL] {stock:<12}: timeout/error - {str(e)[:50]}")
                         self.failed_stocks.append(stock)
                         self.processed_stocks += 1
                         logging.error(f"Batch processing error for {stock}: {e}")
@@ -6320,7 +6368,7 @@ class EnhancedTop200StockAnalyzer:
         print("=" * 50)
         print(f"   📊 Total processed: {len(self.results)}/{total_stocks}")
         print(f"   ✅ Successful: {len(self.results) - len(self.failed_stocks)}")
-        print(f"   ❌ Failed: {len(self.failed_stocks)}")
+        print(f"   [FAIL] Failed: {len(self.failed_stocks)}")
         print(f"   ⏱️  Total duration: {total_duration/60:.1f} minutes")
         if total_stocks > 0:
             print(f"   📈 Average per stock: {total_duration/total_stocks:.1f} seconds")
@@ -6398,7 +6446,7 @@ class EnhancedTop200StockAnalyzer:
                         self.low_quality_stocks.remove(symbol)
                         
             except Exception as e:
-                print(f"      ❌ Retry failed for {symbol}: {str(e)[:50]}...")
+                print(f"      [FAIL] Retry failed for {symbol}: {str(e)[:50]}...")
                 logging.debug(f"Retry failed for {symbol}: {e}")
         
         print(f"\n   📊 Retry Summary:")
@@ -6596,7 +6644,7 @@ Trading Plan ({risk_tolerance} RISK):
     def generate_comprehensive_report(self):
         """ENHANCED: Generate comprehensive Excel report with all analysis enhancements"""
         if not self.results:
-            print("❌ No results to generate report")
+            print("[FAIL] No results to generate report")
             return None
         
         print(f"\n📊 GENERATING ENHANCED COMPREHENSIVE REPORT")
@@ -6709,7 +6757,7 @@ Trading Plan ({risk_tolerance} RISK):
             return filename
             
         except Exception as e:
-            print(f"❌ Enhanced Excel generation failed: {e}")
+            print(f"[FAIL] Enhanced Excel generation failed: {e}")
             logging.error(f"Enhanced Excel generation failed: {e}")
             return None
     
@@ -6973,29 +7021,11 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple.loc[non_action_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Reset {non_action_mask.sum()} stocks (HOLD/KEEP/SELL) to ₹0")
 
-                    # 🔧 FAILSAFE RE-CALCULATION for NEW POSITIONS
-                    # Ensure non-zero values for report.
-                    # Updates Investment Amount based on Portfolio Weight (Score-Based)
-                    print(f"   🔧 Failsafe: Ensuring non-zero INVEST_₹ for NEW POSITIONS...")
-                    new_pos_mask = alloc_df_simple['action_recommendation'] == 'NEW POSITION'
-                    if new_pos_mask.any():
-                        # If weights are missing/zero, apply 5% default (SAFE FALLBACK)
-                        if (alloc_df_simple.loc[new_pos_mask, 'portfolio_weight'].fillna(0) == 0).all():
-                             print("      ⚠️ Weights missing in failsafe. Applying 5% default fallback.")
-                             alloc_df_simple.loc[new_pos_mask, 'portfolio_weight'] = 0.05
-                        
-                        # Calculate Amount: Weight * Dynamic Budget
-                        # This preserves the variable weighting calculated earlier
-                        # Access portfolio_amount from self if available (this function is inside the class)
-                        user_budget_failsafe = getattr(self, 'portfolio_amount', 100000.0)
-                        
-                        alloc_df_simple.loc[new_pos_mask, 'investment_amount'] = alloc_df_simple.loc[new_pos_mask, 'portfolio_weight'] * user_budget_failsafe
-                        
-                        # Calculate Quantity: Amount / Price
-                        prices = alloc_df_simple.loc[new_pos_mask, 'current_price'].replace(0, float('inf'))
-                        shares = (alloc_df_simple.loc[new_pos_mask, 'investment_amount'] / prices).fillna(0).astype(int)
-                        alloc_df_simple.loc[new_pos_mask, 'suggested_quantity'] = shares
-                        print(f"      ✅ Recalculated amounts for {new_pos_mask.sum()} NEW POSITIONS (Base: ₹{user_budget_failsafe:,.2f})")
+                    # 🔧 FAILSAFE RE-CALCULATION REMOVED
+                    # This block was overwriting carefully calculated swap amounts with crude weight-based values.
+                    # The allocation engine already ensures correct investment amounts.
+                    # if new_pos_mask.any(): ... (REMOVED)
+
                     
                     # 🔧 FIX: Clear profit_booking_timing and profit_booking_pct for KEEP/HOLD actions
                     # These fields should only have values for actionable items (SELL, BOOK_PROFIT, BUY, INCREASE)
@@ -7023,6 +7053,7 @@ Trading Plan ({risk_tolerance} RISK):
                     # Rename columns for maximum clarity (retail investor friendly)
                     column_renames = {
                         # Action columns
+
                         'action_recommendation': 'ACTION',
                         'profit_booking_timing': 'WHEN_TO_ACT',
                         'investment_amount': 'INVEST_₹',
@@ -7186,7 +7217,7 @@ Trading Plan ({risk_tolerance} RISK):
             
         except Exception as e:
             logging.error(f"Enhanced Excel generation error: {e}")
-            print(f"❌ Enhanced Excel generation failed: {e}")
+            print(f"[FAIL] Enhanced Excel generation failed: {e}")
             return None
     
     def _clean_dataframe_for_excel(self, df):
@@ -7277,17 +7308,17 @@ Trading Plan ({risk_tolerance} RISK):
                                price_format, percent_format, score_format):
         """🚀 PHASE 1: Create comprehensive dashboard with key metrics and charts"""
         
-        worksheet = workbook.add_worksheet('📊 Dashboard')
+        worksheet = workbook.add_worksheet('Dashboard')
         
         # Title
-        worksheet.merge_range('A1:H2', '📊 STOCK ANALYSIS DASHBOARD', dashboard_title_format)
+        worksheet.merge_range('A1:H2', 'STOCK ANALYSIS DASHBOARD', dashboard_title_format)
         
         # Key Metrics Section
         row = 4
         
         # Analysis Overview
-        worksheet.merge_range(f'A{row}:C{row}', '📈 ANALYSIS OVERVIEW', metric_title_format)
-        worksheet.merge_range(f'E{row}:G{row}', '🎯 RECOMMENDATIONS', metric_title_format)
+        worksheet.merge_range(f'A{row}:C{row}', 'ANALYSIS OVERVIEW', metric_title_format)
+        worksheet.merge_range(f'E{row}:G{row}', 'RECOMMENDATIONS', metric_title_format)
         
         row += 1
         total_stocks = len(df)
@@ -7326,8 +7357,8 @@ Trading Plan ({risk_tolerance} RISK):
         
         # Risk Analysis Section
         row += 3
-        worksheet.merge_range(f'A{row}:C{row}', '⚡ RISK ANALYSIS', metric_title_format)
-        worksheet.merge_range(f'E{row}:G{row}', '💰 PORTFOLIO METRICS', metric_title_format)
+        worksheet.merge_range(f'A{row}:C{row}', 'RISK ANALYSIS', metric_title_format)
+        worksheet.merge_range(f'E{row}:G{row}', 'PORTFOLIO METRICS', metric_title_format)
         
         row += 1
         low_risk = len(df[df.get('risk_category', '') == 'LOW'])
@@ -8959,7 +8990,7 @@ Trading Plan ({risk_tolerance} RISK):
             # Display sell recommendations if any
             if 'sell_recommendations' in self.portfolio_allocation and not self.portfolio_allocation['sell_recommendations'].empty:
                 sell_df = self.portfolio_allocation['sell_recommendations']
-                print(f"\n❌ SELL RECOMMENDATIONS ({len(sell_df)} stocks):")
+                print(f"\n[SELL] SELL RECOMMENDATIONS ({len(sell_df)} stocks):")
                 print(f"   Risk Profile: {self.risk_profile.upper()} - Excess holdings to optimize portfolio")
                 
                 # Group by category
@@ -9026,19 +9057,19 @@ Trading Plan ({risk_tolerance} RISK):
         
         # Failed stocks
         if self.failed_stocks:
-            print(f"\n❌ FAILED ANALYSIS ({len(self.failed_stocks)} stocks):")
+            print(f"\n[FAIL] FAILED ANALYSIS ({len(self.failed_stocks)} stocks):")
             print("-" * 30)
             for stock in self.failed_stocks[:10]:  # Show first 10
-                print(f"   • {stock}")
+                print(f"   . {stock}")
             if len(self.failed_stocks) > 10:
                 print(f"   ... and {len(self.failed_stocks) - 10} more")
         
         # Low quality stocks
-        if self.low_quality_stocks:
-            print(f"\n⚠️  LOW DATA QUALITY ({len(self.low_quality_stocks)} stocks):")
+        if hasattr(self, 'low_quality_stocks') and self.low_quality_stocks:
+            print(f"\n[WARN] LOW DATA QUALITY ({len(self.low_quality_stocks)} stocks):")
             print("-" * 30)
             for stock in self.low_quality_stocks[:10]:  # Show first 10
-                print(f"   • {stock}")
+                print(f"   . {stock}")
             if len(self.low_quality_stocks) > 10:
                 print(f"   ... and {len(self.low_quality_stocks) - 10} more")
 
@@ -9062,7 +9093,7 @@ def export_default_stocks_to_csv(output_path="default_stock_list.csv"):
         print(f"   - Edit the 'Company Name' column as needed")
         return True
     except Exception as e:
-        print(f"❌ Failed to export default stocks: {e}")
+        print(f"[FAIL] Failed to export default stocks: {e}")
         return False
 
 def generate_top_10_categories(results_df, analyzer=None):
@@ -9091,7 +9122,7 @@ def generate_top_10_categories(results_df, analyzer=None):
     valid_df = results_df.dropna(subset=['symbol']).copy()
     
     # 1. TOP 10 UNDERVALUED - Based on undervaluation_score
-    print("\n1️⃣ TOP 10 UNDERVALUED STOCKS:")
+    print("\n1. TOP 10 UNDERVALUED STOCKS:")
     print("-" * 50)
     undervalued = valid_df.nlargest(10, 'undervaluation_score')[
         ['symbol', 'company_name', 'undervaluation_score', 'current_price', 'pe_ratio', 'pb_ratio', 'dividend_yield']
@@ -9099,10 +9130,10 @@ def generate_top_10_categories(results_df, analyzer=None):
     for i, (_, row) in enumerate(undervalued.iterrows(), 1):
         print(f"{i:2d}. {row['symbol']:12} | {str(row['company_name'])[:30]:30} | "
               f"Score: {row['undervaluation_score']:5.1f} | PE: {row['pe_ratio']:6.1f} | "
-              f"PB: {row['pb_ratio']:5.2f} | Price: ₹{row['current_price']:7.1f}")
+              f"PB: {row['pb_ratio']:5.2f} | Price: Rs{row['current_price']:7.1f}")
     
     # 2. TOP 10 GROWTH - Based on revenue growth, earnings growth, and technical momentum
-    print("\n2️⃣ TOP 10 GROWTH STOCKS:")
+    print("\n2. TOP 10 GROWTH STOCKS:")
     print("-" * 50)
     
     # Use momentum scoring for aggressive investors, otherwise use standard growth calculation
@@ -9125,11 +9156,11 @@ def generate_top_10_categories(results_df, analyzer=None):
     ]
     for i, (_, row) in enumerate(growth.iterrows(), 1):
         print(f"{i:2d}. {row['symbol']:12} | {str(row['company_name'])[:30]:30} | "
-              f"Growth: {row['growth_score']:5.1f} | Rev↗: {row['revenue_growth']:6.1f}% | "
-              f"Profit↗: {row['profit_growth']:6.1f}% | Price: ₹{row['current_price']:7.1f}")
+              f"Growth: {row['growth_score']:5.1f} | Rev: {row['revenue_growth']:6.1f}% | "
+              f"Profit: {row['profit_growth']:6.1f}% | Price: Rs{row['current_price']:7.1f}")
     
     # 3. TOP 10 FUNDAMENTALLY STRONG AND TECHNICALLY STRONG
-    print("\n3️⃣ TOP 10 FUNDAMENTALLY STRONG & TECHNICALLY STRONG:")
+    print("\n3. TOP 10 FUNDAMENTALLY STRONG & TECHNICALLY STRONG:")
     print("-" * 60)
     # Filter stocks that are strong in both fundamental and technical (score >= 60 in both)
     strong_both = valid_df[
@@ -9159,10 +9190,10 @@ def generate_top_10_categories(results_df, analyzer=None):
     for i, (_, row) in enumerate(strong_both_top.iterrows(), 1):
         print(f"{i:2d}. {row['symbol']:12} | {str(row['company_name'])[:30]:30} | "
               f"Combined: {row['combined_strength']:5.1f} | Fund: {row['fundamental_score']:5.1f} | "
-              f"Tech: {row['technical_score']:5.1f} | Price: ₹{row['current_price']:7.1f}")
+              f"Tech: {row['technical_score']:5.1f} | Price: Rs{row['current_price']:7.1f}")
     
     # 4. TOP 10 FUNDAMENTALLY STRONG AND UNDERVALUED
-    print("\n4️⃣ TOP 10 FUNDAMENTALLY STRONG & UNDERVALUED:")
+    print("\n4. TOP 10 FUNDAMENTALLY STRONG & UNDERVALUED:")
     print("-" * 55)
     # Filter stocks that are fundamentally strong (>= 60) and undervalued (>= 65)
     strong_undervalued = valid_df[
@@ -9192,14 +9223,14 @@ def generate_top_10_categories(results_df, analyzer=None):
     for i, (_, row) in enumerate(strong_underval_top.iterrows(), 1):
         print(f"{i:2d}. {row['symbol']:12} | {str(row['company_name'])[:30]:30} | "
               f"V+F: {row['value_fundamental']:5.1f} | Fund: {row['fundamental_score']:5.1f} | "
-              f"Underval: {row['undervaluation_score']:5.1f} | Price: ₹{row['current_price']:7.1f}")
+              f"Underval: {row['undervaluation_score']:5.1f} | Price: Rs{row['current_price']:7.1f}")
     
     print("\n" + "="*80)
     print("📊 CATEGORY SUMMARY:")
-    print(f"   • Undervalued stocks analyzed: {len(valid_df[valid_df['undervaluation_score'] >= 65])}")
-    print(f"   • Growth stocks identified: {len(valid_df[valid_df.get('growth_score', 0) >= 60])}")
-    print(f"   • Strong fundamental + technical: {len(strong_both) if 'strong_both' in locals() else 0}")
-    print(f"   • Strong fundamental + undervalued: {len(strong_undervalued) if 'strong_undervalued' in locals() else 0}")
+    print(f"   . Undervalued stocks analyzed: {len(valid_df[valid_df['undervaluation_score'] >= 65])}")
+    print(f"   . Growth stocks identified: {len(valid_df[valid_df.get('growth_score', 0) >= 60])}")
+    print(f"   . Strong fundamental + technical: {len(strong_both) if 'strong_both' in locals() else 0}")
+    print(f"   . Strong fundamental + undervalued: {len(strong_undervalued) if 'strong_undervalued' in locals() else 0}")
     print("="*80)
 
 def merge_holdings_and_orders():
@@ -9292,9 +9323,9 @@ def main():
     parser.add_argument('-n', '--num', type=int, default=0, help='Number of stocks to analyze (0 = all stocks in CSV, default: all available)')
     parser.add_argument('-c', '--csv', type=str, help='Path to CSV file with stock symbols (defaults to stock_list_template.csv if available)')
     parser.add_argument('-e', '--export', type=str, help='Export default stock list to a CSV file and exit')
-    parser.add_argument('--portfolio-amount', type=float, default=100000, help='Target portfolio amount for allocation suggestions (default: ₹1,00,000)')
+    parser.add_argument('--portfolio-amount', type=float, default=100000, help='Target portfolio amount for allocation suggestions (default: Rs1,00,000)')
     parser.add_argument('--skip-risk', action='store_true', help='Skip risk analysis (faster execution)')
-    parser.add_argument('--undervalued-only', action='store_true', help='Focus only on undervalued stocks (score ≥65)')
+    parser.add_argument('--undervalued-only', action='store_true', help='Focus only on undervalued stocks (score >=65)')
     parser.add_argument('--top-10-only', action='store_true', help='Show only TOP 10 categories from latest analysis (fast mode)')
     
     # High-risk high-reward investor options
@@ -9314,7 +9345,7 @@ def main():
     
     # Handle export request
     if args.export:
-        export_default_stocks_to_csv(args.export)
+        export_default_stocks_to_export(args.export)
         return
     
     # Handle TOP 10 only mode (quick insights from latest analysis)
@@ -9336,11 +9367,11 @@ def main():
                 generate_top_10_categories(df, analyzer)
                 return
             except Exception as e:
-                print(f"❌ Error reading latest analysis: {e}")
+                print(f"[FAIL] Error reading latest analysis: {e}")
                 print("Please run a full analysis first.")
                 return
         else:
-            print("❌ No previous analysis found. Please run a full analysis first.")
+            print("[FAIL] No previous analysis found. Please run a full analysis first.")
             return
     
     # Initialize enhanced analyzer with parameters
@@ -9400,12 +9431,12 @@ def main():
         analyzer.stock_list = final_stock_list
         
         if portfolio_symbols:
-            print(f"🔍 Analysis will include:")
-            print(f"   📊 Current Holdings: {len([s for s in portfolio_symbols if s in final_stock_list])}/{len(portfolio_symbols)}")
-            print(f"   🔍 Additional Stocks: {len(final_stock_list) - len([s for s in portfolio_symbols if s in final_stock_list])}")
-            print(f"   📈 Total to analyze: {len(final_stock_list)} stocks")
+            print(f"[SEARCH] Analysis will include:")
+            print(f"   [DATA] Current Holdings: {len([s for s in portfolio_symbols if s in final_stock_list])}/{len(portfolio_symbols)}")
+            print(f"   [SEARCH] Additional Stocks: {len(final_stock_list) - len([s for s in portfolio_symbols if s in final_stock_list])}")
+            print(f"   [DATA] Total to analyze: {len(final_stock_list)} stocks")
         else:
-            print(f"🔍 Limited to {args.num} stocks (no portfolio holdings found)")
+            print(f"[SEARCH] Limited to {args.num} stocks (no portfolio holdings found)")
     else:
         # args.num == 0 means analyze all stocks - BUT still prioritize holdings
         # Load current holdings to ensure they're analyzed even with num=0
@@ -9477,15 +9508,15 @@ def main():
         report_file = analyzer.generate_comprehensive_report()
         
         if report_file:
-            print(f"\n🎉 ANALYSIS COMPLETED SUCCESSFULLY!")
-            print(f"📊 Report file: {report_file}")
-            print(f"📝 Log file: {analyzer.log_filename}")
-            print(f"\n💡 TIP: Check the TOP 10 categories above for quick investment insights!")
+            print(f"\n[DONE] ANALYSIS COMPLETED SUCCESSFULLY!")
+            print(f"[FILE] Report file: {report_file}")
+            print(f"[LOG] Log file: {analyzer.log_filename}")
+            print(f"\n[TIP] TIP: Check the TOP 10 categories above for quick investment insights!")
             
             # Auto-generate Portfolio Allocation Dashboard
             try:
                 print(f"\n{'='*90}")
-                print(f"📊 AUTO-GENERATING PORTFOLIO ALLOCATION DASHBOARD")
+                print(f"[DASH] AUTO-GENERATING PORTFOLIO ALLOCATION DASHBOARD")
                 print(f"{'='*90}")
                 
                 import pandas as pd
@@ -9497,7 +9528,7 @@ def main():
                 df_portfolio = df_portfolio.fillna(0)
                 
                 # Convert numeric columns (only if they exist)
-                numeric_cols = ['INVEST_₹', 'BUY_SHARES', 'MY_SHARES', 'MY_VALUE_₹', 'MY_PROFIT_%', 
+                numeric_cols = ['INVEST_Rs', 'BUY_SHARES', 'MY_SHARES', 'MY_VALUE_Rs', 'MY_PROFIT_%', 
                                'BOOK_%_IF_SELL', 'SCORE', 'PRICE', 'current_value', 'risk_adjusted_score']
                 for col in numeric_cols:
                     if col in df_portfolio.columns:
@@ -9505,12 +9536,12 @@ def main():
                 
                 # Calculate stats (with fallback for missing columns)
                 total_stocks = len(df_portfolio)
-                total_value = df_portfolio['MY_VALUE_₹'].sum() if 'MY_VALUE_₹' in df_portfolio.columns else df_portfolio.get('current_value', pd.Series([0])).sum()
-                total_investment = df_portfolio['INVEST_₹'].sum() if 'INVEST_₹' in df_portfolio.columns else 0
+                total_value = df_portfolio['MY_VALUE_Rs'].sum() if 'MY_VALUE_Rs' in df_portfolio.columns else df_portfolio.get('current_value', pd.Series([0])).sum()
+                total_investment = df_portfolio['INVEST_Rs'].sum() if 'INVEST_Rs' in df_portfolio.columns else 0
                 avg_score = df_portfolio['SCORE'].mean() if 'SCORE' in df_portfolio.columns else df_portfolio.get('risk_adjusted_score', pd.Series([0])).mean()
                 profitable = len(df_portfolio[df_portfolio['MY_PROFIT_%'] > 0]) if 'MY_PROFIT_%' in df_portfolio.columns else 0
                 losses = len(df_portfolio[df_portfolio['MY_PROFIT_%'] < 0]) if 'MY_PROFIT_%' in df_portfolio.columns else 0
-                avg_profit = df_portfolio[df_portfolio['MY_VALUE_₹'] > 0]['MY_PROFIT_%'].mean() if 'MY_VALUE_₹' in df_portfolio.columns and 'MY_PROFIT_%' in df_portfolio.columns else 0
+                avg_profit = df_portfolio[df_portfolio['MY_VALUE_Rs'] > 0]['MY_PROFIT_%'].mean() if 'MY_VALUE_Rs' in df_portfolio.columns and 'MY_PROFIT_%' in df_portfolio.columns else 0
                 
                 # Get data for charts
                 actions = df_portfolio['ACTION'].value_counts().to_dict()
@@ -9520,12 +9551,12 @@ def main():
                 
                 # Get priority stocks
                 urgent_sells = df_portfolio[(df_portfolio['ACTION'] == 'SELL') & (df_portfolio['WHEN_TO_ACT'].str.contains('TODAY', na=False))].to_dict('records')
-                urgent_buys = df_portfolio[(df_portfolio['ACTION'] == 'BUY') & (df_portfolio['INVEST_₹'] > 0)].nlargest(10, 'INVEST_₹').to_dict('records')
+                urgent_buys = df_portfolio[(df_portfolio['ACTION'] == 'BUY') & (df_portfolio['INVEST_Rs'] > 0)].nlargest(10, 'INVEST_Rs').to_dict('records')
                 warnings = df_portfolio[(df_portfolio['ACTION'] == 'KEEP') & (df_portfolio['WHEN_TO_ACT'].str.contains('TODAY', na=False))].to_dict('records')
                 profit_booking = df_portfolio[df_portfolio['BOOK_%_IF_SELL'] > 0].to_dict('records')
                 all_stocks = df_portfolio.to_dict('records')
                 
-                print(f"   ✅ Loaded {total_stocks} stocks from Portfolio Allocation")
+                print(f"   [DONE] Loaded {total_stocks} stocks from Portfolio Allocation")
                 
                 # Create HTML dashboard
                 html_content = """<!DOCTYPE html>
@@ -9634,7 +9665,7 @@ def main():
             const pClass = s['MY_PROFIT_%'] > 0 ? 'profit-positive' : 'profit-negative';
             const pSign = s['MY_PROFIT_%'] > 0 ? '+' : '';
             const badgeClass = s.ACTION === 'SELL' ? 'badge-sell' : s.ACTION === 'BUY' ? 'badge-buy' : 'badge-keep';
-            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_₹'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_₹'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_₹'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_₹'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_₹'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${s['MY_PROFIT_%'].toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
+            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_Rs'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${s['MY_PROFIT_%'].toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
         }
         function showList(id, stocks) {
             const html = stocks.length === 0 ? '<div class="empty">No stocks in this category</div>' : '<div class="stock-list">' + stocks.map(s => createStockCard(s)).join('') + '</div>';
@@ -9652,22 +9683,22 @@ def main():
                 with open(dashboard_file, 'w', encoding='utf-8') as f:
                     f.write(html_content)
                 
-                print(f"   ✅ Dashboard created: {dashboard_file}")
-                print(f"   🌐 Opening dashboard in browser...")
+                print(f"   . Dashboard created: {dashboard_file}")
+                print(f"   . Opening dashboard in browser...")
                 
                 # Open in browser
                 webbrowser.open(dashboard_file)
                 
-                print(f"\n   📊 Dashboard Features:")
-                print(f"      • Interactive charts with 4 visualizations")
-                print(f"      • 5 action tabs (Urgent Sells, Top Buys, Warnings, Profit Booking, All Stocks)")
-                print(f"      • Real-time search functionality")
-                print(f"      • Color-coded action badges")
-                print(f"      • Hover effects and smooth animations")
+                print(f"\n   [DASH] Dashboard Features:")
+                print(f"      - Interactive charts with 4 visualizations")
+                print(f"      - 5 action tabs (Urgent Sells, Top Buys, Warnings, Profit Booking, All Stocks)")
+                print(f"      - Real-time search functionality")
+                print(f"      - Color-coded action badges")
+                print(f"      - Hover effects and smooth animations")
                 
             except Exception as dashboard_error:
-                print(f"\n   ⚠️ Dashboard generation failed: {dashboard_error}")
-                print(f"   💡 You can manually run: python create_portfolio_dashboard.py")
+                print(f"\n   [WARN] Dashboard generation failed: {dashboard_error}")
+                print(f"   [TIP] You can manually run: python create_portfolio_dashboard.py")
             
             # Auto-run report comparison if multiple reports exist
             try:
@@ -9678,8 +9709,8 @@ def main():
                 reports_pattern = "reports/Enhanced_Stock_Report_*.xlsx"
                 available_reports = glob.glob(reports_pattern)
                 
-                if len(available_reports) >= 2:
-                    print(f"\n🔄 Auto-running report comparison analysis...")
+                if comparison_score and comparison_score > 0:
+                    print(f"\n[AUTO] Auto-running report comparison analysis...")
                     
                     # Import and run comparison
                     sys.path.insert(0, str(Path(__file__).parent))
@@ -9701,22 +9732,22 @@ def main():
                             generator = ComparisonReportGenerator()
                             comparison_report = generator.generate_comparison_report(comparison_results)
                             
-                            print(f"\n🎉 Comparison analysis completed!")
-                            print(f"📊 Comparison Report: {os.path.basename(comparison_report)}")
+                            print(f"\n[DONE] Comparison analysis completed!")
+                            print(f"[FILE] Comparison Report: {os.path.basename(comparison_report)}")
                             
                         except UnicodeEncodeError as e:
-                            print(f"\n⚠️  Report comparison completed with Unicode encoding warnings (non-critical)")
+                            print(f"\n[WARN] Report comparison completed with Unicode encoding warnings (non-critical)")
                         except Exception as e:
-                            print(f"\n⚠️  Report comparison encountered an issue: {str(e)[:100]}... (non-critical)")
+                            print(f"\n[WARN] Report comparison encountered an issue: {str(e)[:100]}... (non-critical)")
                         
                     except ImportError as ie:
-                        print(f"\n💡 Report comparison module not available: {ie}")
+                        print(f"\n[INFO] Report comparison module not available: {ie}")
                         print("   Run 'python compare_reports.py' manually for detailed comparison")
                     except Exception as ce:
-                        print(f"\n⚠️ Report comparison failed: {ce}")
+                        print(f"\n[WARN] Report comparison failed: {ce}")
                         print("   You can run 'python compare_reports.py' manually")
                 else:
-                    print(f"\n💡 Generate another report to enable automatic comparison analysis")
+                    print(f"\n[TIP] Generate another report to enable automatic comparison analysis")
                     
             except Exception as e:
                 # Don't fail the main analysis if comparison fails
@@ -9742,9 +9773,9 @@ def main():
                 print(f"   You can run 'python smart_profit_booking_advisor.py' manually")
                 
         else:
-            print(f"\n⚠️  Analysis completed but report generation failed")
+            print(f"\n[WARN] Analysis completed but report generation failed")
     else:
-        print(f"\n❌ Analysis failed - no results generated")
+        print(f"\n[FAIL] Analysis failed - no results generated")
 
 if __name__ == "__main__":
     main()
