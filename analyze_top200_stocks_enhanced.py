@@ -5471,6 +5471,7 @@ class EnhancedTop200StockAnalyzer:
                                 star['recommendation'] = "BUY (SWAP)"
                                 star['action_comment'] = f"Funded by selling {med['symbol']}"
                                 star['is_matched'] = True
+                                star['swap_source_value'] = med.get('current_value', 0) # Store source value for capping
                                 
                                 swaps_found += 1
                                 break
@@ -5540,10 +5541,15 @@ class EnhancedTop200StockAnalyzer:
                     
                     
                     # Calculate optimal investment
-                    # 🚀 SWAP TARGET: Use available budget (mimic previous position size)
                     if opportunity.get('recommendation') == 'BUY (SWAP)':
-                        optimal_investment = remaining_budget
-                        print(f"      🚀 SWAP TARGET {opportunity['symbol']}: Bypassing cap -> ₹{optimal_investment:,.0f} (Budget: ₹{remaining_budget:,.0f})")
+                        # Logic: Invest either the Recycled Amount OR the Standard Max Allocation (whichever is higher)
+                        # This prevents dumping 100% of a large cash pile into a single swap.
+                        source_val = opportunity.get('swap_source_value', 0)
+                        standard_cap = opportunity.get('max_investment', 0)
+                        safe_cap = max(source_val, standard_cap)
+                        
+                        optimal_investment = min(remaining_budget, safe_cap)
+                        print(f"      🚀 SWAP TARGET {opportunity['symbol']}: Budget={remaining_budget:.0f} Recycled={source_val:.0f} Cap={safe_cap:.0f} -> Inv={optimal_investment:.0f}")
                     else:
                         optimal_investment = min(
                             opportunity['max_investment'],
