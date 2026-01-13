@@ -74,7 +74,10 @@ class PortfolioInsights:
             instrument = stock['Instrument']
             return_pct = stock.get('Return_Pct', 0)
             current_value = stock.get('Cur. val', 0)
+            # Get day change, handle NaN/None values safely
             day_change = stock.get('Day chg.', 0)
+            if pd.isna(day_change):
+                day_change = 0
             
             # Get enhanced data if available
             risk_category = stock.get('risk_category', 'MEDIUM')

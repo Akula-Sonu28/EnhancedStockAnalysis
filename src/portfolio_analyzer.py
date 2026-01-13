@@ -113,7 +113,8 @@ class PortfolioAnalyzer:
                     self.portfolio_data['Invested'] = pd.to_numeric(df['Invested'], errors='coerce')
                     self.portfolio_data['Current Value'] = pd.to_numeric(df['Cur. val'], errors='coerce')
                     self.portfolio_data['Profit/Loss'] = pd.to_numeric(df['P&L'], errors='coerce')
-                    self.portfolio_data['Percent Change'] = pd.to_numeric(df['Net chg.'], errors='coerce')
+                    # Net chg. can be empty - fill with 0 after conversion
+                    self.portfolio_data['Percent Change'] = pd.to_numeric(df['Net chg.'], errors='coerce').fillna(0)
                 except Exception as e:
                     logging.warning(f"Error converting numeric columns: {e}, using calculated values instead")
                     # Calculate these values manually if conversion fails

@@ -740,7 +740,8 @@ Expected Impact:
                     'Current_Value': holding.get('Cur. val', 0),
                     'PnL': holding.get('P&L', 0),
                     'Return_Pct': holding.get('Return_Pct', 0),
-                    'Day_Change_Pct': holding.get('Day chg.', 0),
+                    # Handle Day chg. safely - could be NaN or empty
+                    'Day_Change_Pct': holding.get('Day chg.', 0) if not pd.isna(holding.get('Day chg.', 0)) else 0,
                     
                     # Technical Analysis
                     'Support_1_S1': signals.get('support_1', 0),

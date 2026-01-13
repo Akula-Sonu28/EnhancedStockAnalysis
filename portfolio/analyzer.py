@@ -321,6 +321,9 @@ class PortfolioAnalyzer:
             for col in numeric_columns:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
+                    # Fill NaN values with 0 for Net chg. and Day chg. (these columns can be empty)
+                    if col in ['Net chg.', 'Day chg.']:
+                        df[col] = df[col].fillna(0)
             
             # Clean instrument names
             if 'Instrument' in df.columns:
@@ -373,9 +376,10 @@ class PortfolioAnalyzer:
             metrics['top_5_concentration'] = self.holdings_df.nlargest(5, 'Weight')['Weight'].sum()
             metrics['number_of_holdings'] = len(self.holdings_df)
             
-            # Day Change Analysis
-            day_pnl = (self.holdings_df['Day chg.'] * self.holdings_df['Cur. val'] / 100).sum()
-            metrics['day_pnl'] = day_pnl
+            # Day Change Analysis (handle NaN values safely)
+            day_change_values = self.holdings_df['Day chg.'].fillna(0)
+            day_pnl = (day_change_values * self.holdings_df['Cur. val'] / 100).sum()
+            metrics['day_pnl'] = day_pnl if not pd.isna(day_pnl) else 0
             metrics['day_return_pct'] = (day_pnl / total_current_value * 100) if total_current_value > 0 else 0
             
             self.portfolio_metrics = metrics

@@ -4342,6 +4342,15 @@ class EnhancedTop200StockAnalyzer:
                 
                 print(f"   [FILE] Loaded holdings from: {latest_holdings} (direct holdings file)")
                 
+                # Clean numeric columns immediately (handle strings with commas like "49,112.00")
+                numeric_cols = ['Qty.', 'Avg. cost', 'LTP', 'Invested', 'Cur. val', 'P&L', 'Net chg.', 'Day chg.']
+                for col in numeric_cols:
+                    if col in holdings_df.columns:
+                        # Remove commas and convert to numeric
+                        if holdings_df[col].dtype == 'object':
+                            holdings_df[col] = holdings_df[col].str.replace(',', '', regex=False)
+                        holdings_df[col] = pd.to_numeric(holdings_df[col], errors='coerce').fillna(0)
+                
                 # Filter out zero quantity stocks
                 if 'Qty.' in holdings_df.columns:
                     initial_count = len(holdings_df)
@@ -4401,10 +4410,17 @@ class EnhancedTop200StockAnalyzer:
             current_sectors = {}
             
             if current_holdings is not None and not current_holdings.empty:
-                current_portfolio_value = current_holdings['Cur. val'].sum()
+                # Ensure numeric columns are properly converted (handle strings with commas)
+                numeric_cols = ['Cur. val', 'Invested', 'Qty.', 'Avg. cost', 'LTP', 'P&L']
+                for col in numeric_cols:
+                    if col in current_holdings.columns:
+                        current_holdings[col] = pd.to_numeric(current_holdings[col], errors='coerce').fillna(0)
+                
+                current_portfolio_value = float(current_holdings['Cur. val'].sum())
+                
                 if 'Sector' in current_holdings.columns:
                     sector_values = current_holdings.groupby('Sector')['Cur. val'].sum()
-                    current_sectors = {sector: value/current_portfolio_value for sector, value in sector_values.items()}
+                    current_sectors = {sector: float(value)/current_portfolio_value for sector, value in sector_values.items()}
                 
                 print(f"   📊 Current Portfolio: ₹{current_portfolio_value:,.0f} across {len(current_holdings)} stocks")
                 print(f"   💰 Available Funds: ₹{target_amount:,.0f}")
@@ -6945,7 +6961,11 @@ Trading Plan ({risk_tolerance} RISK):
                 if portfolio_allocation:
                     alloc_df = portfolio_allocation['allocation_df']
                     
-                    # 🔧 ENHANCED: Comprehensive retail investor decision-making columns
+                    # � DEBUG: Check what columns are actually in alloc_df
+                    print(f"   🔍 Portfolio Allocation columns available: {len(alloc_df.columns)}")
+                    print(f"      Columns: {list(alloc_df.columns)[:10]}...")  # Show first 10
+                    
+                    # �🔧 ENHANCED: Comprehensive retail investor decision-making columns
                     essential_cols = [
                         # TIER 1: CRITICAL - Action & Timing
                         'symbol', 
@@ -6998,6 +7018,11 @@ Trading Plan ({risk_tolerance} RISK):
                     ]
                     
                     # 🔧 FIX: Add missing columns with defaults before selection
+                    missing_cols = [col for col in essential_cols if col not in alloc_df.columns]
+                    if missing_cols:
+                        print(f"   ⚠️  WARNING: {len(missing_cols)} columns missing from allocation_df")
+                        print(f"      Missing: {missing_cols[:5]}...")  # Show first 5
+                    
                     for col in essential_cols:
                         if col not in alloc_df.columns:
                             # Set appropriate defaults based on column type
@@ -7011,6 +7036,8 @@ Trading Plan ({risk_tolerance} RISK):
                                 alloc_df[col] = False
                             else:
                                 alloc_df[col] = None
+                    
+                    print(f"   ✅ After adding defaults: {len(alloc_df.columns)} total columns")
                     
                     # Only include columns that exist
                     existing_cols = [col for col in essential_cols if col in alloc_df.columns]
@@ -7125,8 +7152,12 @@ Trading Plan ({risk_tolerance} RISK):
                     
                     # Format Portfolio Summary
                     self._format_portfolio_summary(writer, summary_sheet, header_format, metric_value_format, price_format, percent_format)
+                    
+                    print(f"   ✅ Full Portfolio Allocation sheet created with {len(alloc_df_simple.columns)} columns")
                 else:
                     # Fallback: Create Portfolio Allocation from 60/40 strategy results if available
+                    print(f"   ⚠️  WARNING: Using FALLBACK Portfolio Allocation (minimal columns)")
+                    print(f"      Reason: portfolio_allocation is None or empty")
                     try:
                         # Load current holdings
                         current_holdings = self._load_current_holdings()
