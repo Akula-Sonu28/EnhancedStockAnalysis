@@ -4300,17 +4300,196 @@ class EnhancedTop200StockAnalyzer:
         except:
             return 1.0
     
+    def _load_holdings_from_excel(self, excel_file_path):
+        """
+        Load holdings from Excel file with column mapping
+        Excel format: Stock Name, ISIN, Quantity, Average buy price, Buy value, Closing price, Closing value, Unrealised P&L
+        Header is at row 11 (index 10)
+        """
+        try:
+            # Read Excel with header at row 11
+            df = pd.read_excel(excel_file_path, sheet_name='Sheet1', header=10)
+            
+            # Column mapping: Excel → CSV format
+            column_mapping = {
+                'Stock Name': 'Instrument',
+                'Quantity': 'Qty.',
+                'Average buy price': 'Avg. cost',
+                'Closing price': 'LTP',
+                'Closing value': 'Cur. val',
+                'Unrealised P&L': 'P&L'
+            }
+            
+            # Rename columns
+            df = df.rename(columns=column_mapping)
+            
+            # Extract symbol from Stock Name (keep both for matching)
+            if 'Instrument' in df.columns:
+                df['Company Name'] = df['Instrument'].copy()
+                df['Instrument'] = df['Instrument'].apply(self._extract_symbol_from_company_name)
+            
+            # Calculate Net chg. (not provided in Excel, set to 0)
+            df['Net chg.'] = 0.0
+            
+            # Calculate Day chg. (not provided in Excel, set to 0)
+            df['Day chg.'] = 0.0
+            
+            # Calculate Invested amount
+            if 'Avg. cost' in df.columns and 'Qty.' in df.columns:
+                df['Invested'] = df['Avg. cost'] * df['Qty.']
+            
+            # Sector will be filled later from analysis (set to empty for now)
+            df['Sector'] = ''
+            
+            # Clean numeric columns (handle commas and convert to numeric)
+            numeric_cols = ['Qty.', 'Avg. cost', 'LTP', 'Invested', 'Cur. val', 'P&L', 'Net chg.', 'Day chg.']
+            for col in numeric_cols:
+                if col in df.columns:
+                    # Remove commas and convert to numeric
+                    if df[col].dtype == 'object':
+                        df[col] = df[col].astype(str).str.replace(',', '', regex=False)
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            
+            print(f"   ✅ Loaded {len(df)} holdings from Excel file (header row 11)")
+            return df
+            
+        except Exception as e:
+            print(f"   ⚠️  Error loading Excel holdings: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _extract_symbol_from_company_name(self, stock_name):
+        """
+        Extract NSE symbol from company name
+        Common patterns:
+        - "State Bank of India" → "SBIN"
+        - "Reliance Industries Limited" → "RELIANCE"
+        - "Tata Consultancy Services Limited" → "TCS"
+        """
+        if pd.isna(stock_name):
+            return ''
+        
+        # Common mappings for major stocks
+        name_to_symbol = {
+            'STATE BANK OF INDIA': 'SBIN',
+            'HDFC BANK LIMITED': 'HDFCBANK',
+            'ICICI BANK LIMITED': 'ICICIBANK',
+            'RELIANCE INDUSTRIES LIMITED': 'RELIANCE',
+            'TATA CONSULTANCY SERVICES LIMITED': 'TCS',
+            'INFOSYS LIMITED': 'INFY',
+            'BHARTI AIRTEL LIMITED': 'BHARTIARTL',
+            'HINDUSTAN UNILEVER LIMITED': 'HINDUNILVR',
+            'ITC LIMITED': 'ITC',
+            'AXIS BANK LIMITED': 'AXISBANK',
+            'KOTAK MAHINDRA BANK LIMITED': 'KOTAKBANK',
+            'LARSEN & TOUBRO LIMITED': 'LT',
+            'ASIAN PAINTS LIMITED': 'ASIANPAINT',
+            'MARUTI SUZUKI INDIA LIMITED': 'MARUTI',
+            'MAHINDRA & MAHINDRA LIMITED': 'M&M',
+            'WIPRO LIMITED': 'WIPRO',
+            'ULTRATECH CEMENT LIMITED': 'ULTRACEMCO',
+            'TITAN COMPANY LIMITED': 'TITAN',
+            'BAJAJ FINANCE LIMITED': 'BAJFINANCE',
+            'NESTLE INDIA LIMITED': 'NESTLEIND',
+            'HCL TECHNOLOGIES LIMITED': 'HCLTECH',
+            'SUN PHARMACEUTICAL INDUSTRIES LIMITED': 'SUNPHARMA',
+            'POWER GRID CORPORATION OF INDIA LIMITED': 'POWERGRID',
+            'NTPC LIMITED': 'NTPC',
+            'TATA STEEL LIMITED': 'TATASTEEL',
+            'ONGC': 'ONGC',
+            'COAL INDIA LIMITED': 'COALINDIA',
+            'COAL INDIA LTD': 'COALINDIA',
+            'GRASIM INDUSTRIES LIMITED': 'GRASIM',
+            'ADANI PORTS AND SPECIAL ECONOMIC ZONE LIMITED': 'ADANIPORTS',
+            'TECH MAHINDRA LIMITED': 'TECHM',
+            'HINDALCO INDUSTRIES LIMITED': 'HINDALCO',
+            'HINDALCO  INDUSTRIES  LTD': 'HINDALCO',
+            'INDUSIND BANK LIMITED': 'INDUSINDBK',
+            'SHREE CEMENT LIMITED': 'SHREECEM',
+            'BAJAJ AUTO LIMITED': 'BAJAJ-AUTO',
+            'BRITANNIA INDUSTRIES LIMITED': 'BRITANNIA',
+            'EICHER MOTORS LIMITED': 'EICHERMOT',
+            'HERO MOTOCORP LIMITED': 'HEROMOTOCO',
+            'DIVIS LABORATORIES LIMITED': 'DIVISLAB',
+            'TATA MOTORS LIMITED': 'TATAMOTORS',
+            'CIPLA LIMITED': 'CIPLA',
+            'DR. REDDYS LABORATORIES LIMITED': 'DRREDDY',
+            'UPL LIMITED': 'UPL',
+            'JSW STEEL LIMITED': 'JSWSTEEL',
+            'BHARAT PETROLEUM CORPORATION LIMITED': 'BPCL',
+            'INDIAN OIL CORPORATION LIMITED': 'IOC',
+            'BANK OF MAHARASHTRA': 'MAHABANK',
+            'FEDERAL BANK LIMITED': 'FEDERALBNK',
+            'FEDERAL BANK LTD': 'FEDERALBNK',
+            'INDRAPRASTHA GAS LIMITED': 'IGL',
+            'INDRAPRASTHA GAS LTD': 'IGL',
+            'LIC HOUSING FINANCE LIMITED': 'LICHSGFIN',
+            'LIC HOUSING FINANCE LTD': 'LICHSGFIN',
+            'MUTHOOT FINANCE LIMITED': 'MUTHOOTFIN',
+            'NATIONAL ALUMINIUM COMPANY LIMITED': 'NATIONALUM',
+            'NATIONAL ALUMINIUM CO LTD': 'NATIONALUM',
+            'PUNJAB NATIONAL BANK': 'PNB',
+            'CANARA BANK': 'CANBK',
+            'BANK OF BARODA': 'BANKBARODA',
+            'UNION BANK OF INDIA': 'UNIONBANK',
+            'INDIAN BANK': 'INDIANB',
+            'CENTRAL BANK OF INDIA': 'CENTRALBK',
+            'IDBI BANK LIMITED': 'IDBI',
+            'UCO BANK': 'UCOBANK',
+            'BANK OF INDIA': 'BANKINDIA',
+            'PUNJAB & SIND BANK': 'PSB',
+            'NMDC LIMITED': 'NMDC',
+            'NMDC LTD': 'NMDC',
+            'NMDC LTD.': 'NMDC',
+            'REC LIMITED': 'RECLTD',
+            'RURAL ELECTRIFICATION CORPORATION LIMITED': 'RECLTD',
+            'POWER FINANCE CORPORATION LIMITED': 'PFC',
+            'PFC': 'PFC',
+            'MARUTI SUZUKI INDIA LIMITED': 'MARUTI',
+            'MARUTI SUZUKI INDIA LTD': 'MARUTI',
+            'MARUTI SUZUKI INDIA LTD.': 'MARUTI',
+            'WIPRO LTD': 'WIPRO',
+            'WIPRO LTD.': 'WIPRO'
+        }
+        
+        # Normalize company name
+        normalized_name = stock_name.upper().strip()
+        
+        # Check exact match in mapping
+        if normalized_name in name_to_symbol:
+            return name_to_symbol[normalized_name]
+        
+        # Try partial match (if mapping key is contained in stock name)
+        for key, symbol in name_to_symbol.items():
+            if key in normalized_name or normalized_name.startswith(key.split()[0]):
+                return symbol
+        
+        # Fallback: Remove common suffixes and use first word or full name
+        for suffix in [' LIMITED', ' LTD', ' LTD.', ' INDIA', ' INDUSTRIES']:
+            normalized_name = normalized_name.replace(suffix, '')
+        
+        # If single word remaining, use it
+        words = normalized_name.split()
+        if len(words) == 1:
+            return words[0]
+        
+        # Return the stock name as-is if no match (will be resolved during analysis merge)
+        print(f"   ⚠️  Could not extract symbol from '{stock_name}', using as-is")
+        return stock_name.strip()
+    
     def _load_current_holdings(self):
-        """Load current portfolio holdings from portfolio.csv or holdings file"""
+        """Load current portfolio holdings from CSV or Excel holdings file"""
         try:
             import glob
             
-            # Check if we have both holdings and orders files - then use merged
-            holdings_files = glob.glob('Holding/holdings*.csv')
+            # Check for both CSV and Excel holdings files
+            holdings_csv_files = glob.glob('Holding/holdings*.csv')
+            holdings_excel_files = glob.glob('Holding/Stocks_Holdings_Statement_*.xlsx')
             orders_files = glob.glob('Holding/orders*.csv') + glob.glob('orders*.csv')
             
             # If we have both holdings and orders, use merged portfolio
-            if holdings_files and orders_files:
+            if holdings_csv_files and orders_files:
                 merged_files = glob.glob('reports/merged_portfolio_*.xlsx')
                 if merged_files:
                     # Get the most recent merged file
@@ -4330,26 +4509,35 @@ class EnhancedTop200StockAnalyzer:
                     except Exception as e:
                         print(f"   ⚠️  Could not read merged file {latest_merged}: {e}")
             
-            # If only holdings file exists, use it directly (prioritize fresh data)
-            elif holdings_files:
-                latest_holdings = max(holdings_files, key=os.path.getmtime)
-                # Try different encodings
-                try:
-                    holdings_df = pd.read_csv(latest_holdings) # Try default (utf-8)
-                except UnicodeDecodeError:
-                    print(f"   ⚠️  UTF-8 decoding failed, retrying with 'latin1'...")
-                    holdings_df = pd.read_csv(latest_holdings, encoding='latin1')
+            # If only holdings file exists (CSV or Excel), use it directly
+            elif holdings_csv_files or holdings_excel_files:
+                # Combine both and get the most recent
+                all_holdings_files = holdings_csv_files + holdings_excel_files
+                latest_holdings = max(all_holdings_files, key=os.path.getmtime)
                 
-                print(f"   [FILE] Loaded holdings from: {latest_holdings} (direct holdings file)")
-                
-                # Clean numeric columns immediately (handle strings with commas like "49,112.00")
-                numeric_cols = ['Qty.', 'Avg. cost', 'LTP', 'Invested', 'Cur. val', 'P&L', 'Net chg.', 'Day chg.']
-                for col in numeric_cols:
-                    if col in holdings_df.columns:
-                        # Remove commas and convert to numeric
-                        if holdings_df[col].dtype == 'object':
-                            holdings_df[col] = holdings_df[col].str.replace(',', '', regex=False)
-                        holdings_df[col] = pd.to_numeric(holdings_df[col], errors='coerce').fillna(0)
+                # Load based on file type
+                if latest_holdings.endswith('.xlsx'):
+                    # Excel file - read with header at row 11
+                    holdings_df = self._load_holdings_from_excel(latest_holdings)
+                    print(f"   [FILE] Loaded holdings from: {latest_holdings} (Excel format)")
+                else:
+                    # CSV file - use existing logic
+                    try:
+                        holdings_df = pd.read_csv(latest_holdings) # Try default (utf-8)
+                    except UnicodeDecodeError:
+                        print(f"   ⚠️  UTF-8 decoding failed, retrying with 'latin1'...")
+                        holdings_df = pd.read_csv(latest_holdings, encoding='latin1')
+                    
+                    print(f"   [FILE] Loaded holdings from: {latest_holdings} (CSV format)")
+                    
+                    # Clean numeric columns immediately (handle strings with commas like "49,112.00")
+                    numeric_cols = ['Qty.', 'Avg. cost', 'LTP', 'Invested', 'Cur. val', 'P&L', 'Net chg.', 'Day chg.']
+                    for col in numeric_cols:
+                        if col in holdings_df.columns:
+                            # Remove commas and convert to numeric
+                            if holdings_df[col].dtype == 'object':
+                                holdings_df[col] = holdings_df[col].str.replace(',', '', regex=False)
+                            holdings_df[col] = pd.to_numeric(holdings_df[col], errors='coerce').fillna(0)
                 
                 # Filter out zero quantity stocks
                 if 'Qty.' in holdings_df.columns:

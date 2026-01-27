@@ -70,23 +70,32 @@ class PortfolioAnalyzer:
         try:
             # Auto-detect latest files if patterns not provided
             if holdings_pattern is None:
-                holdings_pattern = "Holding/holdings*.csv"
+                # Try both CSV and Excel patterns
+                csv_files = glob.glob("Holding/holdings*.csv")
+                excel_files = glob.glob("Holding/Stocks_Holdings_Statement_*.xlsx")
+                
+                holdings_files = csv_files + excel_files
+            else:
+                holdings_files = glob.glob(holdings_pattern)
+            
             if report_pattern is None:
                 report_pattern = "reports/Enhanced_Stock_Report_*.xlsx"
                 
             # Find latest holdings file
-            holdings_files = glob.glob(holdings_pattern)
             if not holdings_files:
-                self.logger.error(f"No holdings files found with pattern: {holdings_pattern}")
+                self.logger.error(f"No holdings files found (CSV or Excel)")
                 return False
                 
             latest_holdings = max(holdings_files, key=os.path.getctime)
             self.holdings_file = latest_holdings  # Store file path for executor
             self.logger.info(f"Loading holdings from: {latest_holdings}")
             
-            # Load holdings data
-            self.holdings_df = pd.read_csv(latest_holdings)
-            self.holdings_df = self._clean_holdings_data(self.holdings_df)
+            # Load holdings data based on file type
+            if latest_holdings.endswith('.xlsx'):
+                self.holdings_df = self._load_holdings_from_excel(latest_holdings)
+            else:
+                self.holdings_df = pd.read_csv(latest_holdings)
+                self.holdings_df = self._clean_holdings_data(self.holdings_df)
             
             # Check for and merge orders files
             self._merge_orders_with_holdings(latest_holdings)
@@ -114,6 +123,179 @@ class PortfolioAnalyzer:
             self.logger.error(f"Error loading portfolio data: {str(e)}")
             return False
 
+    def _load_holdings_from_excel(self, excel_file_path: str) -> pd.DataFrame:
+        """
+        Load holdings from Excel file with column mapping
+        Excel format: Stock Name, ISIN, Quantity, Average buy price, Buy value, Closing price, Closing value, Unrealised P&L
+        Header is at row 11 (index 10)
+        """
+        try:
+            # Read Excel with header at row 11
+            df = pd.read_excel(excel_file_path, sheet_name='Sheet1', header=10)
+            
+            # Column mapping: Excel → CSV format
+            column_mapping = {
+                'Stock Name': 'Instrument',
+                'Quantity': 'Qty.',
+                'Average buy price': 'Avg. cost',
+                'Closing price': 'LTP',
+                'Closing value': 'Cur. val',
+                'Unrealised P&L': 'P&L'
+            }
+            
+            # Rename columns
+            df = df.rename(columns=column_mapping)
+            
+            # Extract symbol from Stock Name (keep both for now)
+            if 'Instrument' in df.columns:
+                df['Company Name'] = df['Instrument'].copy()
+                df['Instrument'] = df['Instrument'].apply(self._extract_symbol_from_name)
+            
+            # Calculate Net chg. (not provided in Excel, set to 0)
+            df['Net chg.'] = 0.0
+            
+            # Calculate Day chg. (not provided in Excel, set to 0)
+            df['Day chg.'] = 0.0
+            
+            # Calculate Invested amount
+            if 'Avg. cost' in df.columns and 'Qty.' in df.columns:
+                df['Invested'] = df['Avg. cost'] * df['Qty.']
+            
+            # Sector will be filled later from analysis (set to empty for now)
+            df['Sector'] = ''
+            
+            # Clean and convert numeric columns
+            df = self._clean_holdings_data(df)
+            
+            self.logger.info(f"Loaded {len(df)} holdings from Excel file")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error loading Excel holdings: {str(e)}")
+            raise
+    
+    def _extract_symbol_from_name(self, stock_name: str) -> str:
+        """
+        Extract NSE symbol from company name
+        Common patterns:
+        - "State Bank of India" → "SBIN"
+        - "Reliance Industries Limited" → "RELIANCE"
+        - "Tata Consultancy Services Limited" → "TCS"
+        """
+        if pd.isna(stock_name):
+            return ''
+        
+        # Common mappings for major stocks
+        name_to_symbol = {
+            'STATE BANK OF INDIA': 'SBIN',
+            'HDFC BANK LIMITED': 'HDFCBANK',
+            'ICICI BANK LIMITED': 'ICICIBANK',
+            'RELIANCE INDUSTRIES LIMITED': 'RELIANCE',
+            'TATA CONSULTANCY SERVICES LIMITED': 'TCS',
+            'INFOSYS LIMITED': 'INFY',
+            'BHARTI AIRTEL LIMITED': 'BHARTIARTL',
+            'HINDUSTAN UNILEVER LIMITED': 'HINDUNILVR',
+            'ITC LIMITED': 'ITC',
+            'AXIS BANK LIMITED': 'AXISBANK',
+            'KOTAK MAHINDRA BANK LIMITED': 'KOTAKBANK',
+            'LARSEN & TOUBRO LIMITED': 'LT',
+            'ASIAN PAINTS LIMITED': 'ASIANPAINT',
+            'MARUTI SUZUKI INDIA LIMITED': 'MARUTI',
+            'MAHINDRA & MAHINDRA LIMITED': 'M&M',
+            'WIPRO LIMITED': 'WIPRO',
+            'ULTRATECH CEMENT LIMITED': 'ULTRACEMCO',
+            'TITAN COMPANY LIMITED': 'TITAN',
+            'BAJAJ FINANCE LIMITED': 'BAJFINANCE',
+            'NESTLE INDIA LIMITED': 'NESTLEIND',
+            'HCL TECHNOLOGIES LIMITED': 'HCLTECH',
+            'SUN PHARMACEUTICAL INDUSTRIES LIMITED': 'SUNPHARMA',
+            'POWER GRID CORPORATION OF INDIA LIMITED': 'POWERGRID',
+            'NTPC LIMITED': 'NTPC',
+            'TATA STEEL LIMITED': 'TATASTEEL',
+            'ONGC': 'ONGC',
+            'COAL INDIA LIMITED': 'COALINDIA',
+            'COAL INDIA LTD': 'COALINDIA',
+            'GRASIM INDUSTRIES LIMITED': 'GRASIM',
+            'ADANI PORTS AND SPECIAL ECONOMIC ZONE LIMITED': 'ADANIPORTS',
+            'TECH MAHINDRA LIMITED': 'TECHM',
+            'HINDALCO INDUSTRIES LIMITED': 'HINDALCO',
+            'HINDALCO  INDUSTRIES  LTD': 'HINDALCO',
+            'INDUSIND BANK LIMITED': 'INDUSINDBK',
+            'SHREE CEMENT LIMITED': 'SHREECEM',
+            'BAJAJ AUTO LIMITED': 'BAJAJ-AUTO',
+            'BRITANNIA INDUSTRIES LIMITED': 'BRITANNIA',
+            'EICHER MOTORS LIMITED': 'EICHERMOT',
+            'HERO MOTOCORP LIMITED': 'HEROMOTOCO',
+            'DIVIS LABORATORIES LIMITED': 'DIVISLAB',
+            'TATA MOTORS LIMITED': 'TATAMOTORS',
+            'CIPLA LIMITED': 'CIPLA',
+            'DR. REDDYS LABORATORIES LIMITED': 'DRREDDY',
+            'UPL LIMITED': 'UPL',
+            'JSW STEEL LIMITED': 'JSWSTEEL',
+            'BHARAT PETROLEUM CORPORATION LIMITED': 'BPCL',
+            'INDIAN OIL CORPORATION LIMITED': 'IOC',
+            'BANK OF MAHARASHTRA': 'MAHABANK',
+            'FEDERAL BANK LIMITED': 'FEDERALBNK',
+            'FEDERAL BANK LTD': 'FEDERALBNK',
+            'INDRAPRASTHA GAS LIMITED': 'IGL',
+            'INDRAPRASTHA GAS LTD': 'IGL',
+            'LIC HOUSING FINANCE LIMITED': 'LICHSGFIN',
+            'LIC HOUSING FINANCE LTD': 'LICHSGFIN',
+            'MUTHOOT FINANCE LIMITED': 'MUTHOOTFIN',
+            'NATIONAL ALUMINIUM COMPANY LIMITED': 'NATIONALUM',
+            'NATIONAL ALUMINIUM CO LTD': 'NATIONALUM',
+            'PUNJAB NATIONAL BANK': 'PNB',
+            'CANARA BANK': 'CANBK',
+            'BANK OF BARODA': 'BANKBARODA',
+            'UNION BANK OF INDIA': 'UNIONBANK',
+            'INDIAN BANK': 'INDIANB',
+            'CENTRAL BANK OF INDIA': 'CENTRALBK',
+            'IDBI BANK LIMITED': 'IDBI',
+            'UCO BANK': 'UCOBANK',
+            'BANK OF INDIA': 'BANKINDIA',
+            'PUNJAB & SIND BANK': 'PSB',
+            'NMDC LIMITED': 'NMDC',
+            'NMDC LTD': 'NMDC',
+            'NMDC LTD.': 'NMDC',
+            'REC LIMITED': 'RECLTD',
+            'RURAL ELECTRIFICATION CORPORATION LIMITED': 'RECLTD',
+            'POWER FINANCE CORPORATION LIMITED': 'PFC',
+            'PFC': 'PFC',
+            'MARUTI SUZUKI INDIA LIMITED': 'MARUTI',
+            'MARUTI SUZUKI INDIA LTD': 'MARUTI',
+            'MARUTI SUZUKI INDIA LTD.': 'MARUTI',
+            'WIPRO LTD': 'WIPRO',
+            'WIPRO LTD.': 'WIPRO'
+        }
+        
+        # Normalize company name
+        normalized_name = stock_name.upper().strip()
+        
+        # Check exact match in mapping
+        if normalized_name in name_to_symbol:
+            return name_to_symbol[normalized_name]
+        
+        # Try partial match (if mapping key is contained in stock name)
+        for key, symbol in name_to_symbol.items():
+            if key in normalized_name or normalized_name in key:
+                return symbol
+        
+        # Fallback: Extract first word or acronym-like pattern
+        # Remove common suffixes
+        for suffix in [' LIMITED', ' LTD', ' LTD.', ' INDIA', ' INDUSTRIES']:
+            normalized_name = normalized_name.replace(suffix, '')
+        
+        # If single word remaining, use it
+        words = normalized_name.split()
+        if len(words) == 1:
+            return words[0]
+        
+        # If multiple words, try to create acronym from capital letters
+        # e.g., "STATE BANK" → "SB" but we prefer full match
+        # Return the stock name as-is if no match (will be resolved during analysis merge)
+        self.logger.warning(f"Could not extract symbol from '{stock_name}', using as-is")
+        return stock_name.strip()
+    
     def _merge_orders_with_holdings(self, holdings_file_path):
         """
         Check for orders files in the same directory as holdings and merge them
