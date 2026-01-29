@@ -5756,7 +5756,18 @@ class EnhancedTop200StockAnalyzer:
                             # Get market cap category and max allocation percentage
                             cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
                             max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                            max_additional = max(0, max_allocation_per_stock - current_value)
+                            
+                            # 🔧 FIX: Allow top performers (score >= 80 or rank <= 6) to exceed normal cap
+                            # This ensures best stocks get fresh capital even if already well-allocated
+                            score = row.get('final_blended_score', row.get('improved_overall_score', 0))
+                            is_top_scorer = score >= 80 or rank <= 6
+                            
+                            if is_top_scorer:
+                                # Allow up to 150% of normal cap for elite stocks
+                                extended_cap = max_allocation_per_stock * 1.5
+                                max_additional = max(0, extended_cap - current_value)
+                            else:
+                                max_additional = max(0, max_allocation_per_stock - current_value)
                             
                             # allow all holdings to be added (for SWAP analysis), even if fully allocated
                             if True: 
@@ -6589,63 +6600,22 @@ class EnhancedTop200StockAnalyzer:
             new_pos_mask = allocation_df['action_recommendation'] == 'NEW POSITION'
             new_positions_df = allocation_df[new_pos_mask].copy()
             
+            # 🔧 DISABLED: RE-CALCULATION section that was overwriting unified allocation
+            # The unified ranking-based allocation (lines 5700-6100) already handles proper
+            # distribution across INCREASE + BUY opportunities. This re-calculation was
+            # giving ALL fresh capital to NEW POSITIONS, starving existing holdings.
+            # Keep the SKIP logic for limiting new positions, but don't recalculate amounts.
+            
             if not new_positions_df.empty and 'overall_score' in new_positions_df.columns:
                 # 2. Sort by Score and Limit to Top 20
                 new_positions_df.sort_values(by='overall_score', ascending=False, inplace=True)
                 top_20_symbols = new_positions_df.head(20)['symbol'].tolist()
                 
-                # 3. Mark excess as SKIP
+                # 3. Mark excess as SKIP (keep only top scoring new positions)
                 allocation_df.loc[(new_pos_mask) & (~allocation_df['symbol'].isin(top_20_symbols)), 'action_recommendation'] = 'SKIP'
                 
-                # 4. Re-calculate Allocation for Top 20 (Dynamic User Budget)
-                # Strategy: Score-Based Allocation (Normalized to use full budget)
-                final_new_count = len(top_20_symbols)
-                if final_new_count > 0:
-                    # ✅ DYNAMIC BUDGET: Use the portfolio amount passed via command line arguments
-                    user_budget = getattr(self, 'portfolio_amount', 100000.0)
-                    
-                    print(f"      🔧 RE-CALCULATION: allocating ₹{user_budget:,.2f} across {final_new_count} stocks (Score-Based)")
-                    
-                    # Ensure numeric types first
-                    allocation_df['investment_amount'] = pd.to_numeric(allocation_df['investment_amount'], errors='coerce').fillna(0.0).astype(float)
-                    allocation_df['overall_score'] = pd.to_numeric(allocation_df['overall_score'], errors='coerce').fillna(0.0).astype(float)
-                    
-                    # Vectorized update using loc
-                    # 🔧 FIX: Exclude SWAP/Recycled positions from re-calculation
-                    # If Investment Amount > User Budget, it means it was funded by recycling (SWAP), so DO NOT overwrite it.
-                    update_mask = (allocation_df['symbol'].isin(top_20_symbols)) & \
-                                  (allocation_df['investment_amount'] <= user_budget + 10.0)
-                    
-                    # Continue updates
-                    allocation_df.loc[update_mask, 'current_price'] = pd.to_numeric(allocation_df.loc[update_mask, 'current_price'], errors='coerce').fillna(0)
-
-                    
-                    # Calculate Variable Weights based on Score
-                    scores = allocation_df.loc[update_mask, 'overall_score']
-                    min_score = scores.min()
-                    max_score = scores.max()
-                    
-                    if max_score > min_score:
-                        # Normalize score 0 to 1
-                        normalized_scores = (scores - min_score) / (max_score - min_score)
-                        # Base weight factor (Score 70->1, Score 90->2 approx)
-                        raw_weights = 1.0 + normalized_scores 
-                    else:
-                        raw_weights = pd.Series(1.0, index=scores.index)
-
-                    # Normalize weights to ensure they sum to Exactly 1.0 (Fit 100% of User Budget)
-                    # This ensures we use the full ₹1.56L
-                    final_weights = raw_weights / raw_weights.sum()
-
-                    allocation_df.loc[update_mask, 'portfolio_weight'] = final_weights
-                    
-                    # Update Investment Amount (Budget * Weight)
-                    allocation_df.loc[update_mask, 'investment_amount'] = final_weights * user_budget
-                    
-                    # Update Quantity (Investment / Price)
-                    prices = allocation_df.loc[update_mask, 'current_price']
-                    shares = (allocation_df.loc[update_mask, 'investment_amount']  / prices.replace(0, float('inf'))).fillna(0).astype(int)
-                    allocation_df.loc[update_mask, 'suggested_quantity'] = shares
+                # 4. Skip re-calculation - unified allocation already distributed funds properly
+                print(f"      ✅ Keeping unified allocation amounts for {len(top_20_symbols)} NEW POSITION stocks")
                     
             # Filter out SKIPPED stocks from the final allocation_df to clean up report
             allocation_df = allocation_df[allocation_df['action_recommendation'] != 'SKIP']
@@ -7533,8 +7503,16 @@ Trading Plan ({risk_tolerance} RISK):
                     # 🔧 CRITICAL FIX: Reset investment_amount to 0 for HOLD/KEEP/SELL stocks
                     # Only INCREASE and BUY/NEW POSITION stocks from unified allocation should have investment amounts
                     print(f"   🔧 Resetting INVEST_₹ for non-INCREASE/BUY/NEW POSITION stocks...")
-                    # ✅ FIX: Added 'NEW POSITION' to the allowed list so they are NOT reset to 0
-                    non_action_mask = ~alloc_df_simple['action_recommendation'].isin(['INCREASE', 'BUY', 'NEW POSITION'])
+                    # ✅ FIX: Added 'NEW POSITION' and conflict-resolved emojis to the allowed list
+                    # Preserve investment for: INCREASE, BUY, NEW POSITION, and conflict-resolved actions (ENTER, SMALL ENTRY, etc.)
+                    conflict_emojis = ['⚠️', '🟡', '🟢', '⚪', '🚀', '💰']
+                    has_emoji = alloc_df_simple['action_recommendation'].astype(str).apply(
+                        lambda x: any(emoji in x for emoji in conflict_emojis)
+                    )
+                    allowed_actions = ['INCREASE', 'BUY', 'NEW POSITION']
+                    is_allowed_action = alloc_df_simple['action_recommendation'].isin(allowed_actions)
+                    
+                    non_action_mask = ~(is_allowed_action | has_emoji)
                     alloc_df_simple.loc[non_action_mask, 'investment_amount'] = 0
                     alloc_df_simple.loc[non_action_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Reset {non_action_mask.sum()} stocks (HOLD/KEEP/SELL) to ₹0")
