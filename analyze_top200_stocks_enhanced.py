@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Enhanced Top 200 NSE Stocks Analysis
 Advanced comprehensive analysis with undervaluation detection and portfolio recommendations
@@ -10,6 +11,16 @@ Features:
 """
 
 import sys
+import io
+
+# 🔧 FIX: Force UTF-8 encoding for console output to handle emojis on Windows
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    except Exception:
+        pass  # If wrapping fails, continue without it
+
 # Add both src directory and project root to Python path
 sys.path.append('src')
 sys.path.append('.')
@@ -49,6 +60,7 @@ from market_regime_detector import get_market_regime, MarketRegimeDetector  # Ph
 from sentiment_analyzer import SentimentAnalyzer  # Phase 2: News & Sentiment Analysis
 from volume_analyzer import VolumeAnalyzer  # Phase 2: Volume Profile & Order Flow Analysis
 from recommendation_history import RecommendationHistory  # 🔧 FIX: Recommendation consistency tracking
+from early_breakout_detector import EarlyBreakoutDetector  # 🚀 NEW: Pre-breakout detection & exit signals
 import yfinance as yf
 
 # Suppress yfinance verbose error logging for cleaner output
@@ -71,6 +83,7 @@ class EnhancedTop200StockAnalyzer:
         self.sentiment_analyzer = SentimentAnalyzer()  # [PHASE 2] Phase 2: Sentiment Analysis
         self.volume_analyzer = VolumeAnalyzer()  # [PHASE 2] Phase 2: Volume Profile & Order Flow
         self.recommendation_history = RecommendationHistory()  # 🔧 FIX: Track recommendation consistency
+        self.early_breakout_detector = EarlyBreakoutDetector()  # 🚀 NEW: Pre-breakout & exit signals
         
         # 🚀 NEW: Market Regime Adaptive System
         self.current_market_regime = None  # Will be detected at start (hybrid system)
@@ -4600,11 +4613,22 @@ class EnhancedTop200StockAnalyzer:
         Analyzes all holdings, ranks by performance, enforces category allocation
         Generates both BUY and SELL recommendations to meet risk profile targets
         """
+        print(f"\n   🔧 CHECKPOINT 1: Starting portfolio allocation generation...")
+        print(f"      Results: {len(results_df)} stocks, Target: {target_stocks}, Amount: ₹{target_amount:,}")
+        
         try:
             # Load current holdings
             current_holdings = self._load_current_holdings()
             current_portfolio_value = 0
             current_sectors = {}
+            
+            print(f"   🔧 CHECKPOINT 2: Loaded {len(current_holdings) if current_holdings is not None else 0} current holdings")
+            
+            # 🚀 OPTIMIZATION: Skip expensive pre-breakout API calls for large portfolios
+            skip_prebreakout_api = current_holdings is not None and len(current_holdings) > 50
+            if skip_prebreakout_api:
+                print(f"   ⚡ OPTIMIZATION: Skipping pre-breakout API calls ({len(current_holdings)} holdings > 50 limit)")
+                print(f"      This avoids 200+ sequential API calls that can timeout.")
             
             if current_holdings is not None and not current_holdings.empty:
                 # Ensure numeric columns are properly converted (handle strings with commas)
@@ -4653,27 +4677,124 @@ class EnhancedTop200StockAnalyzer:
                         
                         # Calculate enhanced metrics
                         momentum_score, momentum_flags = self.calculate_momentum_score(stock_data)
-                        breakout_patterns, breakout_score = self.detect_breakout_patterns(stock_data)
+                        
+                        # 🚀 NEW: Pre-Breakout Detection (instead of post-breakout)
+                        breakout_patterns, breakout_score = self.detect_breakout_patterns(stock_data)  # OLD: Post-breakout (too late)
+                        
+                        # Fetch historical data for early breakout detection
+                        if skip_prebreakout_api:
+                            # Use default values for large portfolios (avoid API timeout)
+                            pre_breakout = {'pre_breakout_detected': False, 'breakout_probability': 0, 'signals': []}
+                            exhaustion = {'exhaustion_detected': False, 'exhaustion_score': 0, 'exit_signals': []}
+                        else:
+                            try:
+                                ticker = yf.Ticker(f"{symbol}.NS")
+                                hist = ticker.history(period="3mo", interval="1d")
+                                
+                                # 🚀 PRE-BREAKOUT DETECTION: Catch stocks BEFORE they break out
+                                pre_breakout = self.early_breakout_detector.detect_pre_breakout_setup(hist, stock_data)
+                                
+                                # 🛑 MOMENTUM EXHAUSTION: Detect when to exit
+                                entry_price = holding.get('Avg. cost', 0)
+                                exhaustion = self.early_breakout_detector.detect_momentum_exhaustion(
+                                    hist, stock_data, entry_price
+                                )
+                                
+                                # Store pre-breakout signals in stock_data for reporting
+                                stock_data['pre_breakout_detected'] = pre_breakout['pre_breakout_detected']
+                                stock_data['breakout_probability'] = pre_breakout.get('breakout_probability', 0)
+                                stock_data['pre_breakout_signals'] = ' | '.join(pre_breakout.get('signals', []))
+                                stock_data['exhaustion_detected'] = exhaustion['exhaustion_detected']
+                                stock_data['exhaustion_score'] = exhaustion['exhaustion_score']
+                                stock_data['exit_signals'] = ' | '.join(exhaustion.get('exit_signals', []))
+                                
+                            except Exception as e:
+                                logging.warning(f"Pre-breakout detection failed for {symbol}: {e}")
+                                pre_breakout = {'pre_breakout_detected': False, 'breakout_probability': 0}
+                                exhaustion = {'exhaustion_detected': False, 'exhaustion_score': 0}
+                        
                         profit_action, profit_pct, profit_reason = self.calculate_profit_booking_strategy(
                             holding['Cur. val'], holding.get('Invested', 0), symbol, stock_data
                         )
                         
-                        # Determine action based on recommendation + momentum + profit booking
-                        if 'BOOK' in profit_action or 'STOP LOSS' in profit_action:
+                        # 🚀 IMPROVED: Determine action using PRE-BREAKOUT and EXHAUSTION signals with CONFLICT RESOLUTION
+                        # Priority order: Exhaustion > Conflicts > Profit Booking > Pre-Breakout > Recommendation
+                        
+                        # Check for CONFLICTS (both pre-breakout AND exhaustion)
+                        has_conflict = (pre_breakout['pre_breakout_detected'] and 
+                                       pre_breakout['breakout_probability'] >= 60 and
+                                       exhaustion['exhaustion_detected'] and 
+                                       exhaustion['exhaustion_score'] >= 30)
+                        
+                        if has_conflict:
+                            # CONFLICT RESOLUTION: Apply decision matrix
+                            bp = pre_breakout['breakout_probability']
+                            es = exhaustion['exhaustion_score']
+                            
+                            if es >= 60:
+                                # Exit score too high - SKIP entry
+                                action_type = f"⚠️ SKIP - EXHAUSTED ({es:.0f})"
+                                priority = "URGENT"
+                                action_reason = f"Conflict: High exhaustion ({es:.0f}) overrides breakout setup ({bp:.0f}%). {exhaustion.get('exit_signals', [''])[0]}"
+                            
+                            elif es >= 45 and bp >= 85:
+                                # Strong setup but moderate exhaustion - CAUTIOUS
+                                action_type = f"🟡 SMALL ENTRY (20-30%)"
+                                priority = "HIGH"
+                                action_reason = f"Conflict: Strong setup ({bp:.0f}%) but exhaustion ({es:.0f}%). Enter small, tight stop -3%"
+                            
+                            elif es < 45 and bp >= 70:
+                                # Setup strong, exhaustion manageable - CAN ENTER
+                                action_type = f"🟢 ENTER (50-70%)"
+                                priority = "HIGH"
+                                action_reason = f"Conflict resolved: Setup strong ({bp:.0f}%), exhaustion manageable ({es:.0f}%). Monitor RSI closely"
+                            
+                            else:
+                                # Risk/reward unfavorable
+                                action_type = "⚪ SKIP - WAIT"
+                                priority = "LOW"
+                                action_reason = f"Conflict: Risk/reward unfavorable (Breakout {bp:.0f}%, Exit {es:.0f}%)"
+                        
+                        elif exhaustion['exhaustion_detected'] and exhaustion['exhaustion_score'] >= 50:
+                            # PRIORITY 1: Exit signals when momentum is exhausting (no pre-breakout)
+                            action_type = exhaustion['exit_recommendation']
+                            priority = "URGENT" if exhaustion['exhaustion_score'] >= 70 else "HIGH"
+                            action_reason = f"MOMENTUM EXHAUSTION: {' | '.join(exhaustion.get('exit_signals', []))}"
+                            
+                        elif 'BOOK' in profit_action or 'STOP LOSS' in profit_action:
+                            # PRIORITY 2: Profit booking or stop loss
                             action_type = profit_action
                             priority = "HIGH"
+                            action_reason = profit_reason
+                            
+                        elif pre_breakout['pre_breakout_detected'] and pre_breakout['breakout_probability'] >= 60:
+                            # PRIORITY 3: Pre-breakout setup - BUY BEFORE breakout happens (no exhaustion)
+                            if pre_breakout['breakout_probability'] >= 70:
+                                action_type = "🚀 PRE-BREAKOUT - BUY NOW"
+                                priority = "HIGH"
+                            else:
+                                action_type = "⚡ BREAKOUT SETUP - ACCUMULATE"
+                                priority = "MEDIUM"
+                            action_reason = f"PRE-BREAKOUT: {' | '.join(pre_breakout.get('signals', []))}"
+                            
                         elif 'SELL' in recommendation:
                             action_type = "CONSIDER SELLING"
                             priority = "HIGH"
+                            action_reason = recommendation
+                            
                         elif momentum_score >= 70:
                             action_type = "🚀 MOMENTUM PLAY - INCREASE"
                             priority = "HIGH"
+                            action_reason = f"Strong momentum: {momentum_score}/100"
+                            
                         elif 'BUY' in recommendation:
                             action_type = "INCREASE POSITION"
                             priority = "MEDIUM"
+                            action_reason = recommendation
                         else:
                             action_type = "HOLD CURRENT"
                             priority = "LOW"
+                            action_reason = recommendation
                         
                         # 🔧 FIX: Validate recommendation against history
                         fundamentals = {
@@ -4733,6 +4854,13 @@ class EnhancedTop200StockAnalyzer:
                             'profit_booking_pct': profit_pct,
                             'profit_booking_reason': profit_reason,
                             'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) if holding.get('Invested', 0) > 0 else 0,
+                            # 🚀 NEW: Pre-Breakout and Exhaustion Signals
+                            'pre_breakout_detected': stock_data.get('pre_breakout_detected', False),
+                            'breakout_probability': stock_data.get('breakout_probability', 0),
+                            'pre_breakout_signals': stock_data.get('pre_breakout_signals', 'NONE'),
+                            'exhaustion_detected': stock_data.get('exhaustion_detected', False),
+                            'exhaustion_score': stock_data.get('exhaustion_score', 0),
+                            'exit_signals': stock_data.get('exit_signals', 'NONE'),
                             # ✅ ENHANCED: Additional retail investor columns
                             'improved_overall_score': stock_data.get('improved_overall_score', stock_data.get('risk_adjusted_score', 0)),
                             'pe_ratio': stock_data.get('pe_ratio', None),
@@ -4780,6 +4908,8 @@ class EnhancedTop200StockAnalyzer:
                             'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) if holding.get('Invested', 0) > 0 else 0
                         })
             
+            print(f"   🔧 CHECKPOINT 3: Processed {len(allocation_data)} current holdings")
+            
             # STEP 2: Find new investment candidates (not currently held)
             holding_symbols = set()
             if current_holdings is not None and not current_holdings.empty:
@@ -4810,18 +4940,68 @@ class EnhancedTop200StockAnalyzer:
                 for idx, stock in new_candidates.iterrows():
                     # Calculate predictive metrics for new positions
                     momentum_score, momentum_flags = self.calculate_momentum_score(stock)
-                    breakout_patterns, breakout_score = self.detect_breakout_patterns(stock)
+                    breakout_patterns, breakout_score = self.detect_breakout_patterns(stock)  # OLD: Post-breakout
                     
-                    # Determine action type based on momentum
-                    if momentum_score >= 70:
+                    # 🚀 NEW: Pre-Breakout Detection for new positions
+                    try:
+                        symbol = stock['symbol']
+                        ticker = yf.Ticker(f"{symbol}.NS")
+                        hist = ticker.history(period="3mo", interval="1d")
+                        
+                        # Convert Series to dict for early_breakout_detector
+                        stock_dict = stock.to_dict() if hasattr(stock, 'to_dict') else stock
+                        
+                        # PRE-BREAKOUT DETECTION for new candidates
+                        pre_breakout = self.early_breakout_detector.detect_pre_breakout_setup(hist, stock_dict)
+                        
+                        # Store in stock dict for later use
+                        stock_dict['pre_breakout_detected'] = pre_breakout['pre_breakout_detected']
+                        stock_dict['breakout_probability'] = pre_breakout.get('breakout_probability', 0)
+                        stock_dict['pre_breakout_signals'] = ' | '.join(pre_breakout.get('signals', []))
+                        
+                    except Exception as e:
+                        logging.warning(f"Pre-breakout detection failed for {stock['symbol']}: {e}")
+                        pre_breakout = {'pre_breakout_detected': False, 'breakout_probability': 0}
+                        stock_dict = stock.to_dict() if hasattr(stock, 'to_dict') else stock
+                    
+                    # 🚀 IMPROVED: Determine action type with CONFLICT RESOLUTION for new candidates
+                    # New candidates don't have exhaustion (no entry price), but check for overbought conditions
+                    
+                    # Check if stock is overbought (pseudo-exhaustion for new entries)
+                    rsi = stock_dict.get('real_rsi', stock_dict.get('enhanced_rsi_14', 50))
+                    is_overbought = rsi > 70
+                    
+                    # Conflict: Pre-breakout setup but overbought
+                    if pre_breakout['pre_breakout_detected'] and pre_breakout['breakout_probability'] >= 60 and is_overbought:
+                        bp = pre_breakout['breakout_probability']
+                        action_type = f"⚠️ WAIT - OVERBOUGHT (RSI {rsi:.0f})"
+                        priority = 'LOW'
+                        action_reason = f"Pre-breakout setup ({bp:.0f}%) but RSI overbought ({rsi:.0f}). Wait for pullback."
+                    
+                    elif pre_breakout['pre_breakout_detected'] and pre_breakout['breakout_probability'] >= 70:
+                        action_type = "🚀 PRE-BREAKOUT - BUY NOW"
+                        priority = 'VERY HIGH'
+                        action_reason = f"Strong pre-breakout setup: {pre_breakout.get('signals', [''])[0]}"
+                    
+                    elif pre_breakout['pre_breakout_detected'] and pre_breakout['breakout_probability'] >= 50:
+                        action_type = "⚡ BREAKOUT SETUP - NEW POSITION"
+                        priority = 'HIGH'
+                        action_reason = f"Good setup: {pre_breakout.get('signals', [''])[0]}"
+                    
+                    elif momentum_score >= 70:
                         action_type = "🚀 HIGH MOMENTUM NEW POSITION"
                         priority = 'VERY HIGH'
+                        action_reason = f"High momentum score: {momentum_score}/100"
+                    
                     elif breakout_score >= 60:
                         action_type = "📈 BREAKOUT NEW POSITION"
                         priority = 'HIGH'
+                        action_reason = f"Breakout detected: {breakout_score}/100"
+                    
                     else:
                         action_type = "NEW POSITION"
                         priority = 'HIGH'
+                        action_reason = stock.get('final_recommendation', 'BUY recommendation')
                     
                     # 🔧 FIX: Validate new position against history
                     fundamentals = {
@@ -4873,6 +5053,13 @@ class EnhancedTop200StockAnalyzer:
                         'profit_booking_pct': 0,
                         'profit_booking_reason': 'Fresh investment opportunity',
                         'current_profit_pct': 0,
+                        # 🚀 NEW: Pre-Breakout Signals for new positions
+                        'pre_breakout_detected': stock_dict.get('pre_breakout_detected', False),
+                        'breakout_probability': stock_dict.get('breakout_probability', 0),
+                        'pre_breakout_signals': stock_dict.get('pre_breakout_signals', 'NONE'),
+                        'exhaustion_detected': False,  # New positions don't have exhaustion
+                        'exhaustion_score': 0,
+                        'exit_signals': 'NONE',
                         # ✅ ENHANCED: Additional retail investor columns
                         'improved_overall_score': stock.get('improved_overall_score', stock['risk_adjusted_score']),
                         'pe_ratio': stock.get('pe_ratio', None),
@@ -5046,7 +5233,10 @@ class EnhancedTop200StockAnalyzer:
                         allocation_df.at[idx, 'exit_strategy'] = '⚪ HOLD - MONITOR'
                     
                     # Update action_recommendation with EXIT STRATEGY
-                    allocation_df.at[idx, 'action_recommendation'] = action
+                    # 🔧 FIX: Skip overwriting if we already have conflict-resolved action
+                    current_action = allocation_df.at[idx, 'action_recommendation']
+                    if not any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪', '🚀']):
+                        allocation_df.at[idx, 'action_recommendation'] = action
                     allocation_df.at[idx, 'exit_reason'] = reason
                     allocation_df.at[idx, 'priority'] = priority
                 
@@ -5080,13 +5270,16 @@ class EnhancedTop200StockAnalyzer:
                             book_pct = 0.30
                             timing = "Within 3 weeks"
                         
-                        # Override action to include profit booking
-                        if current_action == 'HOLD':
+                        # Override action to include profit booking (SKIP if conflict-resolved)
+                        current_action = allocation_df.at[idx, 'action_recommendation']
+                        has_conflict_resolution = any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪'])
+                        
+                        if current_action == 'HOLD' and not has_conflict_resolution:
                             allocation_df.at[idx, 'action_recommendation'] = 'BOOK_PROFIT'
                             allocation_df.at[idx, 'exit_reason'] = f"💰 PROFIT BOOKING ({book_pct}%) | Gain: {profit_pct:.1f}% | Keep rest long-term"
                             allocation_df.at[idx, 'profit_booking_pct'] = book_pct
                             allocation_df.at[idx, 'profit_booking_timing'] = timing
-                        elif current_action == 'INCREASE':
+                        elif current_action == 'INCREASE' and not has_conflict_resolution:
                             # 🔧 FIX: For top performers with high profits, BOOK_PROFIT takes priority
                             allocation_df.at[idx, 'action_recommendation'] = 'BOOK_PROFIT'
                             allocation_df.at[idx, 'exit_reason'] = f"🏆 TOP PERFORMER + 💰 Book {book_pct}% profit | Then INCREASE remaining position"
@@ -5324,15 +5517,19 @@ class EnhancedTop200StockAnalyzer:
                             
                             if i < actual_count:
                                 allocation_df.at[idx, 'keep_stock'] = True
-                                # 🔧 FIX: Only set action if not already set by EXIT STRATEGY or PROFIT BOOKING
+                                # 🔧 FIX: Only set action if not already set by EXIT STRATEGY, PROFIT BOOKING, or CONFLICT RESOLUTION
                                 current_action = allocation_df.at[idx, 'action_recommendation']
-                                if current_action in ['HOLD', '']:  # Only override default actions
+                                has_special_action = (current_action not in ['HOLD', ''] and 
+                                                     any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪', '🚀', '💰']))
+                                if not has_special_action:
                                     allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
                             else:
                                 allocation_df.at[idx, 'keep_stock'] = False
                                 # 🔧 FIX: Only set action if not already set
                                 current_action = allocation_df.at[idx, 'action_recommendation']
-                                if current_action in ['HOLD', '']:  # Only override default actions
+                                has_special_action = (current_action not in ['HOLD', ''] and 
+                                                     any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪', '🚀', '💰']))
+                                if not has_special_action:
                                     allocation_df.at[idx, 'action_recommendation'] = 'SELL' if row['is_current_holding'] else 'SKIP'
                 
                 # Second pass: Backfill if any category is short
@@ -5363,7 +5560,11 @@ class EnhancedTop200StockAnalyzer:
                             for idx, row in remaining_stocks.iterrows():
                                 if shortfall > 0:
                                     allocation_df.at[idx, 'keep_stock'] = True
-                                    allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
+                                    # 🔧 FIX: Preserve conflict resolution and special actions
+                                    current_action = allocation_df.at[idx, 'action_recommendation']
+                                    has_special_action = any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪', '🚀', '💰'])
+                                    if not has_special_action:
+                                        allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
                                     print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
                                     shortfall -= 1
                                     added += 1
@@ -5435,6 +5636,14 @@ class EnhancedTop200StockAnalyzer:
                         # Use exit_reason to determine action (already set in lines 4028-4082)
                         exit_reason = row.get('exit_reason', '')
                         current_action = allocation_df.at[idx, 'action_recommendation']
+                        
+                        # 🔧 FIX: Preserve CONFLICT RESOLUTION and special actions - highest priority
+                        has_conflict_resolution = any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪'])
+                        
+                        if has_conflict_resolution:
+                            # CONFLICT RESOLUTION actions take absolute priority - don't touch them
+                            allocation_df.at[idx, 'keep_stock'] = '⚠️ SKIP' not in current_action  # SKIP = don't keep
+                            continue
                         
                         # 🔧 FIX: Preserve BOOK_PROFIT actions - don't re-derive if profit booking is set
                         if current_action == 'BOOK_PROFIT' or '💰 PROFIT BOOKING' in exit_reason:
@@ -6170,7 +6379,7 @@ class EnhancedTop200StockAnalyzer:
             # (Just before this, verify NMDC)
             for _, row_debug in allocation_df.iterrows():
                 if row_debug['symbol'] == 'NMDC':
-                     with open("critical_debug.txt", "a") as f: f.write(f"LATE_CHECK: NMDC Investment={row_debug['investment_amount']} Action={row_debug['action_recommendation']}\n")
+                     with open("critical_debug.txt", "a", encoding='utf-8') as f: f.write(f"LATE_CHECK: NMDC Investment={row_debug['investment_amount']} Action={row_debug['action_recommendation']}\n")
 
             # ═══════════════════════════════════════════════════════════════════════
             print(f"\n   🌐 DETECTING MARKET REGIME (Enhancement #2)...")
@@ -6490,14 +6699,25 @@ class EnhancedTop200StockAnalyzer:
             if stability_report['average_hold_days'] > 0:
                 print(f"      Average hold period: {stability_report['average_hold_days']:.1f} days")
             
+            print(f"   🔧 CHECKPOINT 4: Portfolio allocation generation completed successfully")
+            print(f"      allocation_df: {len(self.portfolio_allocation['allocation_df'])} stocks")
+            
             return self.portfolio_allocation
             
         except Exception as e:
             import traceback
-            logging.error(f"Error generating portfolio allocation: {e}")
-            logging.error(f"Traceback: {traceback.format_exc()}")
-            print(f"   [ERROR] ERROR in portfolio allocation: {e}")
-            print(f"   📋 Traceback: {traceback.format_exc()}")
+            error_msg = str(e)
+            trace = traceback.format_exc()
+            
+            logging.error(f"Error generating portfolio allocation: {error_msg}")
+            logging.error(f"Traceback: {trace}")
+            
+            print(f"\n   ❌ [ERROR] Portfolio allocation generation FAILED!")
+            print(f"   ❌ Error: {error_msg}")
+            print(f"\n   📋 Full Traceback:")
+            print(trace)
+            print(f"\n   💡 Tip: Check if holdings file is corrupted or has encoding issues")
+            
             return None
     
     def analyze_batch(self, batch_size=10):
@@ -6955,6 +7175,66 @@ Trading Plan ({risk_tolerance} RISK):
             
             portfolio_allocation = self.generate_portfolio_allocation_suggestions(df, target_amount, target_stocks, portfolio_size_info)
             
+            # 🔧 DEBUG: Check portfolio_allocation status
+            if portfolio_allocation is None:
+                print(f"   ❌ CRITICAL: portfolio_allocation returned None!")
+                print(f"   🔧 EMERGENCY FALLBACK: Creating minimal portfolio allocation")
+                # Create minimal allocation_df to ensure sheet is always created
+                current_holdings = self._load_current_holdings()
+                if current_holdings is not None and not current_holdings.empty:
+                    minimal_data = []
+                    for _, holding in current_holdings.iterrows():
+                        symbol = holding['Instrument'].upper()
+                        stock_data = df[df['symbol'].str.upper() == symbol]
+                        if not stock_data.empty:
+                            stock = stock_data.iloc[0]
+                            minimal_data.append({
+                                'symbol': symbol,
+                                'company_name': stock.get('company_name', symbol),
+                                'current_price': stock.get('current_price', holding.get('LTP', 0)),
+                                'current_value': holding.get('Cur. val', 0),
+                                'current_quantity': holding.get('Qty.', 0),
+                                'overall_score': stock.get('final_blended_score', stock.get('risk_adjusted_score', 0)),
+                                'action_recommendation': 'HOLD',
+                                'sector': stock.get('sector', 'Unknown'),
+                                'is_current_holding': True,
+                                'investment_amount': 0,
+                                'suggested_quantity': 0,
+                                'risk_adjusted_score': stock.get('risk_adjusted_score', 0),
+                                'undervaluation_score': stock.get('undervaluation_score', 50),
+                                'risk_category': stock.get('risk_category', 'MODERATE')
+                            })
+                    
+                    portfolio_allocation = {
+                        'allocation_df': pd.DataFrame(minimal_data),
+                        'summary': {
+                            'total_stocks': len(minimal_data),
+                            'current_holdings': len(minimal_data),
+                            'new_positions': 0,
+                            'error': 'Full allocation failed - using minimal data'
+                        }
+                    }
+                    print(f"   ✅ Created emergency fallback with {len(minimal_data)} holdings")
+                else:
+                    print(f"   ❌ Cannot create fallback - no holdings file found")
+            elif not portfolio_allocation:
+                print(f"   ❌ CRITICAL: portfolio_allocation is empty dict!")
+            elif 'allocation_df' not in portfolio_allocation:
+                print(f"   ❌ CRITICAL: allocation_df missing from portfolio_allocation!")
+                print(f"      Keys: {list(portfolio_allocation.keys())}")
+            elif portfolio_allocation['allocation_df'].empty:
+                print(f"   ❌ CRITICAL: allocation_df is empty!")
+            else:
+                print(f"   ✅ Portfolio allocation OK: {len(portfolio_allocation['allocation_df'])} stocks")
+                if 'action_recommendation' in portfolio_allocation['allocation_df'].columns:
+                    print(f"   ✅ action_recommendation column present")
+                    # Check for conflict-resolved values
+                    conflict_count = portfolio_allocation['allocation_df']['action_recommendation'].astype(str).str.contains('⚠️|🟡|🟢', na=False, regex=True).sum()
+                    print(f"   ✅ Conflict-resolved actions: {conflict_count}")
+                else:
+                    print(f"   ❌ action_recommendation column MISSING!")
+                    print(f"      Available columns: {list(portfolio_allocation['allocation_df'].columns)[:10]}")
+            
             # Sort by risk-adjusted score (new primary metric)
             df = df.sort_values('risk_adjusted_score', ascending=False, na_position='last')
             
@@ -7211,7 +7491,15 @@ Trading Plan ({risk_tolerance} RISK):
                         # TIER 3: Score Components
                         'improved_fundamental_quality',  # Fundamental score
                         'improved_momentum_technical',  # Momentum score
-                        'undervaluation_score'  # Value score
+                        'undervaluation_score',  # Value score
+                        
+                        # 🚀 NEW: Pre-Breakout & Exhaustion Signals
+                        'pre_breakout_detected',  # Setup detected?
+                        'breakout_probability',  # Breakout chance %
+                        'pre_breakout_signals',  # What signals
+                        'exhaustion_detected',  # Exit signal?
+                        'exhaustion_score',  # Exhaustion strength
+                        'exit_signals'  # Why exit
                     ]
                     
                     # 🔧 FIX: Add missing columns with defaults before selection
@@ -7329,7 +7617,15 @@ Trading Plan ({risk_tolerance} RISK):
                         # Component scores
                         'improved_fundamental_quality': 'FUND_SCORE',
                         'improved_momentum_technical': 'MOM_SCORE',
-                        'undervaluation_score': 'VALUE_SCORE'
+                        'undervaluation_score': 'VALUE_SCORE',
+                        
+                        # 🚀 NEW: Pre-Breakout & Exhaustion columns
+                        'pre_breakout_detected': 'PRE_BREAKOUT?',
+                        'breakout_probability': 'BREAKOUT_%',
+                        'pre_breakout_signals': 'SETUP_SIGNALS',
+                        'exhaustion_detected': 'EXHAUSTION?',
+                        'exhaustion_score': 'EXIT_SCORE',
+                        'exit_signals': 'EXIT_SIGNALS'
                     }
                     
                     alloc_df_simple.rename(columns=column_renames, inplace=True)
@@ -7352,38 +7648,11 @@ Trading Plan ({risk_tolerance} RISK):
                     
                     print(f"   ✅ Full Portfolio Allocation sheet created with {len(alloc_df_simple.columns)} columns")
                 else:
-                    # Fallback: Create Portfolio Allocation from 60/40 strategy results if available
-                    print(f"   ⚠️  WARNING: Using FALLBACK Portfolio Allocation (minimal columns)")
-                    print(f"      Reason: portfolio_allocation is None or empty")
-                    try:
-                        # Load current holdings
-                        current_holdings = self._load_current_holdings()
-                        if current_holdings is not None:
-                            # Create basic portfolio allocation sheet with current holdings
-                            portfolio_data = []
-                            for _, holding in current_holdings.iterrows():
-                                symbol = holding['Instrument'].upper()
-                                stock_analysis = df[df['symbol'].str.upper() == symbol]
-                                
-                                if not stock_analysis.empty:
-                                    stock_data = stock_analysis.iloc[0]
-                                    portfolio_data.append({
-                                        'symbol': symbol,
-                                        'company_name': stock_data.get('company_name', symbol),
-                                        'current_value': holding['Cur. val'],
-                                        'current_price': stock_data.get('current_price', holding.get('LTP', 0)),
-                                        'recommendation': stock_data.get('final_recommendation', 'HOLD'),
-                                        'risk_adjusted_score': stock_data.get('risk_adjusted_score', 0),
-                                        'sector': stock_data.get('sector', 'Unknown'),
-                                        'is_current_holding': True
-                                    })
-                            
-                            if portfolio_data:
-                                fallback_df = pd.DataFrame(portfolio_data)
-                                fallback_df.to_excel(writer, sheet_name='Portfolio Allocation', index=False)
-                                print(f"   📋 Created fallback Portfolio Allocation sheet with {len(fallback_df)} holdings")
-                    except Exception as e:
-                        print(f"   ⚠️  Could not create fallback Portfolio Allocation: {e}")
+                    # 🚨 CRITICAL: Portfolio allocation is missing - this should NEVER happen!
+                    print(f"   ⚠️  WARNING: Portfolio allocation is None - THIS IS A BUG!")
+                    print(f"      Attempting emergency fallback...")
+                    # Don't create fallback - just skip the sheet
+                    print(f"   ❌ Skipping Portfolio Allocation sheet - please report this bug")
                 
                 # 🚀 PHASE 2 ENHANCEMENT: Advanced Analytics Sheets
                 print("   📈 Creating advanced analytics sheets...")
