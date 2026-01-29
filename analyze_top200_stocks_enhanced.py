@@ -5810,13 +5810,21 @@ class EnhancedTop200StockAnalyzer:
                     # print(f"      ⚠️  Could not load additional stocks from reports")
                     print(f"      📊 Using current analysis only: {len(all_analyzed_df)} stocks")
                 
+                # 🚀 ENHANCED: Include pre-breakout and high-momentum stocks in allocation
+                # These stocks have high ROI potential but were previously excluded
                 new_opportunities_candidates = all_analyzed_df[
                     (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
-                    (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
+                    (
+                        (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) |
+                        (all_analyzed_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('🚀', na=False)) |
+                        (all_analyzed_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('PRE-BREAKOUT', na=False)) |
+                        (all_analyzed_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('HIGH MOMENTUM', na=False)) |
+                        (all_analyzed_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('🟢 ENTER', na=False))
+                    ) &
                     (all_analyzed_df['risk_adjusted_score'] >= 60)
                 ].copy()
                 
-                print(f"      📊 Found {len(new_opportunities_candidates)} new BUY candidates")
+                print(f"      📊 Found {len(new_opportunities_candidates)} new BUY candidates (including pre-breakout & high-momentum)")
                 
                 # Add new opportunities to the unified list
                 for _, analyzed_stock in new_opportunities_candidates.iterrows():
@@ -5827,11 +5835,40 @@ class EnhancedTop200StockAnalyzer:
                         cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
                         max_allocation_per_stock = total_target_portfolio * max_allocation_pct
                         
+                        # 🚀 ROI POTENTIAL SCORING: Boost scores for high-probability setups
+                        base_score = analyzed_stock.get('final_blended_score', analyzed_stock.get('improved_overall_score', 0))
+                        action_rec = str(analyzed_stock.get('action_recommendation', ''))
+                        roi_boost = 0
+                        roi_label = ""
+                        
+                        # Check for high-ROI indicators
+                        if '🚀' in action_rec or 'PRE-BREAKOUT' in action_rec:
+                            breakout_prob = analyzed_stock.get('breakout_probability', 0)
+                            if breakout_prob >= 85:
+                                roi_boost = 8  # Very high ROI potential
+                                roi_label = "🔥 Very High ROI"
+                            elif breakout_prob >= 70:
+                                roi_boost = 5  # High ROI potential
+                                roi_label = "⚡ High ROI"
+                            else:
+                                roi_boost = 3  # Moderate ROI potential
+                                roi_label = "💫 Moderate ROI"
+                        elif '🟢 ENTER' in action_rec:
+                            roi_boost = 6  # Conflict-resolved ENTER signal
+                            roi_label = "✅ Conflict-Resolved ENTER"
+                        elif 'HIGH MOMENTUM' in action_rec:
+                            roi_boost = 4  # Momentum play
+                            roi_label = "📈 High Momentum"
+                        
+                        adjusted_score = base_score + roi_boost
+                        
                         all_opportunities.append({
                             'type': 'BUY',
                             'symbol': symbol,
-                            # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
-                            'score': analyzed_stock.get('final_blended_score', analyzed_stock.get('improved_overall_score', 0)),
+                            'score': adjusted_score,  # Use ROI-adjusted score
+                            'base_score': base_score,
+                            'roi_boost': roi_boost,
+                            'roi_label': roi_label,
                             'max_investment': max_allocation_per_stock,
                             'current_price': analyzed_stock.get('current_price', 100),
                             'sector': analyzed_stock.get('sector', 'Unknown'),
@@ -5839,9 +5876,11 @@ class EnhancedTop200StockAnalyzer:
                             'max_allocation_pct': max_allocation_pct * 100,
                             'is_existing_holding': False,
                             'recommendation': analyzed_stock.get('final_recommendation', ''),
+                            'action_recommendation': action_rec,
                             'company_name': analyzed_stock.get('company_name', symbol),
                             'market_cap': market_cap,
-                            'rank': 0  # New stocks don't have rank
+                            'rank': 0,  # New stocks don't have rank
+                            'breakout_probability': analyzed_stock.get('breakout_probability', 0)
                         })
                 
                 print(f"      ✅ Total opportunities: {len(all_opportunities)} (INCREASE + BUY)")
@@ -5975,14 +6014,27 @@ class EnhancedTop200StockAnalyzer:
                     
                     # Calculate optimal investment
                     if opportunity.get('recommendation') == 'BUY (SWAP)':
-                        # Logic: Invest either the Recycled Amount OR the Standard Max Allocation (whichever is higher)
-                        # This prevents dumping 100% of a large cash pile into a single swap.
+                        # 🔧 ENHANCED: Cap SWAP positions to 40% of total budget to prevent concentration
+                        # EXCEPTION: Allow full allocation if ROI score >= 85 (very high potential)
                         source_val = opportunity.get('swap_source_value', 0)
                         standard_cap = opportunity.get('max_investment', 0)
                         safe_cap = max(source_val, standard_cap)
                         
-                        optimal_investment = min(remaining_budget, safe_cap)
-                        print(f"      🚀 SWAP TARGET {opportunity['symbol']}: Budget={remaining_budget:.0f} Recycled={source_val:.0f} Cap={safe_cap:.0f} -> Inv={optimal_investment:.0f}")
+                        # Apply 40% budget cap unless very high ROI
+                        roi_score = opportunity.get('score', 0)  # Already includes ROI boost
+                        max_swap_allocation = total_available * 0.40
+                        
+                        if roi_score >= 85:
+                            # Very high ROI - allow up to recycled amount
+                            final_cap = safe_cap
+                            cap_reason = f"Very High ROI (Score {roi_score:.1f})"
+                        else:
+                            # Apply 40% cap to prevent over-concentration
+                            final_cap = min(safe_cap, max_swap_allocation)
+                            cap_reason = f"40% Budget Cap (Score {roi_score:.1f})"
+                        
+                        optimal_investment = min(remaining_budget, final_cap)
+                        print(f"      🚀 SWAP TARGET {opportunity['symbol']}: Budget={remaining_budget:.0f} Recycled={source_val:.0f} Cap={final_cap:.0f} ({cap_reason}) -> Inv={optimal_investment:.0f}")
                     else:
                         optimal_investment = min(
                             opportunity['max_investment'],
@@ -6017,6 +6069,13 @@ class EnhancedTop200StockAnalyzer:
                         print(f"      🔼 {opportunity['symbol']} (Rank #{opportunity.get('rank', 'N/A')}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
                     
                     else:  # BUY
+                        # 🚀 ENHANCED: Preserve specific action recommendations for high-ROI stocks
+                        action_rec_from_analysis = opportunity.get('action_recommendation', '')
+                        if action_rec_from_analysis and ('🚀' in action_rec_from_analysis or '🟢' in action_rec_from_analysis):
+                            action_label = action_rec_from_analysis  # Keep specific pre-breakout/conflict label
+                        else:
+                            action_label = 'NEW POSITION'  # Default for standard BUY
+                        
                         # Create new row for new position
                         new_row = pd.Series({
                             'symbol': opportunity['symbol'],
@@ -6027,17 +6086,17 @@ class EnhancedTop200StockAnalyzer:
                             'current_quantity': 0,
                             'investment_amount': actual_investment,
                             'suggested_quantity': shares_to_buy,
-                            'risk_adjusted_score': opportunity['score'],
-                            'overall_score': opportunity['score'], # ✅ FIX: Map Score to overall_score for display
+                            'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),  # Use base score for risk_adjusted
+                            'overall_score': opportunity['score'], # ✅ Use ROI-adjusted score for ranking
                             'market_cap_category': opportunity['market_cap_category'],
-                            'action_recommendation': 'NEW POSITION', # ✅ FIX: User requested "NEW POSITION" label
+                            'action_recommendation': action_label,  # ✅ Preserve specific action for high-ROI stocks
                             'action_type': 'NEW POSITION',
                             'keep_stock': True,
                             'recommendation': opportunity.get('recommendation', 'BUY'),
                             'market_cap': opportunity.get('market_cap', 0),
                             'max_allocation_pct': opportunity.get('max_allocation_pct', 5.0),
                             'is_current_holding': False,
-                            'exit_reason': 'New opportunity - Quality stock not in portfolio',
+                            'exit_reason': opportunity.get('roi_label', 'New opportunity - Quality stock not in portfolio'),
                             'exit_strategy': '🆕 NEW POSITION',
                             'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
                             'holdings_rank': 0,
@@ -6052,11 +6111,11 @@ class EnhancedTop200StockAnalyzer:
                             existing_idx = allocation_df.index[existing_mask][0]
                             allocation_df.loc[existing_idx, 'investment_amount'] = actual_investment
                             allocation_df.loc[existing_idx, 'suggested_quantity'] = shares_to_buy
-                            # Only update if current is generic BUY, otherwise keep specific label (e.g. HIGH MOMENTUM)
+                            # Preserve specific action labels (pre-breakout, conflict-resolved, etc.)
                             current_action = allocation_df.loc[existing_idx, 'action_recommendation']
-                            if current_action == 'BUY':
-                                allocation_df.loc[existing_idx, 'action_recommendation'] = 'NEW POSITION'
-                            # Also ensure score is updated if missing
+                            if current_action == 'BUY' or pd.isna(current_action):
+                                allocation_df.loc[existing_idx, 'action_recommendation'] = action_label
+                            # Update scores
                             if allocation_df.loc[existing_idx, 'overall_score'] == 0:
                                 allocation_df.loc[existing_idx, 'overall_score'] = opportunity['score']
                         else:
@@ -6064,7 +6123,8 @@ class EnhancedTop200StockAnalyzer:
                             allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
                         
                         buy_count += 1
-                        print(f"      🆕 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
+                        roi_info = f" | {opportunity.get('roi_label', '')}" if opportunity.get('roi_label') else ""
+                        print(f"      🆕 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f}{roi_info} | {sector}")
                     
                     # Update tracking
                     remaining_budget -= actual_investment
