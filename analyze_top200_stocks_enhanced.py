@@ -151,11 +151,28 @@ class EnhancedTop200StockAnalyzer:
             
             # Check if the CSV has the required columns
             if 'Symbol' in df.columns:
-                symbols = df['Symbol'].dropna().tolist()
+                # CRITICAL: Ensure we get clean symbols without whitespace
+                symbols = df['Symbol'].dropna().astype(str).str.strip().tolist()
+                
+                # Filter out any obviously invalid entries (company names accidentally in Symbol column)
+                # Valid NSE symbols are typically all-caps alphanumeric, under 20 chars, no spaces
+                valid_symbols = []
+                invalid_entries = []
+                for s in symbols:
+                    # Check if this looks like a symbol (no spaces, mostly uppercase, reasonable length)
+                    if len(s) <= 20 and ' ' not in s and (s.isupper() or '-' in s or '&' in s):
+                        valid_symbols.append(s)
+                    else:
+                        invalid_entries.append(s)
+                
+                if invalid_entries:
+                    logging.warning(f"Filtered out {len(invalid_entries)} invalid symbols: {invalid_entries[:5]}")
+                
+                symbols = valid_symbols
                 
                 # If there's a company name column, create a mapping
                 if 'Company Name' in df.columns:
-                    self.company_names = dict(zip(df['Symbol'], df['Company Name']))
+                    self.company_names = dict(zip(df['Symbol'].str.strip(), df['Company Name']))
                     logging.info(f"Loaded {len(symbols)} stocks with company names")
                 else:
                     logging.info(f"Loaded {len(symbols)} stocks without company names")
@@ -10429,6 +10446,154 @@ def main():
             except Exception as pbe:
                 print(f"\n[WARNING] Smart Profit Booking Advisor encountered an issue: {str(pbe)[:100]}")
                 print(f"   You can run 'python smart_profit_booking_advisor.py' manually")
+            
+            # Auto-generate Action Plan Summary
+            try:
+                print(f"\n{'='*90}")
+                print(f"[ACTION PLAN] GENERATING YOUR TRADING ACTION PLAN")
+                print(f"{'='*90}")
+                
+                import pandas as pd
+                
+                # Load the portfolio allocation sheet
+                allocation_df = pd.read_excel(report_file, sheet_name='Portfolio Allocation')
+                
+                print('\n' + '='*100)
+                print('📋 YOUR COMPLETE ACTION PLAN')
+                print('='*100)
+                print('\n🎯 EXECUTE IN THIS ORDER:\n')
+                
+                # PRIORITY 1: SWAP POSITIONS
+                swaps = allocation_df[allocation_df['ACTION'].str.contains('SWAP', na=False)].sort_values('MY_VALUE_₹', ascending=False)
+                swap_total = 0
+                if len(swaps) > 0:
+                    print('PRIORITY 1: SWAP 🔄')
+                    for _, row in swaps.iterrows():
+                        target = row['ACTION'].split('->')[1].strip() if '->' in row['ACTION'] else 'Unknown'
+                        print(f"Sell {row['symbol']} ({row['MY_SHARES']:.0f} shares) → ₹{row['MY_VALUE_₹']:,.0f} → Immediately buy {target}")
+                        swap_total += row['MY_VALUE_₹']
+                    print()
+                
+                # PRIORITY 2: EXHAUSTED POSITIONS
+                exhausted = allocation_df[(allocation_df['ACTION'].str.contains('EXHAUSTED', na=False)) & 
+                                         (~allocation_df['ACTION'].str.contains('SWAP', na=False))].sort_values('MY_VALUE_₹', ascending=False)
+                exhausted_total = 0
+                if len(exhausted) > 0:
+                    print('PRIORITY 2: EXHAUSTED ⚠️ (SELL 100%)')
+                    for _, row in exhausted.iterrows():
+                        print(f"{row['symbol']}: Sell ALL {row['MY_SHARES']:.0f} shares → ₹{row['MY_VALUE_₹']:,.0f}")
+                        exhausted_total += row['MY_VALUE_₹']
+                    print()
+                
+                # PRIORITY 3: BOOK PARTIAL PROFITS
+                book_profit = allocation_df[(allocation_df['ACTION'].str.contains('BOOK', na=False)) & 
+                                           (allocation_df['MY_VALUE_₹'] > 0)].sort_values('MY_VALUE_₹', ascending=False)
+                book_total = 0
+                if len(book_profit) > 0:
+                    print('PRIORITY 3: BOOK 50-60% 🟡 (PARTIAL SELL - KEEP REST!)')
+                    for _, row in book_profit.iterrows():
+                        sell_min = int(row['MY_SHARES'] * 0.50)
+                        sell_max = int(row['MY_SHARES'] * 0.60)
+                        proceeds_min = sell_min * row['PRICE']
+                        proceeds_max = sell_max * row['PRICE']
+                        keep_min = row['MY_SHARES'] - sell_max
+                        keep_max = row['MY_SHARES'] - sell_min
+                        print(f"{row['symbol']}: Sell {sell_min}-{sell_max} shares → ₹{proceeds_min:,.0f}-₹{proceeds_max:,.0f} | KEEP {keep_min:.0f}-{keep_max:.0f} shares")
+                        book_total += (proceeds_min + proceeds_max) / 2
+                    print(f"BOOK Proceeds: ₹{book_total:,.0f}\n")
+                
+                # PRIORITY 3B: SMALL ENTRY (20-30%)
+                small_entry = allocation_df[(allocation_df['ACTION'].str.contains('SMALL ENTRY', na=False)) & 
+                                           (allocation_df['INVEST_₹'] > 0)].sort_values('INVEST_₹', ascending=False)
+                total_small = 0
+                if len(small_entry) > 0:
+                    print('PRIORITY 3B: SMALL ENTRY 🟡 (Cautious 20-30% position)')
+                    for _, row in small_entry.iterrows():
+                        new_total = row['MY_SHARES'] + row['BUY_SHARES']
+                        print(f"{row['symbol']}: Add {row['BUY_SHARES']:.0f} shares = ₹{row['INVEST_₹']:,.0f} ({row['MY_SHARES']:.0f}→{new_total:.0f} shares) [Cautious entry]")
+                        total_small += row['INVEST_₹']
+                    print()
+                
+                # PRIORITY 4: BUY NEW POSITIONS
+                new_buys = allocation_df[(allocation_df['MY_VALUE_₹'] == 0) & (allocation_df['INVEST_₹'] > 0)].sort_values('INVEST_₹', ascending=False)
+                total_new = 0
+                if len(new_buys) > 0:
+                    print('PRIORITY 4: BUY NEW 🆕')
+                    for _, row in new_buys.iterrows():
+                        action_flag = '🚀' if 'PRE-BREAKOUT' in row['ACTION'] or '🚀' in row['ACTION'] else ''
+                        print(f"{row['symbol']}: {row['BUY_SHARES']:.0f} shares @ ₹{row['PRICE']:.2f} = ₹{row['INVEST_₹']:,.0f} {action_flag}")
+                        total_new += row['INVEST_₹']
+                    print()
+                
+                # PRIORITY 5: INCREASE EXISTING
+                increases = allocation_df[(allocation_df['MY_VALUE_₹'] > 0) & (allocation_df['INVEST_₹'] > 0) & 
+                                         (allocation_df['ACTION'].str.contains('^INCREASE$', na=False, regex=True))].sort_values('INVEST_₹', ascending=False)
+                total_increase = 0
+                if len(increases) > 0:
+                    print('PRIORITY 5: INCREASE 📈')
+                    for _, row in increases.iterrows():
+                        new_total = row['MY_SHARES'] + row['BUY_SHARES']
+                        print(f"{row['symbol']}: Add {row['BUY_SHARES']:.0f} shares = ₹{row['INVEST_₹']:,.0f} ({row['MY_SHARES']:.0f}→{new_total:.0f} shares)")
+                        total_increase += row['INVEST_₹']
+                    print()
+                
+                # PRIORITY 6: HOLD
+                holds = allocation_df[(allocation_df['MY_VALUE_₹'] > 0) & ((allocation_df['INVEST_₹'] == 0) | pd.isna(allocation_df['INVEST_₹'])) & 
+                                     (allocation_df['ACTION'].str.contains('HOLD|KEEP', na=False))].sort_values('MY_VALUE_₹', ascending=False)
+                if len(holds) > 0:
+                    print(f'PRIORITY 6: HOLD ✋')
+                    print(f"{len(holds)} stocks - No action\n")
+                
+                # PRIORITY 7: OPTIONAL EXITS
+                skip_wait = allocation_df[(allocation_df['MY_VALUE_₹'] > 0) & 
+                                         (allocation_df['ACTION'].str.contains('SKIP - WAIT', na=False))].sort_values('MY_VALUE_₹', ascending=False)
+                skip_total = 0
+                if len(skip_wait) > 0:
+                    skip_symbols = ', '.join(skip_wait['symbol'].tolist())
+                    skip_total = skip_wait['MY_VALUE_₹'].sum()
+                    print(f'PRIORITY 7: OPTIONAL ⚪')
+                    print(f"{skip_symbols} → ₹{skip_total:,.0f} (not urgent)\n")
+                
+                # PRIORITY 8: FULL SELL
+                sell_stocks = allocation_df[(allocation_df['MY_VALUE_₹'] > 0) & 
+                                           (allocation_df['ACTION'].str.contains('^SELL$', na=False, regex=True))].sort_values('MY_VALUE_₹', ascending=False)
+                sell_total = 0
+                if len(sell_stocks) > 0:
+                    print('PRIORITY 8: SELL 🔴 (Exit completely)')
+                    for _, row in sell_stocks.iterrows():
+                        print(f"{row['symbol']}: Sell ALL {row['MY_SHARES']:.0f} shares → ₹{row['MY_VALUE_₹']:,.0f}")
+                        sell_total += row['MY_VALUE_₹']
+                    print()
+                
+                # FINAL SUMMARY
+                total_investment = total_new + total_increase + total_small
+                total_proceeds_min = swap_total + exhausted_total + book_total + sell_total
+                total_proceeds_max = total_proceeds_min + skip_total
+                net_min = total_investment - total_proceeds_min
+                net_max = total_investment - total_proceeds_max
+                
+                print('='*100)
+                print('💰 FINAL NUMBERS:\n')
+                print('MINIMUM (Priority 1-5 only):')
+                print(f"Sell: ₹{total_proceeds_min:,.0f} (SWAP + EXHAUSTED + BOOK)")
+                print(f"Buy: ₹{total_investment:,.0f} (NEW + INCREASE)")
+                if net_min < 0:
+                    print(f"✅ NET: You GET ₹{abs(net_min):,.0f} BACK\n")
+                else:
+                    print(f"⚠️  NET: You NEED ₹{net_min:,.0f} new capital\n")
+                
+                if skip_total > 0:
+                    print('MAXIMUM (include optional):')
+                    if net_max < 0:
+                        print(f"✅ NET: You GET ₹{abs(net_max):,.0f} BACK")
+                    else:
+                        print(f"⚠️  NET: You NEED ₹{net_max:,.0f} new capital")
+                
+                print('='*100)
+                
+            except Exception as ap_error:
+                print(f"\n[INFO] Action plan generation skipped: {ap_error}")
+                print(f"   Run 'python generate_action_plan.py' manually for detailed action plan")
                 
         else:
             print(f"\n[WARN] Analysis completed but report generation failed")

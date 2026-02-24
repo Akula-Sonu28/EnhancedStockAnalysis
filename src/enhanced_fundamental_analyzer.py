@@ -23,8 +23,10 @@ def get_comprehensive_stock_data(symbol):
         hist = ticker.history(period="1y")
         
         # Basic company info
+        # Keep company_name for display but ensure symbol stays as-is
+        company_full_name = info.get('longName', symbol)
         data.update({
-            'company_name': info.get('longName', symbol),
+            'company_name': company_full_name if company_full_name != symbol else symbol,
             'sector': info.get('sector', 'Unknown'),
             'industry': info.get('industry', 'Unknown'),
             'website': info.get('website', ''),
