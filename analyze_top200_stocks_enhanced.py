@@ -8465,10 +8465,13 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple['rotation_target'] = ''
                     alloc_df_simple['rotation_trigger_price'] = None
                     alloc_df_simple['stop_loss_price'] = None  # [MI-C01 FIX]
-                    # [GAP-22] Recompute POSITION_PCT on alloc_df_simple (safety net if not carried from allocator)
+                    # [GAP-22] Recompute POSITION_PCT on alloc_df_simple using true total_target_portfolio
+                    # Use the same denominator as the GAP-22 cap: current_portfolio + all available capital
+                    # Prefer summary value (avoids sheet-only denominator making percentages look inflated)
                     _g22_val_s  = pd.to_numeric(alloc_df_simple.get('current_value', 0), errors='coerce').fillna(0)
                     _g22_inv_s  = pd.to_numeric(alloc_df_simple.get('investment_amount', 0), errors='coerce').fillna(0)
-                    _g22_total_s = _g22_val_s.sum() + _g22_inv_s.sum()
+                    _g22_summary_total = float((portfolio_allocation.get('summary') or {}).get('total_target_portfolio_value', 0))
+                    _g22_total_s = _g22_summary_total if _g22_summary_total > 0 else (_g22_val_s.sum() + _g22_inv_s.sum())
                     if _g22_total_s > 0:
                         alloc_df_simple['POSITION_PCT'] = ((_g22_val_s + _g22_inv_s) / _g22_total_s * 100).round(1)
                     else:
