@@ -11442,11 +11442,15 @@ def main():
                 from train_ml_model import train as _ml_train, DEFAULT_STOCKS as _ML_DEFAULT
 
                 # Build training universe from stocks analyzed this run (capped at 50)
+                # analyzer.results is a dict keyed by symbol — iterate .values()
                 _analyzed_syms = []
                 if hasattr(analyzer, 'results') and analyzer.results:
+                    _raw = analyzer.results
+                    _items = _raw.values() if isinstance(_raw, dict) else _raw
                     _analyzed_syms = [
                         str(r.get('symbol', '')).upper().replace('.NS', '')
-                        for r in analyzer.results if r.get('symbol')
+                        for r in _items
+                        if isinstance(r, dict) and r.get('symbol')
                     ]
                 _train_stocks = [s for s in _analyzed_syms if s][:50] or _ML_DEFAULT[:40]
 
