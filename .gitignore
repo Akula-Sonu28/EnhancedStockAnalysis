@@ -31,11 +31,22 @@ data/nse_top150_*.csv
 data/*.pkl
 data/recommendation_history.csv
 
-# Debug files
+# Debug / one-off run output files
 critical_debug.txt
 debug_*.txt
+debug_*.py
 test_run.log
 output.log
+output.txt
+buy_sell_actions.txt
+benchmark_run.txt
+run2.txt
+run3.txt
+run_log_fixes.txt
+full_run_*.txt
+full_analysis_*.txt
+PHASE*.txt
+PHASE*.md
 
 # Backup files
 backups/
