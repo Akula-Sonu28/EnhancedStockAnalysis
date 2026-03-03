@@ -6236,6 +6236,18 @@ class EnhancedTop200StockAnalyzer:
                         _ml_for_increase = str(row.get('ml_signal', ''))
                         is_top_performer = (_profit_for_increase >= -0.02) or (_ml_for_increase == 'STRONG_BUY')
                         
+                        # [BUG-FIX-DQ] Pre-filter: skip stocks that the DQ check in the report generator
+                        # would BLOCK as INCREASE (RSI > 70 overbought, or ML=SELL at loss).
+                        # Without this, they ghost-consume budget in the allocator loop, get DQ-reverted to
+                        # HOLD, and investment is zeroed — leaving nothing for real new positions.
+                        _rsi_for_inc   = float(row.get('enhanced_rsi_14', row.get('rsi', 50)) or 50)
+                        _dq_rsi_block  = _rsi_for_inc > 70
+                        _dq_ml_block   = (_ml_for_increase == 'SELL') and (_profit_for_increase < -0.02)
+                        if _dq_rsi_block or _dq_ml_block:
+                            _reason = f"RSI={_rsi_for_inc:.0f}>70" if _dq_rsi_block else f"ML=SELL + loss={_profit_for_increase:.1%}"
+                            print(f"      [DQ-PRE] Skipping INCREASE for {row['symbol']} ({_reason}) — would be DQ-blocked in report")
+                            continue  # Don't add to all_opportunities — don't ghost-consume budget
+                        
                         if is_top_performer:
                             current_value = row['current_value']
                             market_cap = row.get('market_cap', 0)
@@ -6694,11 +6706,24 @@ class EnhancedTop200StockAnalyzer:
                             _inc_idx = allocation_df.index[_inc_mask][0]
                             allocation_df.loc[_inc_idx, 'investment_amount'] = actual_investment
                             allocation_df.loc[_inc_idx, 'suggested_quantity'] = shares_to_buy
+                            # [BUG-FIX] Update action so report generator doesn't zero it out.
+                            # If action was HOLD/KEEP, the report generator wipes investment_amount
+                            # (only preserves INCREASE/BUY/NEW POSITION). This caused ghost budget
+                            # consumption — BANKBARODA/J&KBANK/UNIONBANK consumed Rs1.6L then
+                            # showed Rs0, leaving nothing for ONGC/HDFCBANK etc.
+                            # Preserve fancy labels (SMALL ENTRY, PRE-BREAKOUT etc.) but convert plain HOLD→INCREASE
+                            _cur_action = str(allocation_df.loc[_inc_idx, 'action_recommendation'])
+                            _plain_hold = _cur_action in ('HOLD', 'KEEP', 'BUY', 'MONITOR', '')
+                            if _plain_hold:
+                                allocation_df.loc[_inc_idx, 'action_recommendation'] = 'INCREASE'
                         else:
                             # Fallback to old index if symbol lookup fails (shouldn't happen)
                             idx = opportunity['index']
                             allocation_df.loc[idx, 'investment_amount'] = actual_investment
                             allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
+                            _cur_action_fb = str(allocation_df.loc[idx, 'action_recommendation'])
+                            if _cur_action_fb in ('HOLD', 'KEEP', 'BUY', 'MONITOR', ''):
+                                allocation_df.loc[idx, 'action_recommendation'] = 'INCREASE'
                         
                         increase_count += 1
                         print(f"      🔼 {opportunity['symbol']} (Rank #{opportunity.get('rank', 'N/A')}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
