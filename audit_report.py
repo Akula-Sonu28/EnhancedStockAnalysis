@@ -1,4 +1,4 @@
-"""audit_report.py — Automated data quality audit on latest Portfolio Allocation sheet"""
+"""audit_report.py — Automated data quality audit on latest Portfolio Allocation sheet (34 checks)"""
 import pandas as pd, glob, warnings, numpy as np
 warnings.filterwarnings('ignore')
 
@@ -42,6 +42,8 @@ df["_bsh"]   = pd.to_numeric(df["BUY_SHARES"],errors="coerce").fillna(0)
 df["_fs"]    = pd.to_numeric(df["FUND_SCORE"],errors="coerce").fillna(0)
 df["_ms"]    = pd.to_numeric(df["MOM_SCORE"], errors="coerce").fillna(0)
 df["_vs"]    = pd.to_numeric(df["VALUE_SCORE"],errors="coerce").fillna(0)
+df["_52h"]   = pd.to_numeric(df.get("52W_HIGH",  pd.Series(0, index=df.index)), errors="coerce").fillna(0)
+df["_52l"]   = pd.to_numeric(df.get("52W_LOW",   pd.Series(0, index=df.index)), errors="coerce").fillna(0)
 
 owned     = df[df["_sh"] > 0]
 buy_mask  = df["ACTION"].str.contains("PRE-BREAKOUT|NEW POSITION|INCREASE|BUY", na=False, case=False) & ~df["ACTION"].str.contains("SMALL ENTRY", na=False, case=False)
@@ -150,8 +152,57 @@ bad = df[(df["_sh"] == 0) & (df["_pnl"].notna()) & (df["_pnl"] != 0)]
 if len(bad): issues.append(("[22] Not owned but MY_PROFIT != 0", bad["symbol"].tolist()))
 
 # ── Print results ─────────────────────────────────────────────────
+# ── Extended checks (added after initial 22) ─────────────────────
+
+# C. INCREASE action but INVEST=0 (stale-index bug — now fixed in engine)
+inc_df = df[df["ACTION"].str.upper() == "INCREASE"]
+bad = inc_df[inc_df["_inv"] == 0]
+if len(bad): issues.append(("[C] INCREASE action but INVEST_Rs=0 (should be funded)", bad["symbol"].tolist()))
+
+# D. INCREASE action but BUY_SHARES=0
+bad = inc_df[inc_df["_bsh"] == 0]
+if len(bad): issues.append(("[D] INCREASE action but BUY_SHARES=0", bad["symbol"].tolist()))
+
+# E. PRE-BREAKOUT with BUY_SHARES=0 (recommended but budget not assigned)
+pb_df = df[df["ACTION"].str.contains("PRE-BREAKOUT", na=False)]
+bad = pb_df[pb_df["_bsh"] == 0]
+if len(bad): issues.append(("[E] PRE-BREAKOUT but BUY_SHARES=0 (unfunded breakout rec)", bad["symbol"].tolist()))
+
+# F. PRICE outside 52-week range (data integrity)
+bad = df[(df["_price"] > 0) & (df["_52h"] > 0) & (df["_price"] > df["_52h"] * 1.02)]
+if len(bad): issues.append(("[F] PRICE > 52W_HIGH + 2%%", bad[["symbol", "_price", "_52h"]].values.tolist()))
+bad = df[(df["_price"] > 0) & (df["_52l"] > 0) & (df["_price"] < df["_52l"] * 0.98)]
+if len(bad): issues.append(("[G] PRICE < 52W_LOW - 2%%", bad[["symbol", "_price", "_52l"]].values.tolist()))
+
+# H. Duplicate symbols
+dups = df[df.duplicated("symbol", keep=False)]
+if len(dups): issues.append(("[H] Duplicate symbols", dups["symbol"].tolist()))
+
+# I. Non-owned actionable stocks with RSI=0 (technical data missing)
+act_non_owned = df[(df["_sh"] == 0) & df["ACTION"].str.contains("PRE-BREAKOUT|NEW POSITION|INCREASE|BUY", na=False, case=False)]
+bad = act_non_owned[act_non_owned["_rsi"].fillna(0) == 0]
+if len(bad): issues.append(("[I] Actionable non-owned stocks: RSI=0 (no technical data)", bad["symbol"].tolist()))
+
+# J. Actionable non-owned stocks: SUPPORT=0
+bad = act_non_owned[act_non_owned["_sup"] == 0]
+if len(bad): issues.append(("[J] Actionable non-owned stocks: SUPPORT=0", bad["symbol"].tolist()))
+
+# K. ML=SELL but ACTION is BUY/INCREASE (signal contradiction)
+if "ML_SIGNAL" in df.columns:
+    buy_acts = df["ACTION"].str.contains("INCREASE|PRE-BREAKOUT|NEW POSITION", na=False, case=False)
+    bad = df[buy_acts & (df["ML_SIGNAL"] == "SELL")]
+    if len(bad): issues.append(("[K] ML=SELL but ACTION=BUY/INCREASE", bad[["symbol", "ML_SIGNAL", "ACTION"]].values.tolist()))
+
+# L. ROTATION_TARGET is already an owned stock (would re-buy what you own)
+if "ROTATION_TARGET" in df.columns:
+    owned_syms = set(df[df["_sh"] > 0]["symbol"].str.upper())
+    swap_df2 = df[df["ACTION"].str.contains("SELL|SWAP", na=False, case=False)]
+    bad = swap_df2[swap_df2["ROTATION_TARGET"].astype(str).str.upper().isin(owned_syms)]
+    if len(bad): issues.append(("[L] ROTATION_TARGET is already owned", bad[["symbol", "ROTATION_TARGET"]].values.tolist()))
+
+# ── Print results ─────────────────────────────────────────────────
 if not issues:
-    print("\n  All 22 checks PASSED - No issues found!\n")
+    print("\n  All 34 checks PASSED - No issues found!\n")
 else:
     print(f"\n  Issues found: {len(issues)}\n")
     for label, detail in issues:

@@ -6258,12 +6258,17 @@ class EnhancedTop200StockAnalyzer:
                             
                             # allow all holdings to be added (for SWAP analysis), even if fully allocated
                             if True: 
+                                # [FIX-SCORE] allocation_df does not carry final_blended_score (only in results_df).
+                                # Use overall_score (the capped 100-pt score written to allocation_df) as the
+                                # primary sort key so high-conviction holdings like J&KBANK (score=100) rank
+                                # above weaker stocks and are funded first.
+                                _opp_score = float(row.get('overall_score') or row.get('improved_overall_score') or row.get('final_blended_score') or 0)
                                 all_opportunities.append({
                                     'type': 'INCREASE',
                                     'index': idx,
                                     'symbol': row['symbol'],
-                                    # ✅ UPDATED: Robust Score fallback for Unified Allocation
-                                    'score': row.get('final_blended_score', row.get('improved_overall_score', 0)),
+                                    # ✅ UPDATED: Use overall_score from allocation_df (correctly reflects ranking)
+                                    'score': _opp_score,
                                     'rank': rank,
                                     'current_value': current_value,
                                     'max_investment': max_additional,
@@ -6529,18 +6534,22 @@ class EnhancedTop200StockAnalyzer:
                 swap_targets = []
                 for opportunity in all_opportunities:
                     if opportunity.get('priority_sell'):
-                        idx = opportunity['index']
+                        # [FIX] Use symbol-based lookup — index stored before SWAP/concat may be stale
+                        _sw1_sym = opportunity['symbol']
+                        _sw1_mask = allocation_df['symbol'] == _sw1_sym
                         action_rec = opportunity['recommendation']
                         reason = opportunity.get('action_comment', '')
                         current_val = opportunity.get('current_value', 0)
                         
                         print(f"      ✅ Executing Swap: {opportunity['symbol']} | Recycling Rs{current_val:,.0f}")
                         
-                        # Apply to Allocation DF
-                        allocation_df.loc[idx, 'action_recommendation'] = action_rec
-                        allocation_df.loc[idx, 'exit_reason'] = reason
-                        allocation_df.loc[idx, 'investment_amount'] = 0
-                        allocation_df.loc[idx, 'priority'] = 'HIGH'
+                        # Apply to Allocation DF (symbol-safe)
+                        if _sw1_mask.any():
+                            _sw1_idx = allocation_df.index[_sw1_mask][0]
+                            allocation_df.loc[_sw1_idx, 'action_recommendation'] = action_rec
+                            allocation_df.loc[_sw1_idx, 'exit_reason'] = reason
+                            allocation_df.loc[_sw1_idx, 'investment_amount'] = 0
+                            allocation_df.loc[_sw1_idx, 'priority'] = 'HIGH'
                         
                         # 💰 RECYCLE CAPITAL back to budget
                         remaining_budget += current_val
@@ -6644,7 +6653,7 @@ class EnhancedTop200StockAnalyzer:
                         opportunity['max_investment'],
                         remaining_budget
                     )
-                    print(f"DEBUG: Normal Calc for {opportunity['symbol']}: Min({opportunity.get('max_investment'):.0f}, {remaining_budget:.0f}) -> {optimal_investment}")
+                    print(f"DEBUG: Normal Calc for {opportunity['symbol']}: Min({opportunity.get('max_investment'):.0f}, {remaining_budget:.0f}) -> {optimal_investment} | Score={opportunity['score']:.1f} | Type={opportunity['type']}")
                     
                     # Ensure minimum ₹3,000 per stock
                     if optimal_investment < 3000:
@@ -6664,10 +6673,21 @@ class EnhancedTop200StockAnalyzer:
                     
                     # ALLOCATE FUNDS
                     if opportunity['type'] == 'INCREASE':
-                        # Update existing holding in allocation_df
-                        idx = opportunity['index']
-                        allocation_df.loc[idx, 'investment_amount'] = actual_investment
-                        allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
+                        # [FIX] Use symbol-based lookup instead of stale index.
+                        # pd.concat(ignore_index=True) in the SWAP step above resets the
+                        # DataFrame index, so the original idx stored in opportunity['index']
+                        # may point to the wrong row or be silently ignored.
+                        _inc_sym = opportunity['symbol']
+                        _inc_mask = allocation_df['symbol'] == _inc_sym
+                        if _inc_mask.any():
+                            _inc_idx = allocation_df.index[_inc_mask][0]
+                            allocation_df.loc[_inc_idx, 'investment_amount'] = actual_investment
+                            allocation_df.loc[_inc_idx, 'suggested_quantity'] = shares_to_buy
+                        else:
+                            # Fallback to old index if symbol lookup fails (shouldn't happen)
+                            idx = opportunity['index']
+                            allocation_df.loc[idx, 'investment_amount'] = actual_investment
+                            allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
                         
                         increase_count += 1
                         print(f"      🔼 {opportunity['symbol']} (Rank #{opportunity.get('rank', 'N/A')}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
