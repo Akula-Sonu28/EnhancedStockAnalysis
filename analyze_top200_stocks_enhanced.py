@@ -6649,11 +6649,22 @@ class EnhancedTop200StockAnalyzer:
                     
                     
                     # Calculate optimal investment (standard logic for INCREASE and remaining BUY opportunities)
+                    # [GAP-22] Single-stock position size cap — prevent over-concentration
+                    _g22_pct_map = {'conservative': 0.06, 'moderate': 0.08, 'aggressive': 0.12, 'balanced': 0.10}
+                    _g22_max_pct = _g22_pct_map.get(self.risk_profile, 0.08)
+                    _g22_existing = float(opportunity.get('current_value', 0))
+                    _g22_cap_room = max(0.0, _g22_max_pct * total_target_portfolio - _g22_existing) if total_target_portfolio > 0 else opportunity['max_investment']
+                    if _g22_cap_room < opportunity['max_investment'] and total_target_portfolio > 0:
+                        _g22_cur_pct = _g22_existing / total_target_portfolio * 100
+                        print(f"   [GAP-22] {opportunity['symbol']}: position cap ₹{opportunity['max_investment']:,.0f} → "
+                              f"₹{_g22_cap_room:,.0f} "
+                              f"(existing {_g22_cur_pct:.1f}%, max {_g22_max_pct*100:.0f}% [{self.risk_profile}])")
                     optimal_investment = min(
                         opportunity['max_investment'],
-                        remaining_budget
+                        remaining_budget,
+                        _g22_cap_room
                     )
-                    print(f"DEBUG: Normal Calc for {opportunity['symbol']}: Min({opportunity.get('max_investment'):.0f}, {remaining_budget:.0f}) -> {optimal_investment} | Score={opportunity['score']:.1f} | Type={opportunity['type']}")
+                    print(f"DEBUG: Normal Calc for {opportunity['symbol']}: Min({opportunity.get('max_investment'):.0f}, {remaining_budget:.0f}, cap={_g22_cap_room:.0f}) -> {optimal_investment} | Score={opportunity['score']:.1f} | Type={opportunity['type']}")
                     
                     # Ensure minimum ₹3,000 per stock
                     if optimal_investment < 3000:
@@ -6754,6 +6765,19 @@ class EnhancedTop200StockAnalyzer:
                     remaining_budget -= actual_investment
                     total_allocated += actual_investment
                     sector_allocation[sector] = sector_count + 1
+                
+                # [GAP-22] Add POSITION_PCT column — post-investment concentration %
+                if total_target_portfolio > 0:
+                    _g22_val_col = allocation_df['current_value'].fillna(0).astype(float)
+                    _g22_inv_col = allocation_df['investment_amount'].fillna(0).astype(float)
+                    allocation_df['POSITION_PCT'] = ((_g22_val_col + _g22_inv_col) / total_target_portfolio * 100).round(1)
+                    # Warn on any positions breaching the cap
+                    _g22_max_pct = {'conservative': 0.06, 'moderate': 0.08, 'aggressive': 0.12, 'balanced': 0.10}.get(self.risk_profile, 0.08)
+                    _g22_breaches = allocation_df[allocation_df['POSITION_PCT'] > _g22_max_pct * 100]
+                    if not _g22_breaches.empty:
+                        print(f"\n   ⚠️  [GAP-22] Concentration Warning (>{_g22_max_pct*100:.0f}% limit for {self.risk_profile}):")
+                        for _, _br in _g22_breaches.iterrows():
+                            print(f"      • {_br['symbol']}: {_br['POSITION_PCT']:.1f}% (existing holding, no new buy triggered)")
                 
                 # === ALLOCATION SUMMARY ===
                 print(f"\n   🎯 UNIFIED ALLOCATION SUMMARY:")
@@ -8224,6 +8248,8 @@ Trading Plan ({risk_tolerance} RISK):
                         'volume_score_contribution',     # GAP-1: capped ±5 pts from volume
                         # GAP-PATTERN-REPORT FIX: pattern recognition adj now in report
                         'pattern_score_contribution',    # ±4 pts from chart pattern signal
+                        # [GAP-22] Post-investment concentration % per stock
+                        'POSITION_PCT',                  # (MY_VALUE+INVEST) / total_portfolio %
                     ]
                     
                     # 🔧 FIX: Add missing columns with defaults before selection
@@ -8439,6 +8465,14 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple['rotation_target'] = ''
                     alloc_df_simple['rotation_trigger_price'] = None
                     alloc_df_simple['stop_loss_price'] = None  # [MI-C01 FIX]
+                    # [GAP-22] Recompute POSITION_PCT on alloc_df_simple (safety net if not carried from allocator)
+                    _g22_val_s  = pd.to_numeric(alloc_df_simple.get('current_value', 0), errors='coerce').fillna(0)
+                    _g22_inv_s  = pd.to_numeric(alloc_df_simple.get('investment_amount', 0), errors='coerce').fillna(0)
+                    _g22_total_s = _g22_val_s.sum() + _g22_inv_s.sum()
+                    if _g22_total_s > 0:
+                        alloc_df_simple['POSITION_PCT'] = ((_g22_val_s + _g22_inv_s) / _g22_total_s * 100).round(1)
+                    else:
+                        alloc_df_simple['POSITION_PCT'] = 0.0
                     if _own_col and 'symbol' in alloc_df_simple.columns:
                         _owned_syms = set(alloc_df_simple[alloc_df_simple[_own_col] == True]['symbol'].str.upper())
                         _non_owned = alloc_df_simple[~alloc_df_simple['symbol'].str.upper().isin(_owned_syms)].copy()
@@ -8569,6 +8603,8 @@ Trading Plan ({risk_tolerance} RISK):
                         'rotation_trigger_price':       'ROTATION_TRIGGER_PRICE',
                         # [MI-C01 FIX] Stop loss column
                         'stop_loss_price':              'STOP_LOSS',
+                        # [GAP-22] Concentration column — shows post-buy % of total portfolio
+                        'POSITION_PCT':                 'STOCK_CONC_%',
                     }
                     
                     alloc_df_simple.rename(columns=column_renames, inplace=True)
