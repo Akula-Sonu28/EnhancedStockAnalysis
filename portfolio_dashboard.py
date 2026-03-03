@@ -13,19 +13,7 @@ import math
 import json
 import re
 
-# ── Find latest report ────────────────────────────────────────────────────────
-files = sorted([f for f in glob.glob("reports/*.xlsx") if not os.path.basename(f).startswith("~$")])
-if not files:
-    print("❌ No report found in reports/. Run the main analysis first.")
-    exit(1)
-report_path = files[-1]
-report_name = os.path.basename(report_path)
-print(f"📊 Reading: {report_name}")
 
-df = pd.read_excel(report_path, sheet_name="Portfolio Allocation")
-
-# ── Normalise ₹ encoding ──────────────────────────────────────────────────────
-df.rename(columns={c: c.replace("Γé╣","₹") for c in df.columns}, inplace=True)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def s(v, d="—"):
@@ -508,375 +496,416 @@ def make_card(row, idx):
       </div>
     </div>"""
 
-# ── Portfolio summary stats ───────────────────────────────────────────────────
-owned_df  = df[df["MY_SHARES"].fillna(0).astype(float) > 0]
-total_val = owned_df["MY_VALUE_₹"].fillna(0).astype(float).sum()
-gainers   = len(owned_df[owned_df["MY_PROFIT_%"].fillna(0).astype(float) > 0])
-losers    = len(owned_df[owned_df["MY_PROFIT_%"].fillna(0).astype(float) < 0])
-best_row  = owned_df.loc[owned_df["MY_PROFIT_%"].fillna(0).astype(float).idxmax()] if len(owned_df) else None
-worst_row = owned_df.loc[owned_df["MY_PROFIT_%"].fillna(0).astype(float).idxmin()] if len(owned_df) else None
-best_str  = f"{s(best_row['symbol'],'?')} (+{float(best_row['MY_PROFIT_%'])*100:.1f}%)" if best_row is not None else "—"
-worst_str = f"{s(worst_row['symbol'],'?')} ({float(worst_row['MY_PROFIT_%'])*100:.1f}%)" if worst_row is not None else "—"
 
-def atype_of(r):
-    a = str(r.get("ACTION","")).upper()
-    if "PRE-BREAKOUT" in a: return "PRE_BREAKOUT"
-    if "SWAP"         in a: return "SWAP"
-    if "SELL"         in a: return "SELL"
-    if "INCREASE"     in a: return "INCREASE"
-    if "NEW POSITION" in a: return "NEW"
-    if "HOLD"         in a: return "HOLD"
-    if "KEEP"         in a: return "KEEP"
-    if "SKIP"         in a: return "SKIP"
-    return "OTHER"
 
-action_counts = {}
-for _, r in df.iterrows():
-    k = atype_of(r.to_dict())
-    action_counts[k] = action_counts.get(k,0)+1
+def generate_guide(report_path=None, open_browser=True):
+    """
+    Generate portfolio_guide.html from the latest (or specified) report.
+    Can be called directly from other modules — no subprocess needed.
 
-# ── Build all cards HTML ──────────────────────────────────────────────────────
-all_cards_html = ""
-for i, (_, row) in enumerate(df.iterrows()):
-    all_cards_html += make_card(row.to_dict(), i)
+    Args:
+        report_path: path to the .xlsx report (default: latest in reports/)
+        open_browser: whether to open the HTML in a browser after writing
+    Returns:
+        str: absolute path to the generated portfolio_guide.html, or None on failure
+    """
+    # ── Find report ──────────────────────────────────────────────────────────
+    if report_path is None:
+        files = sorted([f for f in glob.glob("reports/*.xlsx")
+                        if not os.path.basename(f).startswith("~$")])
+        if not files:
+            print("❌ No report found in reports/. Run the main analysis first.")
+            return None
+        report_path = files[-1]
+    report_name = os.path.basename(report_path)
+    print(f"📊 Reading: {report_name}")
 
-urgent_count = action_counts.get("SELL",0) + action_counts.get("SWAP",0)
-buy_count    = action_counts.get("PRE_BREAKOUT",0) + action_counts.get("NEW",0) + action_counts.get("INCREASE",0)
+    df = pd.read_excel(report_path, sheet_name="Portfolio Allocation")
 
-# ── Filter buttons ────────────────────────────────────────────────────────────
-filter_defs = [
-    ("ALL",        "⬤ All",           "#455A64"),
-    ("SELL",       "🔴 Sell",          "#B71C1C"),
-    ("SWAP",       "🔄 Swap",          "#E65100"),
-    ("PRE_BREAKOUT","🚀 Pre-Breakout", "#1565C0"),
-    ("NEW",        "🆕 New",           "#0D47A1"),
-    ("INCREASE",   "📈 Increase",      "#1B5E20"),
-    ("HOLD",       "🟡 Hold",          "#F57F17"),
-    ("KEEP",       "🤝 Keep",          "#4A148C"),
-    ("SKIP",       "⬜ Skip",          "#546E7A"),
-]
-filter_btns = ""
-for akey, albl, acol in filter_defs:
-    cnt = action_counts.get(akey, len(df)) if akey != "ALL" else len(df)
-    filter_btns += f"""<button onclick="filterCards('{akey}')" id="btn-{akey}"
-      style="background:#F5F5F5;border:2px solid {acol};color:{acol};padding:7px 14px;
-             border-radius:20px;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s">
-      {albl} <span style="font-size:11px;opacity:.8">({cnt})</span></button>"""
+    # ── Normalise ₹ encoding ─────────────────────────────────────────────────
+    df.rename(columns={c: c.replace("Γé╣","₹") for c in df.columns}, inplace=True)
 
-# ── Glossary HTML ─────────────────────────────────────────────────────────────
-glossary = [
-    ("SCORE",           "0–100",    "#1565C0", "Overall stock quality. Considers fundamentals, momentum and value. 80+ is excellent."),
-    ("FUND_SCORE",      "0–100",    "#0D47A1", "Fundamentals score — PE ratio, ROE, Debt levels, financial health."),
-    ("MOM_SCORE",       "0–100",    "#6A1B9A", "Momentum score — how strongly the stock has been trending recently."),
-    ("VALUE_SCORE",     "0–100",    "#00695C", "Value score — is the stock cheap relative to earnings and assets?"),
-    ("RSI",             "0–100",    "#9C27B0", "Relative Strength Index. >70 = overbought (may fall). <30 = oversold (may rise). 40–65 = healthy zone."),
-    ("SUPPORT",         "₹ price",  "#27AE60", "Floor price where buyers step in strongly. Strong stocks bounce off support repeatedly."),
-    ("RESISTANCE",      "₹ price",  "#E74C3C", "Ceiling price where sellers dominate. PRE-BREAKOUT = price is about to crack this ceiling."),
-    ("STOP LOSS",       "₹ price",  "#C62828", "Your safety net. If price drops here — exit immediately. Always set a price alert in your broker."),
-    ("52W RANGE BAR",   "Visual",   "#2980B9", "Blue dot on the slider = current price between 52-week low and high. Near left = cheap, near right = expensive."),
-    ("BREAKOUT %",      "0–100%",   "#1B5E20", "Probability the stock breaks above resistance. 80%+ = high-confidence breakout setup."),
-    ("BOOK % IF SELL",  "Percent",  "#8E24AA", "Don't sell everything. Book this % and keep the rest riding. E.g., 50% = sell half."),
-    ("ML SIGNAL",       "BUY/SELL/HOLD","#1A237E","AI model prediction from 65 technical features. Confidence bar shows how sure the model is."),
-    ("PE RATIO",        "Number",   "#16A085", "Price-to-Earnings. Lower = cheaper stock. Under 12 for PSU banks is cheap. Over 35 is expensive."),
-    ("ROE %",           "Percent",  "#117A65", "Return on Equity. How efficiently the company uses shareholder money. 15%+ is healthy."),
-    ("DEBT/EQUITY",     "Ratio",    "#C62828", "0 for banks (normal). For others: under 1 is healthy, over 2 is risky."),
-    ("VOLATILITY %",    "Percent",  "#E67E22", "Daily price swing range. 15–25% = moderate. Over 40% = high risk / high reward."),
-    ("20D CHANGE %",    "Percent",  "#2ECC71", "Price change over last 20 trading days (~1 month). Shows recent momentum."),
-    ("SWAP TARGET",     "Symbol",   "#FF6F00", "Sell the current stock and immediately buy this target. Money moves to a better-ranked opportunity."),
-    ("EXHAUSTION",      "Flag",     "#D32F2F", "Recent rally is running out of steam. Buyers are tired. Avoid adding more right now."),
-    ("SENT_ADJ",        "+/- pts",  "#0288D1", "Sentiment score adjustment — positive if news/social mood is bullish on this stock."),
-    ("PATTERN_ADJ",     "+/- pts",  "#0277BD", "Chart pattern bonus. Recognises 15+ patterns like head-and-shoulders, flags, triangles."),
-]
-glos_html = "".join(f"""<div style="background:white;border-radius:10px;padding:12px 16px;border-left:4px solid {c};box-shadow:0 1px 6px rgba(0,0,0,.07)">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-    <span style="font-weight:800;font-size:14px;color:{c}">{t}</span>
-    <span style="font-size:10px;background:#F5F5F5;padding:2px 8px;border-radius:8px;color:#666">{u}</span>
-  </div>
-  <div style="font-size:13px;color:#444;line-height:1.5">{d}</div>
-</div>""" for t,u,c,d in glossary)
 
-# ── Cheat sheet HTML ──────────────────────────────────────────────────────────
-cheat_rows_data = [
-    ("🔴 SELL",         "Exit position",              "Sell all MY_SHARES. Capture value before it falls."),
-    ("🔄 SWAP → XYZ",   "Move money to better stock", "Sell this → buy XYZ immediately with proceeds."),
-    ("🚀 PRE-BREAKOUT", "Time-sensitive buy",         "Buy INVEST_₹ ÷ PRICE = BUY_SHARES. Act within WHEN_TO_ACT."),
-    ("🆕 NEW POSITION",  "Fresh entry",                "Buy INVEST_₹ worth. Always set stop loss first."),
-    ("📈 INCREASE",      "Add to winner",              "Top-up with INVEST_₹. Only if in profit already."),
-    ("🟡 HOLD / KEEP",   "Do nothing",                 "No buy, no sell. Set stop loss price alert."),
-    ("⬜ SKIP",          "Ignore",                      "Not a priority. Re-check next analysis run."),
-    ("RSI 🔴 >70",       "Overbought",                  "Don't buy more. Consider booking partial profits."),
-    ("RSI 🟢 <30",       "Oversold / Cheap",            "Potential buying opportunity. Confirm with setup signals."),
-    ("🛑 STOP LOSS",     "Exit trigger",               "Set price alert in broker app. Exit the moment it's hit."),
-    ("Score 80+",        "Excellent",                   "Top-tier stock. High confidence recommendation."),
-    ("Score 60–79",      "Good",                        "Solid stock. Moderate confidence."),
-    ("Score <60",        "Weak",                        "Treat with caution. Only hold if already owned."),
-]
-cheat_html = "".join(f"""<tr style="border-bottom:1px solid #f0f0f0">
-  <td style="padding:9px 12px;font-weight:700;white-space:nowrap;color:#1565C0">{r[0]}</td>
-  <td style="padding:9px 12px;color:#555">{r[1]}</td>
-  <td style="padding:9px 12px;color:#333">{r[2]}</td>
-</tr>""" for r in cheat_rows_data)
+    # ── Portfolio summary stats ───────────────────────────────────────────────────
+    owned_df  = df[df["MY_SHARES"].fillna(0).astype(float) > 0]
+    total_val = owned_df["MY_VALUE_₹"].fillna(0).astype(float).sum()
+    gainers   = len(owned_df[owned_df["MY_PROFIT_%"].fillna(0).astype(float) > 0])
+    losers    = len(owned_df[owned_df["MY_PROFIT_%"].fillna(0).astype(float) < 0])
+    best_row  = owned_df.loc[owned_df["MY_PROFIT_%"].fillna(0).astype(float).idxmax()] if len(owned_df) else None
+    worst_row = owned_df.loc[owned_df["MY_PROFIT_%"].fillna(0).astype(float).idxmin()] if len(owned_df) else None
+    best_str  = f"{s(best_row['symbol'],'?')} (+{float(best_row['MY_PROFIT_%'])*100:.1f}%)" if best_row is not None else "—"
+    worst_str = f"{s(worst_row['symbol'],'?')} ({float(worst_row['MY_PROFIT_%'])*100:.1f}%)" if worst_row is not None else "—"
 
-# ── Step blocks for How-To ────────────────────────────────────────────────────
-steps = [
-    ("🔴","#B71C1C","Sell First",
-     "Open <b>Urgent</b> tab → find SELL stocks<br>Sell ALL shares listed in <b>MY_SHARES</b><br>Note rupees received — this is your freed capital<br>This must happen BEFORE any buying"),
-    ("🔄","#E65100","Execute Swaps",
-     "In <b>Urgent</b> tab → find SWAP stocks<br>Sell the stock (same as Step 1)<br>Immediately buy the <b>→ TARGET</b> stock shown<br>Your capital upgrades to a higher-ranked stock"),
-    ("🚀","#1565C0","Buy PRE-BREAKOUT",
-     "Open <b>Buy</b> tab → PRE-BREAKOUT stocks first<br>Buy <b>BUY_SHARES</b> quantity at market<br>These are time-sensitive — act within <b>WHEN_TO_ACT</b><br>Set a stop loss price alert immediately after buying"),
-    ("🛑","#C62828","Set Stop Losses",
-     "Every stock you own or buy has a <b>STOP LOSS ₹</b><br>Open your broker app → set a price alert<br>If price touches that level: exit immediately<br>No second-guessing — stop loss is your insurance"),
-    ("📈","#1B5E20","Add to Winners",
-     "Open <b>Buy</b> tab → INCREASE stocks<br>Only after Steps 1–4 are done<br>Invest the <b>INVEST ₹</b> amount shown<br>Only add to stocks already in profit"),
-    ("🟡","#F57F17","Monitor HOLDs",
-     "Open <b>Hold</b> tab — no trades today<br>Check RSI badge — if 🔴 >70, start watching for exit<br>Check stop loss is set for each holding<br>Re-run the full analysis every week"),
-]
-steps_html = "".join(f"""<div style="border:2px solid {col};border-radius:12px;padding:16px">
-  <div style="font-size:16px;font-weight:800;color:{col};margin-bottom:10px">{icon} Step {i+1} — {title}</div>
-  <div style="font-size:13px;color:#444;line-height:2">{body}</div>
-</div>""" for i,(icon,col,title,body) in enumerate(steps))
+    def atype_of(r):
+        a = str(r.get("ACTION","")).upper()
+        if "PRE-BREAKOUT" in a: return "PRE_BREAKOUT"
+        if "SWAP"         in a: return "SWAP"
+        if "SELL"         in a: return "SELL"
+        if "INCREASE"     in a: return "INCREASE"
+        if "NEW POSITION" in a: return "NEW"
+        if "HOLD"         in a: return "HOLD"
+        if "KEEP"         in a: return "KEEP"
+        if "SKIP"         in a: return "SKIP"
+        return "OTHER"
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FULL HTML OUTPUT
-# ═══════════════════════════════════════════════════════════════════════════════
-html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Portfolio Guide — {report_name}</title>
-<style>
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F0F4F8;color:#2C3E50;line-height:1.5}}
-  .page{{display:none}}.page.active{{display:block}}
-  .nav-btn{{background:none;border:none;padding:12px 18px;font-size:14px;font-weight:600;color:#7f8c8d;cursor:pointer;
-            border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap}}
-  .nav-btn.active,.nav-btn:hover{{color:#1565C0;border-bottom-color:#1565C0}}
-  .search-box{{padding:10px 16px;border:2px solid #e0e0e0;border-radius:25px;font-size:14px;
-               outline:none;transition:border .2s;width:100%;max-width:380px}}
-  .search-box:focus{{border-color:#1565C0}}
-  @media(max-width:640px){{
-    .stat-grid{{grid-template-columns:repeat(3,1fr)!important}}
-    .card-2col{{grid-template-columns:1fr!important}}
-    .card-3col{{grid-template-columns:1fr 1fr!important}}
-  }}
-</style>
-</head>
-<body>
+    action_counts = {}
+    for _, r in df.iterrows():
+        k = atype_of(r.to_dict())
+        action_counts[k] = action_counts.get(k,0)+1
 
-<!-- BANNER -->
-<div style="background:linear-gradient(135deg,#0D47A1,#1565C0 50%,#1976D2);color:white;padding:22px 24px">
-  <div style="max-width:1100px;margin:0 auto">
-    <div style="font-size:26px;font-weight:900;letter-spacing:-.5px">📊 Portfolio Allocation — Complete Guide</div>
-    <div style="font-size:13px;margin-top:4px;opacity:.85">Report: <b>{report_name}</b> &nbsp;|&nbsp; {len(df)} stocks analysed</div>
-  </div>
-</div>
+    # ── Build all cards HTML ──────────────────────────────────────────────────────
+    all_cards_html = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        all_cards_html += make_card(row.to_dict(), i)
 
-<!-- SUMMARY BAR -->
-<div style="background:#1A237E;color:white;padding:14px 24px">
-  <div style="max-width:1100px;margin:0 auto">
-    <div class="stat-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;text-align:center">
-      <div><div style="font-size:22px;font-weight:800">{len(owned_df)}</div><div style="font-size:11px;opacity:.75">Stocks Owned</div></div>
-      <div><div style="font-size:20px;font-weight:800">{rs(total_val)}</div><div style="font-size:11px;opacity:.75">Portfolio Value</div></div>
-      <div><div style="font-size:22px;font-weight:800;color:#81C784">{gainers}</div><div style="font-size:11px;opacity:.75">In Profit</div></div>
-      <div><div style="font-size:22px;font-weight:800;color:#EF9A9A">{losers}</div><div style="font-size:11px;opacity:.75">At Loss</div></div>
-      <div><div style="font-size:13px;font-weight:700;color:#81C784">{best_str}</div><div style="font-size:11px;opacity:.75">Best Performer</div></div>
-      <div><div style="font-size:13px;font-weight:700;color:#EF9A9A">{worst_str}</div><div style="font-size:11px;opacity:.75">Worst Performer</div></div>
-    </div>
-  </div>
-</div>
+    urgent_count = action_counts.get("SELL",0) + action_counts.get("SWAP",0)
+    buy_count    = action_counts.get("PRE_BREAKOUT",0) + action_counts.get("NEW",0) + action_counts.get("INCREASE",0)
 
-<!-- TODAY'S PRIORITY BANNER -->
-<div style="background:#FFF3E0;border-bottom:2px solid #FFB74D;padding:10px 24px">
-  <div style="max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-    <span style="font-weight:800;color:#E65100;font-size:13px">⚡ TODAY'S PRIORITY:</span>
-    {"<span style='background:#B71C1C;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🔴 SELL: " + str(action_counts.get('SELL',0)) + "</span>" if action_counts.get('SELL',0) else ""}
-    {"<span style='background:#E65100;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🔄 SWAP: " + str(action_counts.get('SWAP',0)) + "</span>" if action_counts.get('SWAP',0) else ""}
-    {"<span style='background:#1565C0;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🚀 PRE-BREAKOUT: " + str(action_counts.get('PRE_BREAKOUT',0)) + "</span>" if action_counts.get('PRE_BREAKOUT',0) else ""}
-    {"<span style='background:#0D47A1;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🆕 NEW: " + str(action_counts.get('NEW',0)) + "</span>" if action_counts.get('NEW',0) else ""}
-    {"<span style='background:#1B5E20;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>📈 INCREASE: " + str(action_counts.get('INCREASE',0)) + "</span>" if action_counts.get('INCREASE',0) else ""}
-    {"<span style='background:#F57F17;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🟡 HOLD/KEEP: " + str(action_counts.get('HOLD',0)+action_counts.get('KEEP',0)) + "</span>" if action_counts.get('HOLD',0)+action_counts.get('KEEP',0) else ""}
-  </div>
-</div>
+    # ── Filter buttons ────────────────────────────────────────────────────────────
+    filter_defs = [
+        ("ALL",        "⬤ All",           "#455A64"),
+        ("SELL",       "🔴 Sell",          "#B71C1C"),
+        ("SWAP",       "🔄 Swap",          "#E65100"),
+        ("PRE_BREAKOUT","🚀 Pre-Breakout", "#1565C0"),
+        ("NEW",        "🆕 New",           "#0D47A1"),
+        ("INCREASE",   "📈 Increase",      "#1B5E20"),
+        ("HOLD",       "🟡 Hold",          "#F57F17"),
+        ("KEEP",       "🤝 Keep",          "#4A148C"),
+        ("SKIP",       "⬜ Skip",          "#546E7A"),
+    ]
+    filter_btns = ""
+    for akey, albl, acol in filter_defs:
+        cnt = action_counts.get(akey, len(df)) if akey != "ALL" else len(df)
+        filter_btns += f"""<button onclick="filterCards('{akey}')" id="btn-{akey}"
+          style="background:#F5F5F5;border:2px solid {acol};color:{acol};padding:7px 14px;
+                 border-radius:20px;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s">
+          {albl} <span style="font-size:11px;opacity:.8">({cnt})</span></button>"""
 
-<!-- NAV TABS (sticky) -->
-<div style="background:white;border-bottom:1px solid #e0e0e0;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.08)">
-  <div style="max-width:1100px;margin:0 auto;display:flex;overflow-x:auto;padding:0 8px">
-    <button class="nav-btn active" onclick="showPage('pg-all',this)">📋 All Stocks ({len(df)})</button>
-    <button class="nav-btn" onclick="showPage('pg-urgent',this)">🔴 Urgent ({urgent_count})</button>
-    <button class="nav-btn" onclick="showPage('pg-buy',this)">🛒 Buy ({buy_count})</button>
-    <button class="nav-btn" onclick="showPage('pg-hold',this)">🟡 Hold ({action_counts.get('HOLD',0)+action_counts.get('KEEP',0)+action_counts.get('SKIP',0)})</button>
-    <button class="nav-btn" onclick="showPage('pg-glossary',this)">📖 Glossary</button>
-    <button class="nav-btn" onclick="showPage('pg-howto',this)">🧭 How To Use</button>
-  </div>
-</div>
+    # ── Glossary HTML ─────────────────────────────────────────────────────────────
+    glossary = [
+        ("SCORE",           "0–100",    "#1565C0", "Overall stock quality. Considers fundamentals, momentum and value. 80+ is excellent."),
+        ("FUND_SCORE",      "0–100",    "#0D47A1", "Fundamentals score — PE ratio, ROE, Debt levels, financial health."),
+        ("MOM_SCORE",       "0–100",    "#6A1B9A", "Momentum score — how strongly the stock has been trending recently."),
+        ("VALUE_SCORE",     "0–100",    "#00695C", "Value score — is the stock cheap relative to earnings and assets?"),
+        ("RSI",             "0–100",    "#9C27B0", "Relative Strength Index. >70 = overbought (may fall). <30 = oversold (may rise). 40–65 = healthy zone."),
+        ("SUPPORT",         "₹ price",  "#27AE60", "Floor price where buyers step in strongly. Strong stocks bounce off support repeatedly."),
+        ("RESISTANCE",      "₹ price",  "#E74C3C", "Ceiling price where sellers dominate. PRE-BREAKOUT = price is about to crack this ceiling."),
+        ("STOP LOSS",       "₹ price",  "#C62828", "Your safety net. If price drops here — exit immediately. Always set a price alert in your broker."),
+        ("52W RANGE BAR",   "Visual",   "#2980B9", "Blue dot on the slider = current price between 52-week low and high. Near left = cheap, near right = expensive."),
+        ("BREAKOUT %",      "0–100%",   "#1B5E20", "Probability the stock breaks above resistance. 80%+ = high-confidence breakout setup."),
+        ("BOOK % IF SELL",  "Percent",  "#8E24AA", "Don't sell everything. Book this % and keep the rest riding. E.g., 50% = sell half."),
+        ("ML SIGNAL",       "BUY/SELL/HOLD","#1A237E","AI model prediction from 65 technical features. Confidence bar shows how sure the model is."),
+        ("PE RATIO",        "Number",   "#16A085", "Price-to-Earnings. Lower = cheaper stock. Under 12 for PSU banks is cheap. Over 35 is expensive."),
+        ("ROE %",           "Percent",  "#117A65", "Return on Equity. How efficiently the company uses shareholder money. 15%+ is healthy."),
+        ("DEBT/EQUITY",     "Ratio",    "#C62828", "0 for banks (normal). For others: under 1 is healthy, over 2 is risky."),
+        ("VOLATILITY %",    "Percent",  "#E67E22", "Daily price swing range. 15–25% = moderate. Over 40% = high risk / high reward."),
+        ("20D CHANGE %",    "Percent",  "#2ECC71", "Price change over last 20 trading days (~1 month). Shows recent momentum."),
+        ("SWAP TARGET",     "Symbol",   "#FF6F00", "Sell the current stock and immediately buy this target. Money moves to a better-ranked opportunity."),
+        ("EXHAUSTION",      "Flag",     "#D32F2F", "Recent rally is running out of steam. Buyers are tired. Avoid adding more right now."),
+        ("SENT_ADJ",        "+/- pts",  "#0288D1", "Sentiment score adjustment — positive if news/social mood is bullish on this stock."),
+        ("PATTERN_ADJ",     "+/- pts",  "#0277BD", "Chart pattern bonus. Recognises 15+ patterns like head-and-shoulders, flags, triangles."),
+    ]
+    glos_html = "".join(f"""<div style="background:white;border-radius:10px;padding:12px 16px;border-left:4px solid {c};box-shadow:0 1px 6px rgba(0,0,0,.07)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <span style="font-weight:800;font-size:14px;color:{c}">{t}</span>
+        <span style="font-size:10px;background:#F5F5F5;padding:2px 8px;border-radius:8px;color:#666">{u}</span>
+      </div>
+      <div style="font-size:13px;color:#444;line-height:1.5">{d}</div>
+    </div>""" for t,u,c,d in glossary)
 
-<div style="max-width:1100px;margin:0 auto;padding:20px 16px">
+    # ── Cheat sheet HTML ──────────────────────────────────────────────────────────
+    cheat_rows_data = [
+        ("🔴 SELL",         "Exit position",              "Sell all MY_SHARES. Capture value before it falls."),
+        ("🔄 SWAP → XYZ",   "Move money to better stock", "Sell this → buy XYZ immediately with proceeds."),
+        ("🚀 PRE-BREAKOUT", "Time-sensitive buy",         "Buy INVEST_₹ ÷ PRICE = BUY_SHARES. Act within WHEN_TO_ACT."),
+        ("🆕 NEW POSITION",  "Fresh entry",                "Buy INVEST_₹ worth. Always set stop loss first."),
+        ("📈 INCREASE",      "Add to winner",              "Top-up with INVEST_₹. Only if in profit already."),
+        ("🟡 HOLD / KEEP",   "Do nothing",                 "No buy, no sell. Set stop loss price alert."),
+        ("⬜ SKIP",          "Ignore",                      "Not a priority. Re-check next analysis run."),
+        ("RSI 🔴 >70",       "Overbought",                  "Don't buy more. Consider booking partial profits."),
+        ("RSI 🟢 <30",       "Oversold / Cheap",            "Potential buying opportunity. Confirm with setup signals."),
+        ("🛑 STOP LOSS",     "Exit trigger",               "Set price alert in broker app. Exit the moment it's hit."),
+        ("Score 80+",        "Excellent",                   "Top-tier stock. High confidence recommendation."),
+        ("Score 60–79",      "Good",                        "Solid stock. Moderate confidence."),
+        ("Score <60",        "Weak",                        "Treat with caution. Only hold if already owned."),
+    ]
+    cheat_html = "".join(f"""<tr style="border-bottom:1px solid #f0f0f0">
+      <td style="padding:9px 12px;font-weight:700;white-space:nowrap;color:#1565C0">{r[0]}</td>
+      <td style="padding:9px 12px;color:#555">{r[1]}</td>
+      <td style="padding:9px 12px;color:#333">{r[2]}</td>
+    </tr>""" for r in cheat_rows_data)
 
-<!-- ═══ PAGE: ALL STOCKS ═══ -->
-<div id="pg-all" class="page active">
-  <div style="background:white;border-radius:12px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:20px">
-    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
-      <input type="text" id="search-box" class="search-box"
-             placeholder="🔍  Search by stock symbol, name or sector..." oninput="applyFilters()">
-      <span style="font-size:13px;color:#888" id="count-label">{len(df)} stocks shown</span>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">{filter_btns}</div>
-  </div>
-  <div id="cards-container">{all_cards_html}</div>
-  <div id="no-results" style="display:none;text-align:center;padding:40px;color:#888;font-size:16px">No stocks match your search.</div>
-</div>
+    # ── Step blocks for How-To ────────────────────────────────────────────────────
+    steps = [
+        ("🔴","#B71C1C","Sell First",
+         "Open <b>Urgent</b> tab → find SELL stocks<br>Sell ALL shares listed in <b>MY_SHARES</b><br>Note rupees received — this is your freed capital<br>This must happen BEFORE any buying"),
+        ("🔄","#E65100","Execute Swaps",
+         "In <b>Urgent</b> tab → find SWAP stocks<br>Sell the stock (same as Step 1)<br>Immediately buy the <b>→ TARGET</b> stock shown<br>Your capital upgrades to a higher-ranked stock"),
+        ("🚀","#1565C0","Buy PRE-BREAKOUT",
+         "Open <b>Buy</b> tab → PRE-BREAKOUT stocks first<br>Buy <b>BUY_SHARES</b> quantity at market<br>These are time-sensitive — act within <b>WHEN_TO_ACT</b><br>Set a stop loss price alert immediately after buying"),
+        ("🛑","#C62828","Set Stop Losses",
+         "Every stock you own or buy has a <b>STOP LOSS ₹</b><br>Open your broker app → set a price alert<br>If price touches that level: exit immediately<br>No second-guessing — stop loss is your insurance"),
+        ("📈","#1B5E20","Add to Winners",
+         "Open <b>Buy</b> tab → INCREASE stocks<br>Only after Steps 1–4 are done<br>Invest the <b>INVEST ₹</b> amount shown<br>Only add to stocks already in profit"),
+        ("🟡","#F57F17","Monitor HOLDs",
+         "Open <b>Hold</b> tab — no trades today<br>Check RSI badge — if 🔴 >70, start watching for exit<br>Check stop loss is set for each holding<br>Re-run the full analysis every week"),
+    ]
+    steps_html = "".join(f"""<div style="border:2px solid {col};border-radius:12px;padding:16px">
+      <div style="font-size:16px;font-weight:800;color:{col};margin-bottom:10px">{icon} Step {i+1} — {title}</div>
+      <div style="font-size:13px;color:#444;line-height:2">{body}</div>
+    </div>""" for i,(icon,col,title,body) in enumerate(steps))
 
-<!-- ═══ PAGE: URGENT ═══ -->
-<div id="pg-urgent" class="page">
-  <div style="background:#FFEBEE;border-left:5px solid #B71C1C;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px">
-    <div style="font-size:18px;font-weight:800;color:#B71C1C;margin-bottom:6px">🔴 Act on these FIRST — before any buying</div>
-    <div style="font-size:13px;color:#555">SELL frees cash. SWAP moves money to a better stock. Both are time-sensitive.</div>
-  </div>
-  {"".join(make_card(r.to_dict(),i) for i,(_,r) in enumerate(df.iterrows()) if atype_of(r.to_dict()) in ("SELL","SWAP"))
-    or "<p style='color:#888;padding:20px;font-size:15px'>✅ No urgent sell or swap actions today.</p>"}
-</div>
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # FULL HTML OUTPUT
+    # ═══════════════════════════════════════════════════════════════════════════════
+    html = f"""<!DOCTYPE html>
+    <html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Portfolio Guide — {report_name}</title>
+    <style>
+      *{{box-sizing:border-box;margin:0;padding:0}}
+      body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#F0F4F8;color:#2C3E50;line-height:1.5}}
+      .page{{display:none}}.page.active{{display:block}}
+      .nav-btn{{background:none;border:none;padding:12px 18px;font-size:14px;font-weight:600;color:#7f8c8d;cursor:pointer;
+                border-bottom:3px solid transparent;transition:all .2s;white-space:nowrap}}
+      .nav-btn.active,.nav-btn:hover{{color:#1565C0;border-bottom-color:#1565C0}}
+      .search-box{{padding:10px 16px;border:2px solid #e0e0e0;border-radius:25px;font-size:14px;
+                   outline:none;transition:border .2s;width:100%;max-width:380px}}
+      .search-box:focus{{border-color:#1565C0}}
+      @media(max-width:640px){{
+        .stat-grid{{grid-template-columns:repeat(3,1fr)!important}}
+        .card-2col{{grid-template-columns:1fr!important}}
+        .card-3col{{grid-template-columns:1fr 1fr!important}}
+      }}
+    </style>
+    </head>
+    <body>
 
-<!-- ═══ PAGE: BUY ═══ -->
-<div id="pg-buy" class="page">
-  <div style="background:#E3F2FD;border-left:5px solid #1565C0;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px">
-    <div style="font-size:18px;font-weight:800;color:#1565C0;margin-bottom:6px">🛒 Buy Opportunities — after clearing SELL / SWAP</div>
-    <div style="font-size:13px;color:#555">PRE-BREAKOUT = time-sensitive (act today or tomorrow). NEW / INCREASE = can wait a day or two.</div>
-  </div>
-  {"".join(make_card(r.to_dict(),i) for i,(_,r) in enumerate(df.iterrows()) if atype_of(r.to_dict()) in ("PRE_BREAKOUT","NEW","INCREASE"))
-    or "<p style='color:#888;padding:20px;font-size:15px'>No buy opportunities right now.</p>"}
-</div>
-
-<!-- ═══ PAGE: HOLD ═══ -->
-<div id="pg-hold" class="page">
-  <div style="background:#FFFDE7;border-left:5px solid #F57F17;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px">
-    <div style="font-size:18px;font-weight:800;color:#F57F17;margin-bottom:6px">🟡 No action needed today — just monitor</div>
-    <div style="font-size:13px;color:#555">Set stop loss price alerts if not done. Check RSI — if >70 on any, be ready to sell next week.</div>
-  </div>
-  {"".join(make_card(r.to_dict(),i) for i,(_,r) in enumerate(df.iterrows()) if atype_of(r.to_dict()) in ("HOLD","KEEP","SKIP"))
-    or "<p style='color:#888;padding:20px;font-size:15px'>No holds.</p>"}
-</div>
-
-<!-- ═══ PAGE: GLOSSARY ═══ -->
-<div id="pg-glossary" class="page">
-  <div style="background:white;border-radius:12px;padding:22px;box-shadow:0 2px 10px rgba(0,0,0,.07)">
-    <div style="font-size:20px;font-weight:800;margin-bottom:18px">📖 Every Term Explained in Plain English</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px">{glos_html}</div>
-  </div>
-</div>
-
-<!-- ═══ PAGE: HOW TO USE ═══ -->
-<div id="pg-howto" class="page">
-  <div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,.07)">
-    <div style="font-size:22px;font-weight:800;margin-bottom:20px">🧭 Complete Step-by-Step Guide</div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:28px">
-      {steps_html}
-    </div>
-
-    <!-- Cheat Sheet -->
-    <div style="font-size:18px;font-weight:800;margin-bottom:14px">⚡ Quick Reference Cheat Sheet</div>
-    <div style="overflow-x:auto;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,.08)">
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <tr style="background:#1565C0;color:white">
-          <th style="padding:10px 14px;text-align:left">If you see...</th>
-          <th style="padding:10px 14px;text-align:left">It means...</th>
-          <th style="padding:10px 14px;text-align:left">Do this</th>
-        </tr>
-        {cheat_html}
-      </table>
-    </div>
-
-    <!-- Score guide -->
-    <div style="margin-top:24px;background:#E8F5E9;border-radius:10px;padding:18px">
-      <div style="font-size:16px;font-weight:800;color:#1B5E20;margin-bottom:12px">💡 Understanding the Score Breakdown Bars</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;font-size:13px">
-        <div><span style="display:inline-block;width:12px;height:12px;background:#1565C0;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Fundamentals</b> — PE, ROE, debt quality, financial health</div>
-        <div><span style="display:inline-block;width:12px;height:12px;background:#6A1B9A;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Momentum</b> — Price trend strength, RSI, volume</div>
-        <div><span style="display:inline-block;width:12px;height:12px;background:#00695C;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Value</b> — Is the stock cheap vs sector peers?</div>
-        <div><span style="display:inline-block;width:12px;height:12px;background:#27ae60;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Overall Score</b> — Weighted composite (regime-adaptive)</div>
+    <!-- BANNER -->
+    <div style="background:linear-gradient(135deg,#0D47A1,#1565C0 50%,#1976D2);color:white;padding:22px 24px">
+      <div style="max-width:1100px;margin:0 auto">
+        <div style="font-size:26px;font-weight:900;letter-spacing:-.5px">📊 Portfolio Allocation — Complete Guide</div>
+        <div style="font-size:13px;margin-top:4px;opacity:.85">Report: <b>{report_name}</b> &nbsp;|&nbsp; {len(df)} stocks analysed</div>
       </div>
     </div>
 
-    <!-- RSI guide -->
-    <div style="margin-top:16px;background:#F3E5F5;border-radius:10px;padding:18px">
-      <div style="font-size:16px;font-weight:800;color:#6A1B9A;margin-bottom:12px">📊 RSI Quick Guide</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;font-size:13px">
-        <div><span style="background:#2E7D32;color:white;padding:2px 8px;border-radius:8px;font-size:11px">Below 30</span> &nbsp;Oversold — potential buy zone</div>
-        <div><span style="background:#F57F17;color:white;padding:2px 8px;border-radius:8px;font-size:11px">30 – 65</span> &nbsp;Healthy neutral zone</div>
-        <div><span style="background:#C62828;color:white;padding:2px 8px;border-radius:8px;font-size:11px">Above 70</span> &nbsp;Overbought — avoid buying more</div>
-        <div><span style="background:#B71C1C;color:white;padding:2px 8px;border-radius:8px;font-size:11px">Above 80</span> &nbsp;Very overbought — consider booking profits</div>
+    <!-- SUMMARY BAR -->
+    <div style="background:#1A237E;color:white;padding:14px 24px">
+      <div style="max-width:1100px;margin:0 auto">
+        <div class="stat-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;text-align:center">
+          <div><div style="font-size:22px;font-weight:800">{len(owned_df)}</div><div style="font-size:11px;opacity:.75">Stocks Owned</div></div>
+          <div><div style="font-size:20px;font-weight:800">{rs(total_val)}</div><div style="font-size:11px;opacity:.75">Portfolio Value</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:#81C784">{gainers}</div><div style="font-size:11px;opacity:.75">In Profit</div></div>
+          <div><div style="font-size:22px;font-weight:800;color:#EF9A9A">{losers}</div><div style="font-size:11px;opacity:.75">At Loss</div></div>
+          <div><div style="font-size:13px;font-weight:700;color:#81C784">{best_str}</div><div style="font-size:11px;opacity:.75">Best Performer</div></div>
+          <div><div style="font-size:13px;font-weight:700;color:#EF9A9A">{worst_str}</div><div style="font-size:11px;opacity:.75">Worst Performer</div></div>
+        </div>
       </div>
     </div>
 
-  </div>
-</div>
+    <!-- TODAY'S PRIORITY BANNER -->
+    <div style="background:#FFF3E0;border-bottom:2px solid #FFB74D;padding:10px 24px">
+      <div style="max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-weight:800;color:#E65100;font-size:13px">⚡ TODAY'S PRIORITY:</span>
+        {"<span style='background:#B71C1C;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🔴 SELL: " + str(action_counts.get('SELL',0)) + "</span>" if action_counts.get('SELL',0) else ""}
+        {"<span style='background:#E65100;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🔄 SWAP: " + str(action_counts.get('SWAP',0)) + "</span>" if action_counts.get('SWAP',0) else ""}
+        {"<span style='background:#1565C0;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🚀 PRE-BREAKOUT: " + str(action_counts.get('PRE_BREAKOUT',0)) + "</span>" if action_counts.get('PRE_BREAKOUT',0) else ""}
+        {"<span style='background:#0D47A1;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🆕 NEW: " + str(action_counts.get('NEW',0)) + "</span>" if action_counts.get('NEW',0) else ""}
+        {"<span style='background:#1B5E20;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>📈 INCREASE: " + str(action_counts.get('INCREASE',0)) + "</span>" if action_counts.get('INCREASE',0) else ""}
+        {"<span style='background:#F57F17;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:700'>🟡 HOLD/KEEP: " + str(action_counts.get('HOLD',0)+action_counts.get('KEEP',0)) + "</span>" if action_counts.get('HOLD',0)+action_counts.get('KEEP',0) else ""}
+      </div>
+    </div>
 
-<div style="text-align:center;padding:24px;color:#aaa;font-size:12px">
-  Generated from {report_name} — For personal research only. Always verify before trading.
-</div>
+    <!-- NAV TABS (sticky) -->
+    <div style="background:white;border-bottom:1px solid #e0e0e0;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+      <div style="max-width:1100px;margin:0 auto;display:flex;overflow-x:auto;padding:0 8px">
+        <button class="nav-btn active" onclick="showPage('pg-all',this)">📋 All Stocks ({len(df)})</button>
+        <button class="nav-btn" onclick="showPage('pg-urgent',this)">🔴 Urgent ({urgent_count})</button>
+        <button class="nav-btn" onclick="showPage('pg-buy',this)">🛒 Buy ({buy_count})</button>
+        <button class="nav-btn" onclick="showPage('pg-hold',this)">🟡 Hold ({action_counts.get('HOLD',0)+action_counts.get('KEEP',0)+action_counts.get('SKIP',0)})</button>
+        <button class="nav-btn" onclick="showPage('pg-glossary',this)">📖 Glossary</button>
+        <button class="nav-btn" onclick="showPage('pg-howto',this)">🧭 How To Use</button>
+      </div>
+    </div>
 
-</div><!-- /container -->
+    <div style="max-width:1100px;margin:0 auto;padding:20px 16px">
 
-<script>
-function showPage(id, btn) {{
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  if(btn) btn.classList.add('active');
-  window.scrollTo(0,0);
-}}
+    <!-- ═══ PAGE: ALL STOCKS ═══ -->
+    <div id="pg-all" class="page active">
+      <div style="background:white;border-radius:12px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.07);margin-bottom:20px">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px">
+          <input type="text" id="search-box" class="search-box"
+                 placeholder="🔍  Search by stock symbol, name or sector..." oninput="applyFilters()">
+          <span style="font-size:13px;color:#888" id="count-label">{len(df)} stocks shown</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">{filter_btns}</div>
+      </div>
+      <div id="cards-container">{all_cards_html}</div>
+      <div id="no-results" style="display:none;text-align:center;padding:40px;color:#888;font-size:16px">No stocks match your search.</div>
+    </div>
 
-var activeFilter = 'ALL';
+    <!-- ═══ PAGE: URGENT ═══ -->
+    <div id="pg-urgent" class="page">
+      <div style="background:#FFEBEE;border-left:5px solid #B71C1C;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px">
+        <div style="font-size:18px;font-weight:800;color:#B71C1C;margin-bottom:6px">🔴 Act on these FIRST — before any buying</div>
+        <div style="font-size:13px;color:#555">SELL frees cash. SWAP moves money to a better stock. Both are time-sensitive.</div>
+      </div>
+      {"".join(make_card(r.to_dict(),i) for i,(_,r) in enumerate(df.iterrows()) if atype_of(r.to_dict()) in ("SELL","SWAP"))
+        or "<p style='color:#888;padding:20px;font-size:15px'>✅ No urgent sell or swap actions today.</p>"}
+    </div>
 
-function filterCards(atype) {{
-  activeFilter = atype;
-  // Reset all buttons
-  document.querySelectorAll('[id^="btn-"]').forEach(function(b) {{
-    var key = b.id.replace('btn-','');
-    var border = b.style.borderColor;
-    b.style.background = '#F5F5F5';
-    b.style.color = border;
-    b.classList.remove('active');
-  }});
-  // Highlight active
-  var ab = document.getElementById('btn-'+atype);
-  if(ab) {{
-    ab.style.background = ab.style.borderColor;
-    ab.style.color = 'white';
-    ab.classList.add('active');
-  }}
-  applyFilters();
-}}
+    <!-- ═══ PAGE: BUY ═══ -->
+    <div id="pg-buy" class="page">
+      <div style="background:#E3F2FD;border-left:5px solid #1565C0;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px">
+        <div style="font-size:18px;font-weight:800;color:#1565C0;margin-bottom:6px">🛒 Buy Opportunities — after clearing SELL / SWAP</div>
+        <div style="font-size:13px;color:#555">PRE-BREAKOUT = time-sensitive (act today or tomorrow). NEW / INCREASE = can wait a day or two.</div>
+      </div>
+      {"".join(make_card(r.to_dict(),i) for i,(_,r) in enumerate(df.iterrows()) if atype_of(r.to_dict()) in ("PRE_BREAKOUT","NEW","INCREASE"))
+        or "<p style='color:#888;padding:20px;font-size:15px'>No buy opportunities right now.</p>"}
+    </div>
 
-function applyFilters() {{
-  var q = (document.getElementById('search-box').value||'').toLowerCase().trim();
-  var cards = document.querySelectorAll('#cards-container .stock-card');
-  var shown = 0;
-  cards.forEach(function(card) {{
-    var sym    = (card.dataset.sym    ||'').toLowerCase();
-    var sector = (card.dataset.sector ||'').toLowerCase();
-    var atype  = (card.dataset.action ||'');
-    var text   = card.innerText.toLowerCase();
-    var matchQ = !q || sym.includes(q) || sector.includes(q) || text.includes(q);
-    var matchF = (activeFilter === 'ALL') || (atype === activeFilter);
-    if(matchQ && matchF) {{ card.style.display=''; shown++; }}
-    else {{ card.style.display='none'; }}
-  }});
-  var lbl = document.getElementById('count-label');
-  if(lbl) lbl.textContent = shown + ' stock' + (shown===1?'':'s') + ' shown';
-  var nr = document.getElementById('no-results');
-  if(nr) nr.style.display = (shown===0)?'block':'none';
-}}
-</script>
-</body>
-</html>"""
+    <!-- ═══ PAGE: HOLD ═══ -->
+    <div id="pg-hold" class="page">
+      <div style="background:#FFFDE7;border-left:5px solid #F57F17;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px">
+        <div style="font-size:18px;font-weight:800;color:#F57F17;margin-bottom:6px">🟡 No action needed today — just monitor</div>
+        <div style="font-size:13px;color:#555">Set stop loss price alerts if not done. Check RSI — if >70 on any, be ready to sell next week.</div>
+      </div>
+      {"".join(make_card(r.to_dict(),i) for i,(_,r) in enumerate(df.iterrows()) if atype_of(r.to_dict()) in ("HOLD","KEEP","SKIP"))
+        or "<p style='color:#888;padding:20px;font-size:15px'>No holds.</p>"}
+    </div>
 
-out = "portfolio_guide.html"
-with open(out, "w", encoding="utf-8") as f:
-    f.write(html)
+    <!-- ═══ PAGE: GLOSSARY ═══ -->
+    <div id="pg-glossary" class="page">
+      <div style="background:white;border-radius:12px;padding:22px;box-shadow:0 2px 10px rgba(0,0,0,.07)">
+        <div style="font-size:20px;font-weight:800;margin-bottom:18px">📖 Every Term Explained in Plain English</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px">{glos_html}</div>
+      </div>
+    </div>
 
-print(f"✅ Guide written to: {out}")
-webbrowser.open(os.path.abspath(out))
-print("Done! 🎉")
+    <!-- ═══ PAGE: HOW TO USE ═══ -->
+    <div id="pg-howto" class="page">
+      <div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,.07)">
+        <div style="font-size:22px;font-weight:800;margin-bottom:20px">🧭 Complete Step-by-Step Guide</div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:28px">
+          {steps_html}
+        </div>
+
+        <!-- Cheat Sheet -->
+        <div style="font-size:18px;font-weight:800;margin-bottom:14px">⚡ Quick Reference Cheat Sheet</div>
+        <div style="overflow-x:auto;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,.08)">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <tr style="background:#1565C0;color:white">
+              <th style="padding:10px 14px;text-align:left">If you see...</th>
+              <th style="padding:10px 14px;text-align:left">It means...</th>
+              <th style="padding:10px 14px;text-align:left">Do this</th>
+            </tr>
+            {cheat_html}
+          </table>
+        </div>
+
+        <!-- Score guide -->
+        <div style="margin-top:24px;background:#E8F5E9;border-radius:10px;padding:18px">
+          <div style="font-size:16px;font-weight:800;color:#1B5E20;margin-bottom:12px">💡 Understanding the Score Breakdown Bars</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;font-size:13px">
+            <div><span style="display:inline-block;width:12px;height:12px;background:#1565C0;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Fundamentals</b> — PE, ROE, debt quality, financial health</div>
+            <div><span style="display:inline-block;width:12px;height:12px;background:#6A1B9A;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Momentum</b> — Price trend strength, RSI, volume</div>
+            <div><span style="display:inline-block;width:12px;height:12px;background:#00695C;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Value</b> — Is the stock cheap vs sector peers?</div>
+            <div><span style="display:inline-block;width:12px;height:12px;background:#27ae60;border-radius:2px;vertical-align:middle;margin-right:6px"></span><b>Overall Score</b> — Weighted composite (regime-adaptive)</div>
+          </div>
+        </div>
+
+        <!-- RSI guide -->
+        <div style="margin-top:16px;background:#F3E5F5;border-radius:10px;padding:18px">
+          <div style="font-size:16px;font-weight:800;color:#6A1B9A;margin-bottom:12px">📊 RSI Quick Guide</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;font-size:13px">
+            <div><span style="background:#2E7D32;color:white;padding:2px 8px;border-radius:8px;font-size:11px">Below 30</span> &nbsp;Oversold — potential buy zone</div>
+            <div><span style="background:#F57F17;color:white;padding:2px 8px;border-radius:8px;font-size:11px">30 – 65</span> &nbsp;Healthy neutral zone</div>
+            <div><span style="background:#C62828;color:white;padding:2px 8px;border-radius:8px;font-size:11px">Above 70</span> &nbsp;Overbought — avoid buying more</div>
+            <div><span style="background:#B71C1C;color:white;padding:2px 8px;border-radius:8px;font-size:11px">Above 80</span> &nbsp;Very overbought — consider booking profits</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="text-align:center;padding:24px;color:#aaa;font-size:12px">
+      Generated from {report_name} — For personal research only. Always verify before trading.
+    </div>
+
+    </div><!-- /container -->
+
+    <script>
+    function showPage(id, btn) {{
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      if(btn) btn.classList.add('active');
+      window.scrollTo(0,0);
+    }}
+
+    var activeFilter = 'ALL';
+
+    function filterCards(atype) {{
+      activeFilter = atype;
+      // Reset all buttons
+      document.querySelectorAll('[id^="btn-"]').forEach(function(b) {{
+        var key = b.id.replace('btn-','');
+        var border = b.style.borderColor;
+        b.style.background = '#F5F5F5';
+        b.style.color = border;
+        b.classList.remove('active');
+      }});
+      // Highlight active
+      var ab = document.getElementById('btn-'+atype);
+      if(ab) {{
+        ab.style.background = ab.style.borderColor;
+        ab.style.color = 'white';
+        ab.classList.add('active');
+      }}
+      applyFilters();
+    }}
+
+    function applyFilters() {{
+      var q = (document.getElementById('search-box').value||'').toLowerCase().trim();
+      var cards = document.querySelectorAll('#cards-container .stock-card');
+      var shown = 0;
+      cards.forEach(function(card) {{
+        var sym    = (card.dataset.sym    ||'').toLowerCase();
+        var sector = (card.dataset.sector ||'').toLowerCase();
+        var atype  = (card.dataset.action ||'');
+        var text   = card.innerText.toLowerCase();
+        var matchQ = !q || sym.includes(q) || sector.includes(q) || text.includes(q);
+        var matchF = (activeFilter === 'ALL') || (atype === activeFilter);
+        if(matchQ && matchF) {{ card.style.display=''; shown++; }}
+        else {{ card.style.display='none'; }}
+      }});
+      var lbl = document.getElementById('count-label');
+      if(lbl) lbl.textContent = shown + ' stock' + (shown===1?'':'s') + ' shown';
+      var nr = document.getElementById('no-results');
+      if(nr) nr.style.display = (shown===0)?'block':'none';
+    }}
+    </script>
+    </body>
+    </html>"""
+
+    out = "portfolio_guide.html"
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    print(f"✅ Guide written to: {out}")
+    abs_out = os.path.abspath(out)
+    if open_browser:
+        try:
+            webbrowser.open(abs_out)
+        except Exception:
+            pass  # browser open is best-effort
+    print("Done! 🎉")
+    return abs_out
+
+
+
+if __name__ == "__main__":
+    generate_guide()

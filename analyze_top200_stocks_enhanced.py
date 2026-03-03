@@ -11420,22 +11420,15 @@ def main():
 
             # ── AUTO-GENERATE USER-FRIENDLY PORTFOLIO GUIDE ──────────────────
             try:
-                import subprocess, sys as _sys, os as _os
-                _dash_script = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "portfolio_dashboard.py")
-                if _os.path.exists(_dash_script):
-                    print(f"\n{'='*70}")
-                    print(f"[GUIDE] Generating user-friendly Portfolio Guide HTML...")
-                    print(f"{'='*70}")
-                    _result = subprocess.run(
-                        [_sys.executable, _dash_script],
-                        capture_output=True, text=True, timeout=60
-                    )
-                    if _result.returncode == 0:
-                        print(f"[GUIDE] ✅ portfolio_guide.html generated and opened in browser!")
-                    else:
-                        print(f"[GUIDE] ⚠️  Guide generation skipped (non-critical): {_result.stderr[:120]}")
+                from portfolio_dashboard import generate_guide as _gen_guide
+                print(f"\n{'='*70}")
+                print(f"[GUIDE] Generating user-friendly Portfolio Guide HTML...")
+                print(f"{'='*70}")
+                _guide_out = _gen_guide(report_path=report_file, open_browser=True)
+                if _guide_out:
+                    print(f"[GUIDE] ✅ portfolio_guide.html generated and opened in browser!")
                 else:
-                    print(f"[GUIDE] portfolio_dashboard.py not found — skipping guide generation")
+                    print(f"[GUIDE] ⚠️  Guide generation returned no output (non-critical)")
             except Exception as _dash_err:
                 print(f"[GUIDE] Guide generation skipped (non-critical): {_dash_err}")
 
