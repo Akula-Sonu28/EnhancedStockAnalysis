@@ -16,14 +16,17 @@ from .intelligence_db import IntelligenceDB
 class PerformanceTracker:
     """Tracks recommendation outcomes and performance over time"""
     
-    def __init__(self, db_path: str = "data/stock_analysis.db"):
+    def __init__(self, db_or_path = "data/stock_analysis.db"):
         """
         Initialize performance tracker
         
         Args:
-            db_path: Path to intelligence database
+            db_or_path: Either IntelligenceDB instance or path to database
         """
-        self.db = IntelligenceDB(db_path)
+        if isinstance(db_or_path, IntelligenceDB):
+            self.db = db_or_path
+        else:
+            self.db = IntelligenceDB(db_or_path)
         self.check_periods = [7, 30, 90]  # Days to check outcomes
         logging.info("PerformanceTracker initialized")
     

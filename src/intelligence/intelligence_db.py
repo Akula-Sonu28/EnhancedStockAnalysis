@@ -43,6 +43,10 @@ class IntelligenceDB:
         conn.row_factory = sqlite3.Row
         return conn
     
+    def close(self):
+        """Close database connection (no-op for now as we use per-operation connections)"""
+        logging.info("Database connection closed (using per-operation connections)")
+    
     def _initialize_schema(self):
         """Initialize or upgrade database schema"""
         conn = self.get_connection()
@@ -229,6 +233,77 @@ class IntelligenceDB:
             )
         """)
         
+        # 6. User Portfolio Table (tracks actual user holdings - ALL 41 columns)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_portfolio (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATETIME NOT NULL,
+                symbol TEXT NOT NULL,
+                company_name TEXT,
+                
+                -- System recommendation (ACTION column)
+                action TEXT,
+                when_to_act TEXT,
+                invest_amount REAL,
+                buy_shares INTEGER,
+                
+                -- User's actual position (MY_ columns)
+                my_shares INTEGER,
+                my_value REAL,
+                my_profit_pct REAL,
+                book_pct_if_sell REAL,
+                book_amount REAL,
+                
+                -- Scoring (SCORE columns)
+                score REAL,
+                risk_score REAL,
+                v3_score REAL,
+                fund_score REAL,
+                mom_score REAL,
+                value_score REAL,
+                
+                -- Fundamentals
+                pe_ratio REAL,
+                roe_pct REAL,
+                debt_to_equity REAL,
+                risk TEXT,
+                
+                -- Price data
+                price REAL,
+                high_52w REAL,
+                low_52w REAL,
+                change_20d_pct REAL,
+                
+                -- Technical signals
+                support REAL,
+                resistance REAL,
+                rsi REAL,
+                volatility_pct REAL,
+                
+                -- Breakout & Exit signals
+                pre_breakout TEXT,
+                breakout_pct REAL,
+                setup_signals TEXT,
+                exhaustion TEXT,
+                exit_score REAL,
+                exit_signals TEXT,
+                
+                -- Context
+                sector TEXT,
+                type TEXT,
+                rank INTEGER,
+                portfolio_pct REAL,
+                why TEXT,
+                i_own_it INTEGER,  -- 0 or 1
+                
+                -- AI-derived behavior tracking
+                user_action TEXT,  -- FOLLOWED, IGNORED SELL, etc.
+                followed_recommendation INTEGER,  -- 0 or 1
+                
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Create indexes for performance
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_rec_symbol ON recommendations(symbol)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_rec_date ON recommendations(date)")
@@ -238,6 +313,8 @@ class IntelligenceDB:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_outcome_date ON outcomes(check_date)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_indicator_name ON indicator_performance(indicator_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_model_name ON model_performance(model_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_symbol ON user_portfolio(symbol)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_date ON user_portfolio(date)")
         
         logging.info("Database schema created successfully")
     
@@ -461,6 +538,55 @@ class IntelligenceDB:
                 stats['avg_return'] = 0
             
             return stats
+            
+        finally:
+            conn.close()
+    
+    def insert_user_portfolio_position(self, position: Dict) -> int:
+        """Insert a user portfolio position with all 41 columns"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO user_portfolio (
+                    date, symbol, company_name,
+                    action, when_to_act, invest_amount, buy_shares,
+                    my_shares, my_value, my_profit_pct, book_pct_if_sell, book_amount,
+                    score, risk_score, v3_score, fund_score, mom_score, value_score,
+                    pe_ratio, roe_pct, debt_to_equity, risk,
+                    price, high_52w, low_52w, change_20d_pct,
+                    support, resistance, rsi, volatility_pct,
+                    pre_breakout, breakout_pct, setup_signals, exhaustion, exit_score, exit_signals,
+                    sector, type, rank, portfolio_pct, why, i_own_it,
+                    user_action, followed_recommendation
+                ) VALUES (
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?
+                )
+            """, (
+                position['date'], position['symbol'], position['company_name'],
+                position['action'], position['when_to_act'], position['invest_amount'], position['buy_shares'],
+                position['my_shares'], position['my_value'], position['my_profit_pct'], position['book_pct_if_sell'], position['book_amount'],
+                position['score'], position['risk_score'], position['v3_score'], position['fund_score'], position['mom_score'], position['value_score'],
+                position['pe_ratio'], position['roe_pct'], position['debt_to_equity'], position['risk'],
+                position['price'], position['high_52w'], position['low_52w'], position['change_20d_pct'],
+                position['support'], position['resistance'], position['rsi'], position['volatility_pct'],
+                position['pre_breakout'], position['breakout_pct'], position['setup_signals'], position['exhaustion'], position['exit_score'], position['exit_signals'],
+                position['sector'], position['type'], position['rank'], position['portfolio_pct'], position['why'], position['i_own_it'],
+                position['user_action'], position['followed_recommendation']
+            ))
+            
+            conn.commit()
+            return cursor.lastrowid
             
         finally:
             conn.close()

@@ -91,7 +91,8 @@ class SentimentAnalyzer:
             ])
             
             return {
-                'composite_score': composite_score,
+                'sentiment_composite_score': composite_score,  # A-012: renamed from 'composite_score'
+                'composite_score': composite_score,            # A-012: kept as alias for backward compat
                 'overall_sentiment': overall_sentiment,
                 'sentiment_signal': sentiment_signal,
                 'confidence': confidence,
@@ -429,7 +430,8 @@ class SentimentAnalyzer:
     def _get_default_sentiment(self) -> Dict:
         """Return default neutral sentiment"""
         return {
-            'composite_score': 50.0,
+            'sentiment_composite_score': 50.0,  # A-012: canonical name
+            'composite_score': 50.0,            # A-012: backward-compat alias
             'overall_sentiment': 'NEUTRAL',
             'sentiment_signal': 'HOLD',
             'confidence': 40.0,

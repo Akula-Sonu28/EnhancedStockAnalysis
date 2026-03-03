@@ -72,6 +72,27 @@ class BacktestValidator:
             print(f"Error fetching {symbol}: {e}")
             return pd.DataFrame()
 
+    def fetch_fundamentals(self, symbol):
+        """GAP-5 FIX: Fetch real fundamental data from yfinance, cached per symbol.
+        Note: these are current-year values (minor look-ahead bias) but far more
+        accurate than the previous pe=20/roe=15 constants applied to all 500 stocks."""
+        if not hasattr(self, '_fund_cache'):
+            self._fund_cache = {}
+        if symbol in self._fund_cache:
+            return self._fund_cache[symbol]
+        try:
+            info = yf.Ticker(f"{symbol}.NS").info
+            data = {
+                'pe_ratio':       float(info.get('trailingPE')         or 20),
+                'roe':            float((info.get('returnOnEquity') or 0.15) * 100),
+                'debt_to_equity': float(info.get('debtToEquity')       or 0.5),
+                'market_cap':     float(info.get('marketCap')          or 1e12),
+            }
+        except Exception:
+            data = {'pe_ratio': 20, 'roe': 15, 'debt_to_equity': 0.5, 'market_cap': 1e12}
+        self._fund_cache[symbol] = data
+        return data
+
     def prepare_data_slice(self, full_hist, cutoff_date):
         # Data available UP TO cutoff_date (for scoring)
         # We need enough history BEFORE cutoff date for indicators (e.g. 50 DMA)
@@ -128,7 +149,8 @@ class BacktestValidator:
                     actual_return = (end_price - start_price) / start_price * 100
                     
                     # PREPARE DATA FOR SCORING ENGINE
-                    stock_data = self.prepare_stock_data(scoring_hist)
+                    fundamentals = self.fetch_fundamentals(symbol)  # GAP-5: real PE/ROE/Debt
+                    stock_data = self.prepare_stock_data(scoring_hist, fundamentals)
                     
                     # RUN ENGINES
                     for name, engine in self.engines.items():
@@ -158,7 +180,7 @@ class BacktestValidator:
                     
         return pd.DataFrame(results)
 
-    def prepare_stock_data(self, df):
+    def prepare_stock_data(self, df, fundamentals=None):
         # Convert DataFrame to dictionary expected by scoring engines
         # Need to calculate indicators manually since we are working with raw DF slice
         
@@ -204,13 +226,13 @@ class BacktestValidator:
             'enhanced_volume_ratio': vol_ratio,
             'volatility': volatility,
             
-            # Mock fundamentals (cannot fetch historical fundamentals easily from yfinance without advanced setup)
-            # We will use "neutral/good" defaults or if we can, fetch current ones (inaccurate but functional for code path)
-            # Or use a placeholder
-            'pe_ratio': 20,
-            'roe': 15,
-            'debt_to_equity': 0.5,
-            'market_cap': 1000000000000 # Large cap assumption
+            # GAP-5 FIX: Real fundamentals (fetched once per run, cached per symbol).
+            # Note: current-year values introduce minor look-ahead bias, but are far
+            # more accurate than pe=20/roe=15 applied uniformly to all 500 stocks.
+            'pe_ratio':       (fundamentals or {}).get('pe_ratio', 20),
+            'roe':            (fundamentals or {}).get('roe', 15),
+            'debt_to_equity': (fundamentals or {}).get('debt_to_equity', 0.5),
+            'market_cap':     (fundamentals or {}).get('market_cap', 1000000000000)
         }
 
 if __name__ == "__main__":

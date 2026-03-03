@@ -26,7 +26,7 @@ class MarketRegimeDetector:
         
         # Regime thresholds
         self.bull_threshold = 0.6  # 60% confidence for bull market
-        self.bear_threshold = -0.6  # -60% confidence for bear market
+        self.bear_threshold = -0.5  # -50% confidence for bear market (lowered from -0.6 — more responsive to choppy/bearish markets)
         
     def detect_regime(self, period_days: int = 180) -> Dict:
         """

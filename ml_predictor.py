@@ -290,6 +290,53 @@ class MLPricePredictor:
             logging.error(f"ML prediction error: {e}")
             return self._get_fallback_prediction(stock_data)
     
+    def predict_from_ohlcv(self, hist, info: dict = None, hist_full=None):
+        """
+        A-018: Predict using raw OHLCV — uses the SAME feature builder as train_ml_model.py.
+        This is the correct inference path when a trained pkl is loaded.
+
+        Args:
+            hist:      Recent 60-100 day OHLCV window (pd.DataFrame with Close/High/Low/Volume).
+            info:      yfinance ticker.info dict (fundamentals).  None → empty dict.
+            hist_full: Full available OHLCV history (for 52-week high / 6-month vol).
+                       If None, hist is used for both.
+        """
+        try:
+            import pandas as _pd
+            if hist is None or (hasattr(hist, 'empty') and hist.empty) or len(hist) < 60:
+                return self._get_fallback_prediction({})
+            if not self.is_trained or self.model is None:
+                return self._get_fallback_prediction({})
+            # Lazy import — train_ml_model is the single source-of-truth for feature building.
+            # The import runs module-level setup once (logging, dir creation) — acceptable cost.
+            from train_ml_model import build_features_from_hist  # noqa: E402
+            features = build_features_from_hist(
+                hist, info=info or {}, hist_full=hist_full
+            )
+            if features is None:
+                return self._get_fallback_prediction({})
+            features_scaled = self.scaler.transform(features.reshape(1, -1))
+            prediction    = self.model.predict(features_scaled)[0]
+            probabilities = self.model.predict_proba(features_scaled)[0]
+            confidence    = float(np.max(probabilities) * 100)
+            signal_map    = {1: 'BUY', 0: 'HOLD', -1: 'SELL'}
+            signal        = signal_map.get(int(prediction), 'HOLD')
+            expected_return = float(prediction * confidence * 0.2)
+            return {
+                'prediction':      int(prediction),
+                'confidence':      confidence,
+                'signal':          signal,
+                'expected_return': expected_return,
+                'probabilities': {
+                    'down': float(probabilities[0]),
+                    'hold': float(probabilities[1]),
+                    'up':   float(probabilities[2]),
+                },
+            }
+        except Exception as e:
+            logging.error(f"predict_from_ohlcv error: {e}")
+            return self._get_fallback_prediction({})
+
     def _get_fallback_prediction(self, stock_data: dict) -> Dict:
         """
         🛡️ Fallback rule-based prediction when ML unavailable

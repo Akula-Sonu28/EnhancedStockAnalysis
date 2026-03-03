@@ -16,14 +16,17 @@ from .intelligence_db import IntelligenceDB
 class OutcomeCalculator:
     """Calculates performance metrics and analytics from outcomes"""
     
-    def __init__(self, db_path: str = "data/stock_analysis.db"):
+    def __init__(self, db_or_path = "data/stock_analysis.db"):
         """
         Initialize outcome calculator
         
         Args:
-            db_path: Path to intelligence database
+            db_or_path: Either IntelligenceDB instance or path to database
         """
-        self.db = IntelligenceDB(db_path)
+        if isinstance(db_or_path, IntelligenceDB):
+            self.db = db_or_path
+        else:
+            self.db = IntelligenceDB(db_or_path)
         logging.info("OutcomeCalculator initialized")
     
     def calculate_hit_rates(self, period_days: int = 30, 

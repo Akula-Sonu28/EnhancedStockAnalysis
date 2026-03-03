@@ -300,45 +300,97 @@ class HybridOptimizedScoringEngine:
         except Exception:
             return 'neutral'
     
+    # GAP-C2 FIX: Regime-adaptive component weights (V4.1)
+    # BULLISH market → emphasise Momentum/Technicals (breakout plays dominate)
+    # BEARISH market → emphasise Fundamentals + Risk management (quality matters)
+    # SIDEWAYS/NEUTRAL → balanced default weights
+    _REGIME_WEIGHTS = {
+        'bullish': {
+            'fundamental_quality': 0.25,   # Technicals drive bull runs
+            'momentum_technical':  0.40,   # 40 % momentum / technical focus
+            'volume_strength':     0.20,   # Breakout volume confirmation
+            'sector_momentum':     0.10,
+            'risk_adjustment':     0.05,
+        },
+        'bearish': {
+            'fundamental_quality': 0.50,   # Fundamentals are the safety net
+            'momentum_technical':  0.15,   # Momentum unreliable in downtrends
+            'volume_strength':     0.10,
+            'sector_momentum':     0.10,
+            'risk_adjustment':     0.15,   # Risk management critical
+        },
+        'neutral': {
+            'fundamental_quality': 0.45,   # Default balanced weights
+            'momentum_technical':  0.25,
+            'volume_strength':     0.15,
+            'sector_momentum':     0.10,
+            'risk_adjustment':     0.05,
+        },
+    }
+
     def calculate_hybrid_score(self, symbol, stock_data):
         """
-        Calculate the optimized hybrid score
+        Calculate the optimized hybrid score (V4.1 — regime-adaptive weights).
         """
         try:
             # Calculate all component scores
             fundamental_score = self.calculate_fundamental_quality_score(stock_data)
             momentum_score = self.calculate_momentum_technical_score(stock_data)
             volume_score = self.calculate_volume_strength_score(stock_data)
-            sector_score = self.calculate_sector_momentum_score(symbol)
+            # GAP-2 FIX: Use live sector performance adj if pre-computed by main analyzer
+            # (stored in stock_data['sector_performance_adj'] via _compute_sector_adjustment).
+            # Maps ±7 pts → 0-100: (−7→0, 0→50, +7→100) so neutral sectors score 50.
+            # Falls back to historical hardcoded lookup when running standalone / backtest.
+            _live_sector = stock_data.get('sector_performance_adj')
+            if _live_sector is not None:
+                sector_score = max(0.0, min(100.0, (float(_live_sector) + 7.0) / 14.0 * 100.0))
+            else:
+                sector_score = self.calculate_sector_momentum_score(symbol)
             risk_score = self.calculate_risk_adjustment_score(stock_data)
-            
-            # Apply component weights
+
+            # GAP-C2 FIX: Prefer the regime already detected by MarketRegimeDetector
+            # (stored in stock_data['market_regime'] = 'BULL'/'BEAR'/'SIDEWAYS').
+            # Fall back to internal quick-detect only when running standalone/backtest.
+            _raw_regime = stock_data.get('market_regime', '').upper()
+            if _raw_regime in ('BULL', 'BULLISH'):
+                market_regime = 'bullish'
+            elif _raw_regime in ('BEAR', 'BEARISH'):
+                market_regime = 'bearish'
+            elif _raw_regime in ('SIDEWAYS', 'NEUTRAL', 'RANGE'):
+                market_regime = 'neutral'
+            else:
+                # Fallback: run internal quick detection (standalone / backtest use)
+                market_regime = self.detect_market_regime()
+
+            # Select regime-adaptive component weights
+            weights = self._REGIME_WEIGHTS.get(market_regime, self._REGIME_WEIGHTS['neutral'])
+
+            # Apply regime-adaptive component weights
             weighted_score = (
-                (fundamental_score * self.component_weights['fundamental_quality']) +
-                (momentum_score * self.component_weights['momentum_technical']) + 
-                (volume_score * self.component_weights['volume_strength']) +
-                (sector_score * self.component_weights['sector_momentum']) +
-                (risk_score * self.component_weights['risk_adjustment'])
+                (fundamental_score * weights['fundamental_quality']) +
+                (momentum_score    * weights['momentum_technical'])  +
+                (volume_score      * weights['volume_strength'])     +
+                (sector_score      * weights['sector_momentum'])     +
+                (risk_score        * weights['risk_adjustment'])
             )
-            
+
             # Apply sector multiplier
             base_symbol = symbol.replace('.NS', '')
             sector_multiplier = self._get_sector_multiplier(base_symbol)
             adjusted_score = weighted_score * sector_multiplier
-            
-            # Apply market regime adjustment
-            market_regime = self.detect_market_regime()
+
+            # Apply regime-level multiplier (directional bias: bear=0.90×, bull=1.10×)
             regime_multiplier = self.market_regimes.get(market_regime, 1.0)
             final_score = adjusted_score * regime_multiplier
-            
+
             # Ensure score stays within 0-100 range
             final_score = max(0, min(100, final_score))
-            
+
             return {
                 'hybrid_score': round(final_score, 1),
                 'components': {
                     'fundamental_quality': round(fundamental_score, 1),
-                    'momentum_technical': round(momentum_score, 1), 
+                    'momentum_technical': round(momentum_score, 1),
                     'volume_strength': round(volume_score, 1),
                     'sector_momentum': round(sector_score, 1),
                     'risk_adjustment': round(risk_score, 1)
@@ -346,11 +398,12 @@ class HybridOptimizedScoringEngine:
                 'adjustments': {
                     'sector_multiplier': sector_multiplier,
                     'market_regime': market_regime,
-                    'regime_multiplier': regime_multiplier
+                    'regime_multiplier': regime_multiplier,
+                    'regime_weights': 'adaptive' if market_regime != 'neutral' else 'default',
                 },
                 'raw_weighted_score': round(weighted_score, 1)
             }
-            
+
         except Exception as e:
             print(f"❌ Error calculating hybrid score for {symbol}: {e}")
             return {'hybrid_score': 50, 'components': {}, 'adjustments': {}}
