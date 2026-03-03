@@ -29,6 +29,7 @@ Holding/holdings*.csv
 data/nse_analysis_*.json
 data/nse_top150_*.csv
 data/*.pkl
+data/*.db
 data/recommendation_history.csv
 
 # Debug / one-off run output files
