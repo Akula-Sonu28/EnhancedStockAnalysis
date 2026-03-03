@@ -179,8 +179,8 @@ class EnhancedTop200StockAnalyzer:
         self.company_names = {}  # Map symbols to company names
         
         # 🚀 ENHANCEMENT: Add caching system
-        self.cache_enabled = _config.CACHE_ENABLED        # A-009: from config.py
-        self.cache_expiry_hours = _config.CACHE_EXPIRY_HOURS  # A-009: from config.py
+        self.cache_enabled = _config.CACHE_ENABLED        # [G-12] config.py IS live: CACHE_ENABLED, NSE_SUFFIX, thresholds all used below
+        self.cache_expiry_hours = _config.CACHE_EXPIRY_HOURS  # [G-12] CACHE_EXPIRY_HOURS wired — do NOT delete config.py
         self.cache_dir = "data/cache"
         os.makedirs(self.cache_dir, exist_ok=True)
         
@@ -1235,7 +1235,7 @@ class EnhancedTop200StockAnalyzer:
                 good_threshold = 0.35
                 stop_loss = -0.18
                 category = "⭐ HIGH QUALITY"
-            elif 'GROWTH' in self.classify_stock_type(symbol, sector) if hasattr(self, 'classify_stock_type') else False:
+            elif (hasattr(self, 'classify_stock_type') and 'GROWTH' in (self.classify_stock_type(symbol, sector) or '')):
                 # Growth stocks - higher risk, higher reward
                 mega_threshold = 1.00
                 big_threshold = 0.70
@@ -6640,6 +6640,11 @@ class EnhancedTop200StockAnalyzer:
                         # 💰 RECYCLE CAPITAL back to budget
                         remaining_budget += current_val
                         print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f}")
+                        # [G-14 FIX] Free the sector slot occupied by the SWAP source so the target
+                        # stock (typically a different sector) isn't penalised by source sector cap
+                        _sw1_sector = opportunity.get('sector', '')
+                        if _sw1_sector and _sw1_sector in sector_allocation:
+                            sector_allocation[_sw1_sector] = max(0, sector_allocation[_sw1_sector] - 1)
                         with open("critical_debug.txt", "a", encoding='utf-8') as f: 
                             f.write(f"{opportunity['symbol']} Recycled {current_val} -> New Budget {remaining_budget}\n")
                 
@@ -6861,10 +6866,30 @@ class EnhancedTop200StockAnalyzer:
                 print(f"      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print(f"      📊 Total available: ₹{total_available:,.0f}")
                 print(f"      ✅ Total allocated: ₹{total_allocated:,.0f}")
-                print(f"      🔼 INCREASE actions: {increase_count}")
+                # [G-21 FIX] Count actual action_recommendation=='INCREASE' rows (vs loop counter that only counts funded)
+                _actual_inc_count = int((allocation_df['action_recommendation'] == 'INCREASE').sum()) if 'action_recommendation' in allocation_df.columns else increase_count
+                print(f"      🔼 INCREASE actions: {_actual_inc_count} (funded: {increase_count})")
                 print(f"      🆕 BUY actions: {buy_count}")
                 print(f"      💵 Remaining funds: ₹{remaining_budget:,.0f}")
-                
+
+                # [G-09 FIX] Print unfunded BUY/PRE-BREAKOUT candidates with reason
+                _unfunded = [
+                    op for op in all_opportunities
+                    if not op.get('funded') and not op.get('priority_sell')
+                    and op.get('type') in ('BUY', 'PRE-BREAKOUT')
+                    and op.get('score', 0) >= 60
+                ]
+                if _unfunded:
+                    _unfunded_sorted = sorted(_unfunded, key=lambda x: x['score'], reverse=True)[:8]
+                    print(f"\n   📋 UNFUNDED CANDIDATES ({len(_unfunded)} total — showing top {len(_unfunded_sorted)}):")
+                    for _uop in _unfunded_sorted:
+                        _ureason = 'Budget exhausted' if remaining_budget < 3000 else f"Sector cap ({_uop.get('sector','')})"
+                        print(f"      ⏭ {_uop['symbol']}: Score={_uop['score']:.1f} | Reason: {_ureason}")
+
+                # [G-20 FIX] Cast suggested_quantity back to int after pd.concat (NaN coerces int→float64)
+                if 'suggested_quantity' in allocation_df.columns:
+                    allocation_df['suggested_quantity'] = pd.to_numeric(allocation_df['suggested_quantity'], errors='coerce').fillna(0).astype(int)
+
                 # Show sector diversification
                 if sector_allocation:
                     print(f"\n   📊 Sector Diversification:")
@@ -7217,22 +7242,18 @@ class EnhancedTop200StockAnalyzer:
                         cautious_count += 1
                         if regime_adjustment.get('market_regime') in ['BEARISH', 'ROTATION']:
                             if current_action == 'BUY' and not row.get('is_current_holding', False):
-                                # 🔧 FIX: Don't skip if funds were already allocated
-                                already_allocated = allocation_df.at[idx, 'investment_amount'] > 0
-                                if not already_allocated:
-                                    allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
-                                    allocation_df.at[idx, 'skip_reason'] = f"Low confidence (Score: {score:.1f}) in {regime_adjustment.get('market_regime')} market"
-                                    confidence_filtered += 1
+                                # [G-23 FIX] Removed already_allocated guard — confidence beats pre-allocation
+                                allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
+                                allocation_df.at[idx, 'skip_reason'] = f"Low confidence (Score: {score:.1f}) in {regime_adjustment.get('market_regime')} market"
+                                confidence_filtered += 1
                     
                     # AVOID: Skip new positions
                     elif confidence_level == 'AVOID':
                         if current_action == 'BUY' and not row.get('is_current_holding', False):
-                            # 🔧 FIX: Don't skip if funds were already allocated
-                            already_allocated = allocation_df.at[idx, 'investment_amount'] > 0
-                            if not already_allocated:
-                                allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
-                                allocation_df.at[idx, 'skip_reason'] = f"Below confidence threshold (Score: {score:.1f})"
-                                confidence_filtered += 1
+                            # [G-23 FIX] Removed already_allocated guard — confidence beats pre-allocation
+                            allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
+                            allocation_df.at[idx, 'skip_reason'] = f"Below confidence threshold (Score: {score:.1f})"
+                            confidence_filtered += 1
                     
                     if risk_warning:
                         allocation_df.at[idx, 'risk_warning'] = risk_warning
@@ -8393,6 +8414,17 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple.loc[skip_mask, 'investment_amount'] = 0
                     alloc_df_simple.loc[skip_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Zeroed ₹0 for {skip_mask.sum()} SKIP stocks [GA-01]")
+
+                    # [G-15 FIX] Zero emoji-HOLD: conflict emojis on HOLD/WAIT/KEEP = decorative, not fundable
+                    # ⚠️ HOLD, 🟡 HOLD etc. must get ₹0 just like plain HOLD
+                    _emoji_hold_kw = ['HOLD', 'WAIT', 'KEEP']
+                    _emoji_hold_mask = has_emoji & alloc_df_simple['action_recommendation'].astype(str).apply(
+                        lambda x: any(kw in x.upper() for kw in _emoji_hold_kw)
+                    )
+                    alloc_df_simple.loc[_emoji_hold_mask, 'investment_amount'] = 0
+                    alloc_df_simple.loc[_emoji_hold_mask, 'suggested_quantity'] = 0
+                    if _emoji_hold_mask.sum() > 0:
+                        print(f"      ✅ [G-15] Zeroed ₹0 for {_emoji_hold_mask.sum()} emoji-HOLD stocks")
 
                     # [G-04 FIX] Resync post-DQ total_allocated: GA-01 has now zeroed DQ-01-converted HOLDs
                     if 'investment_amount' in alloc_df_simple.columns:
