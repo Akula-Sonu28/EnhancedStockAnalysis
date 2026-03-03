@@ -11439,6 +11439,45 @@ def main():
             except Exception as _dash_err:
                 print(f"[GUIDE] Guide generation skipped (non-critical): {_dash_err}")
 
+            # ── AUTO-RETRAIN ML MODEL (runs after every successful analysis) ──
+            try:
+                print(f"\n{'='*70}")
+                print(f"[ML] AUTO-RETRAINING ML MODEL")
+                print(f"   [LEARN] Learning from today's market data — improves next run")
+                print(f"{'='*70}")
+
+                from train_ml_model import train as _ml_train, DEFAULT_STOCKS as _ML_DEFAULT
+
+                # Build training universe from stocks analyzed this run (capped at 50)
+                _analyzed_syms = []
+                if hasattr(analyzer, 'results') and analyzer.results:
+                    _analyzed_syms = [
+                        str(r.get('symbol', '')).upper().replace('.NS', '')
+                        for r in analyzer.results if r.get('symbol')
+                    ]
+                _train_stocks = [s for s in _analyzed_syms if s][:50] or _ML_DEFAULT[:40]
+
+                print(f"   Stocks   : {len(_train_stocks)}")
+                print(f"   Horizon  : 10 trading days")
+                print(f"   Model    : GradientBoosting (200 trees, depth=4)")
+                print(f"   Universe : {', '.join(_train_stocks[:6])}{'...' if len(_train_stocks)>6 else ''}")
+
+                _ml_acc = _ml_train(
+                    stock_list   = _train_stocks,
+                    forward_days = 10,
+                    n_estimators = 200,
+                    max_depth    = 4,
+                    learning_rate= 0.08,
+                    test_size    = 0.20,
+                )
+                print(f"\n[ML] ✅ Model updated | Test accuracy: {_ml_acc:.1%} | "
+                      f"{len(_train_stocks)} stocks | Saved → models/ml_predictor_latest.pkl")
+                print(f"[ML] Next run will use the freshly trained model automatically.")
+
+            except Exception as _ml_auto_err:
+                print(f"\n[ML] Auto-retraining skipped (non-critical): {str(_ml_auto_err)[:150]}")
+                print(f"   Run 'python train_ml_model.py --stocks 40' manually to update the model.")
+
         else:
             print(f"\n[WARN] Analysis completed but report generation failed")
     else:
