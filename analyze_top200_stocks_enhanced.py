@@ -3301,8 +3301,8 @@ class EnhancedTop200StockAnalyzer:
             'volume_trend': 'AVERAGE',
             'momentum': 'NEUTRAL',
             'technical_score': 50.0,
-            'support_level': 0.0,
-            'resistance_level': 0.0
+            'support_level': None,   # None = unknown, not zero
+            'resistance_level': None
         }
 
     def _calculate_multi_timeframe_analysis(self, symbol: str, hist_daily=None) -> dict:
@@ -8371,7 +8371,10 @@ Trading Plan ({risk_tolerance} RISK):
                         # [RT-10 FIX] Force-overwrite timing for SELL/SWAP/INCREASE (these often have stale/missing timing)
                         # For BUY/PRE-BREAKOUT only: preserve any timing already set from earlier allocation logic
                         _is_urgent10 = any(kw in _act10 for kw in ['SELL', 'SWAP', 'INCREASE'])
-                        if not _is_urgent10 and pd.notna(_row10.get('profit_booking_timing')): continue  # already set
+                        # [FIX] _clean_dataframe_for_excel converts None→'' so check for non-empty too
+                        _existing_timing = _row10.get('profit_booking_timing')
+                        _has_timing = pd.notna(_existing_timing) and str(_existing_timing).strip() != ''
+                        if not _is_urgent10 and _has_timing: continue  # already set
                         _rsi10 = float(_row10.get(_rsi_c10, 50) or 50)
                         _exit10 = float(_row10.get(_exit_c10, 0) or 0)
                         if _rsi10 > 70 or _exit10 > 30:
@@ -8381,6 +8384,16 @@ Trading Plan ({risk_tolerance} RISK):
                         else:
                             alloc_df_simple.at[_idx10, 'profit_booking_timing'] = 'Within 2 weeks'
                     print(f"      ✅ [RT-10] WHEN_TO_ACT populated for actionable stocks")
+
+                    # [FIX] Sync PRE_BREAKOUT? flag — action says PRE-BREAKOUT but flag was False/None
+                    # pre_breakout_detected comes from raw stock data; action_recommendation can be
+                    # set to PRE-BREAKOUT by independent logic → must reconcile
+                    if 'pre_breakout_detected' in alloc_df_simple.columns:
+                        pb_flag_mask = alloc_df_simple['action_recommendation'].astype(str).str.contains('PRE-BREAKOUT', na=False)
+                        alloc_df_simple.loc[pb_flag_mask, 'pre_breakout_detected'] = True
+                        _pb_fixed = pb_flag_mask.sum()
+                        if _pb_fixed:
+                            print(f"   🔧 [PRE_BREAKOUT sync] Set pre_breakout_detected=True for {_pb_fixed} PRE-BREAKOUT action stocks")
 
                     # 💰 NEW: Calculate profit booking amount in rupees
                     print(f"   💰 Calculating BOOK_PROFIT amounts in rupees...")
@@ -8433,9 +8446,12 @@ Trading Plan ({risk_tolerance} RISK):
                         # rotation_trigger_price: 3% below support for loser HOLD positions
                         if _pnl79 < -0.02 and 'HOLD' in _act79 and _sup79 > 0:
                             alloc_df_simple.at[_idx79, 'rotation_trigger_price'] = round(_sup79 * 0.97, 2)
-                        # [MI-C01 FIX] stop_loss_price: 3% below support for ALL owned positions
-                        if _own79 and _sup79 > 0:
+                        # [MI-C01 FIX] stop_loss_price: 3% below support for ALL stocks; fallback to 8% below price
+                        _price79 = float(_row79.get('current_price', 0) or _row79.get('PRICE', 0) or 0)
+                        if _sup79 > 0:
                             alloc_df_simple.at[_idx79, 'stop_loss_price'] = round(_sup79 * 0.97, 2)
+                        elif _price79 > 0:
+                            alloc_df_simple.at[_idx79, 'stop_loss_price'] = round(_price79 * 0.92, 2)  # 8% fallback
                         # rotation_target: quality-filtered non-owned stock (same sector preferred)
                         if ('SELL' in _act79 or 'SWAP' in _act79) and len(_non_owned) > 0 and 'symbol' in _non_owned.columns:
                             _sector79 = str(_row79.get('sector', ''))
@@ -11381,7 +11397,28 @@ def main():
             except Exception as ap_error:
                 print(f"\n[INFO] Action plan generation skipped: {ap_error}")
                 print(f"   Run 'python generate_action_plan.py' manually for detailed action plan")
-                
+
+            # ── AUTO-GENERATE USER-FRIENDLY PORTFOLIO GUIDE ──────────────────
+            try:
+                import subprocess, sys as _sys, os as _os
+                _dash_script = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "portfolio_dashboard.py")
+                if _os.path.exists(_dash_script):
+                    print(f"\n{'='*70}")
+                    print(f"[GUIDE] Generating user-friendly Portfolio Guide HTML...")
+                    print(f"{'='*70}")
+                    _result = subprocess.run(
+                        [_sys.executable, _dash_script],
+                        capture_output=True, text=True, timeout=60
+                    )
+                    if _result.returncode == 0:
+                        print(f"[GUIDE] ✅ portfolio_guide.html generated and opened in browser!")
+                    else:
+                        print(f"[GUIDE] ⚠️  Guide generation skipped (non-critical): {_result.stderr[:120]}")
+                else:
+                    print(f"[GUIDE] portfolio_dashboard.py not found — skipping guide generation")
+            except Exception as _dash_err:
+                print(f"[GUIDE] Guide generation skipped (non-critical): {_dash_err}")
+
         else:
             print(f"\n[WARN] Analysis completed but report generation failed")
     else:
