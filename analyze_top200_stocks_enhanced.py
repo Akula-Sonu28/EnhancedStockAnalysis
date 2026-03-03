@@ -4993,6 +4993,13 @@ class EnhancedTop200StockAnalyzer:
                         if len(holdings_df) < initial_count:
                             print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
                     
+                    # [G-18 FIX] Deduplicate by Instrument to prevent inflated portfolio value and mis-calibrated 5% caps
+                    if 'Instrument' in holdings_df.columns:
+                        before_dedup = len(holdings_df)
+                        holdings_df = holdings_df.drop_duplicates(subset=['Instrument'])
+                        if len(holdings_df) < before_dedup:
+                            print(f"   ⚠️ Removed {before_dedup - len(holdings_df)} duplicate holding rows [G-18]")
+                    
                     return holdings_df
             
             print("   ⚠️  No holdings file found - using allocation without current portfolio")
@@ -5597,8 +5604,8 @@ class EnhancedTop200StockAnalyzer:
                     allocation_df['holdings_rank'] = 0
                 
                 total_holdings = len(current_holdings_df)
-                top_30_pct = int(total_holdings * 0.30)
-                bottom_20_pct = int(total_holdings * 0.20)
+                top_30_pct = max(1, int(total_holdings * 0.30))    # [G-17 FIX] floor at 1 — prevents 0 INCREASE slots for small portfolios (≤3 holdings)
+                bottom_20_pct = max(1, int(total_holdings * 0.20)) # [G-17 FIX] floor at 1 — prevents 0 SELL slots for small portfolios
                 
                 print(f"      📊 Holdings ranked: Top {top_30_pct} (INCREASE), Bottom {bottom_20_pct} (CONSIDER SELLING)")
                 print(f"      🏆 Best performer: {current_holdings_df.nsmallest(1, 'holdings_rank')['symbol'].iloc[0]} (Rank #{current_holdings_df['holdings_rank'].min()})")
@@ -5986,8 +5993,9 @@ class EnhancedTop200StockAnalyzer:
                     category_stocks = allocation_df[allocation_df['stock_type'] == category].copy()
                     
                     if not category_stocks.empty:
-                        # Sort by risk_adjusted_score (descending - best first)
-                        category_stocks = category_stocks.sort_values('risk_adjusted_score', ascending=False, na_position='last')
+                        # [G-26 FIX] Sort by overall_score (V4.0 Hybrid) to align with INCREASE funding priority
+                        # Previously sorted by risk_adjusted_score (V3) causing keep/fund mismatch
+                        category_stocks = category_stocks.sort_values('overall_score', ascending=False, na_position='last')
                         target_count = target_counts.get(category, 0)
                         available_count = len(category_stocks)
                         
@@ -6174,7 +6182,23 @@ class EnhancedTop200StockAnalyzer:
             sell_recommendations_df = allocation_df[allocation_df['keep_stock'] == False].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
             
             # STEP 3.4: 🎯 SALE PROCEEDS + PROFIT BOOKING + NEW CAPITAL ALLOCATION
-            if 'keep_stock' in allocation_df.columns and target_amount > 0:
+            # [G-03 FIX] Pre-compute proceeds BEFORE the guard so we can check total_available, not just target_amount.
+            # Previously guard was 'target_amount > 0' — skipped entire allocation if user passed Rs0 even with SELL proceeds.
+            _early_sell_proceeds = allocation_df[
+                (allocation_df['action_recommendation'] == 'SELL') &
+                (allocation_df['is_current_holding'] == True)
+            ]['current_value'].sum() if 'keep_stock' in allocation_df.columns else 0
+            _early_book_df = allocation_df[
+                (allocation_df['action_recommendation'] == 'BOOK_PROFIT') &
+                (allocation_df['is_current_holding'] == True)
+            ] if 'keep_stock' in allocation_df.columns else pd.DataFrame()
+            _early_book_proceeds = sum(
+                row.get('profit_booking_pct', 0) * row.get('current_value', 0)
+                for _, row in _early_book_df.iterrows()
+            ) if not _early_book_df.empty else 0
+            _early_total_available = target_amount + _early_sell_proceeds + _early_book_proceeds
+            
+            if 'keep_stock' in allocation_df.columns and _early_total_available > 0:
                 # Calculate sale proceeds from stocks marked for SELL (100% of position)
                 sell_proceeds = allocation_df[
                     (allocation_df['action_recommendation'] == 'SELL') & 
@@ -6570,7 +6594,7 @@ class EnhancedTop200StockAnalyzer:
                 print(f"\n   💰 Allocating ₹{total_available:,.0f} across ranked opportunities...")
                 
                 remaining_budget = total_available
-                sector_allocation = {}  # Track sector diversification
+                sector_allocation = {}  # [G-05 FIX] Track sector diversification — moved BEFORE SWAP steps so SWAP-funded stocks count toward the 10-stock sector cap
                 increase_count = 0
                 buy_count = 0
                 total_allocated = 0
@@ -6617,10 +6641,15 @@ class EnhancedTop200StockAnalyzer:
                         # Cap at 40% of total budget OR recycled amount, whichever is HIGHER for high-ROI swaps
                         roi_score = opportunity.get('score', 0)
                         max_swap_allocation = total_available * 0.40
+                        # [G-06 FIX] Always cap SWAP at extended_cap (7.5% of portfolio) even for high-ROI scores
+                        # Previously roi_score>=85 was uncapped: final_cap = swap_source_value (no ceiling)
+                        market_cap = opportunity.get('market_cap', 0)
+                        _, max_allocation_pct = self.classify_market_cap(market_cap)
+                        extended_cap = (current_portfolio_value + total_available) * max_allocation_pct * 1.5
                         
                         if roi_score >= 85:
-                            final_cap = swap_source_value  # Allow full recycled amount for very high ROI
-                            cap_reason = f"Very High ROI (Score {roi_score:.1f})"
+                            final_cap = min(swap_source_value, extended_cap)  # [G-06 FIX] capped
+                            cap_reason = f"Very High ROI (Score {roi_score:.1f}, capped at {extended_cap:,.0f})"
                         else:
                             # For lower scores, use min of recycled amount and 40% cap
                             final_cap = min(swap_source_value, max_swap_allocation) if swap_source_value > 0 else max_swap_allocation
@@ -7345,7 +7374,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 self.recommendation_history.record_recommendation(
                     symbol=row['symbol'],
-                    action=row['action_type'],
+                    action=row.get('action_recommendation', row['action_type']),  # [G-24 FIX] use final post-DQ action, not stale action_type
                     score=score_val,
                     price=price_val,
                     fundamentals=fundamentals,
@@ -11090,7 +11119,7 @@ def main():
             <div class="card"><div class="card-title">Average Score</div><div class="card-value">""" + f"{avg_score:.1f}" + """</div><div class="card-subtitle">Out of 100</div></div>
             <div class="card"><div class="card-title">Capital Needed</div><div class="card-value">Rs """ + f"{total_investment:,.0f}" + """</div><div class="card-subtitle">For BUY stocks</div></div>
             <div class="card"><div class="card-title">Profitable</div><div class="card-value">""" + str(profitable) + """</div><div class="card-subtitle">""" + str(losses) + """ in loss</div></div>
-            <div class="card"><div class="card-title">Avg Profit</div><div class="card-value" style="color: """ + ('#51cf66' if avg_profit > 0 else '#ff6b6b') + """">""" + f"{avg_profit:.1f}%" + """</div><div class="card-subtitle">Across portfolio</div></div>
+            <div class="card"><div class="card-title">Avg Profit</div><div class="card-value" style="color: """ + ('#51cf66' if avg_profit > 0 else '#ff6b6b') + """">""" + f"{avg_profit * 100:.1f}%" + """</div><div class="card-subtitle">Across portfolio</div></div>
         </div>
         <div class="charts">
             <div class="chart-card"><h3>Action Breakdown</h3><div class="chart-container"><canvas id="chart1"></canvas></div></div>
@@ -11135,7 +11164,7 @@ def main():
             const pClass = s['MY_PROFIT_%'] > 0 ? 'profit-positive' : 'profit-negative';
             const pSign = s['MY_PROFIT_%'] > 0 ? '+' : '';
             const badgeClass = s.ACTION === 'SELL' ? 'badge-sell' : s.ACTION === 'BUY' ? 'badge-buy' : 'badge-keep';
-            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_Rs'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${s['MY_PROFIT_%'].toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
+            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_Rs'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${(s['MY_PROFIT_%']*100).toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
         }
         function showList(id, stocks) {
             const html = stocks.length === 0 ? '<div class="empty">No stocks in this category</div>' : '<div class="stock-list">' + stocks.map(s => createStockCard(s)).join('') + '</div>';
