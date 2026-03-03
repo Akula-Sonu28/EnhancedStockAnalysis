@@ -6303,11 +6303,20 @@ class EnhancedTop200StockAnalyzer:
                         
                         # 🚀 UPDATED: Include ALL holdings for analysis (even mediocre ones for potential SWAP)
                         # We used to filter by rank, but now we let the Unified Allocation logic decide.
-                        # [RT-08 FIX] Only allow INCREASE opportunity if not at meaningful loss (unless ML=STRONG_BUY)
                         _profit_for_increase = float(row.get('current_profit_pct', 0) or 0)
                         _ml_for_increase = str(row.get('ml_signal', ''))
-                        is_top_performer = (_profit_for_increase >= -0.02) or (_ml_for_increase == 'STRONG_BUY')
-                        
+                        # [G-11 FIX] Graduated loss scale replaces binary RT-08 -2% cliff
+                        # All holdings enter opportunity list (needed for SWAP analysis); investment is scaled
+                        if _profit_for_increase >= 0 or _ml_for_increase == 'STRONG_BUY':
+                            _increase_scale = 1.0   # In profit or ML=STRONG_BUY: full INCREASE
+                        elif _profit_for_increase >= -0.005:
+                            _increase_scale = 0.7   # Slight loss (0% to -0.5%): 70% of max additional
+                        elif _profit_for_increase >= -0.01:
+                            _increase_scale = 0.4   # Moderate loss (-0.5% to -1%): 40% of max additional
+                        else:
+                            _increase_scale = 0.0   # Deep loss (>-1%): no new capital; stays in list for SWAP
+                        is_top_performer = True  # [G-11 FIX] always enter block — investment scaled by _increase_scale
+
                         if is_top_performer:
                             current_value = row['current_value']
                             market_cap = row.get('market_cap', 0)
@@ -6327,8 +6336,11 @@ class EnhancedTop200StockAnalyzer:
                                 max_additional = max(0, extended_cap - current_value)
                             else:
                                 max_additional = max(0, max_allocation_per_stock - current_value)
-                            
-                            # allow all holdings to be added (for SWAP analysis), even if fully allocated
+
+                            # [G-07 FIX] Position-maturity guard: if already >12% of portfolio, block INCREASE
+                            if total_target_portfolio > 0 and (current_value / total_target_portfolio) >= 0.12:
+                                max_additional = 0  # [G-07 FIX] Mature position — no fresh INCREASE; stays in list for SWAP
+                            # always add for SWAP analysis (weak/mediocre holdings need to appear here)
                             if True: 
                                 # [FIX-SCORE] allocation_df does not carry final_blended_score (only in results_df).
                                 # Use overall_score (the capped 100-pt score written to allocation_df) as the
@@ -6343,7 +6355,7 @@ class EnhancedTop200StockAnalyzer:
                                     'score': _opp_score,
                                     'rank': rank,
                                     'current_value': current_value,
-                                    'max_investment': max_additional,
+                                    'max_investment': max(0, max_additional * _increase_scale),  # [G-11 FIX] graduated loss scale
                                     'current_price': row['current_price'],
                                     'sector': row.get('sector', 'Unknown'),
                                     'market_cap_category': cap_category,
@@ -6538,6 +6550,7 @@ class EnhancedTop200StockAnalyzer:
                     print(f"      [CUT] CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
                     wh['recommendation'] = "SELL (WEAK)"
                     wh['action_comment'] = "Score < 50: Fundamental momentum lost"
+                    wh['priority_sell'] = True  # [G-22 FIX] prevent main allocation loop from funding score<50 stocks
                 
                 # 2. Identify "Mediocre" Holdings (Score 50-70) - SWAP CANDIDATES
                 mediocre_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and 50 <= op['score'] < 70]
@@ -6753,8 +6766,9 @@ class EnhancedTop200StockAnalyzer:
 
                     # Final validation
                     if actual_investment < 3000 or shares_to_buy < 1:
+                        opportunity['funded'] = True  # [G-10 FIX] prevent re-processing; rounding made investment too small
                         continue
-                    
+
                     # ALLOCATE FUNDS
                     if opportunity['type'] == 'INCREASE':
                         # [FIX] Use symbol-based lookup instead of stale index.
@@ -8326,6 +8340,8 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   🔧 [DQ-01] Resolving PRE-BREAKOUT/INCREASE contradictions...")
                     _rsi_dq  = 'enhanced_rsi_14' if 'enhanced_rsi_14' in alloc_df_simple.columns else 'RSI'
                     _dq_count = 0
+                    # [G-08 FIX] Snapshot allocated total before DQ-01 converts INCREASE→HOLD (used by G-04 resync below)
+                    _pre_dq_allocated = pd.to_numeric(alloc_df_simple['investment_amount'], errors='coerce').fillna(0).sum() if 'investment_amount' in alloc_df_simple.columns else 0.0
                     if _ml_cp and _own_cp and _pnl_cp:
                         for _idxdq, _rowdq in alloc_df_simple.iterrows():
                             _act_dq     = str(_rowdq.get('action_recommendation', ''))
@@ -8377,6 +8393,15 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple.loc[skip_mask, 'investment_amount'] = 0
                     alloc_df_simple.loc[skip_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Zeroed ₹0 for {skip_mask.sum()} SKIP stocks [GA-01]")
+
+                    # [G-04 FIX] Resync post-DQ total_allocated: GA-01 has now zeroed DQ-01-converted HOLDs
+                    if 'investment_amount' in alloc_df_simple.columns:
+                        _post_dq_allocated = pd.to_numeric(alloc_df_simple['investment_amount'], errors='coerce').fillna(0).sum()
+                        _freed = _pre_dq_allocated - _post_dq_allocated
+                        if _freed > 0:
+                            print(f"      📊 [G-04] DQ-01 freed ₹{_freed:,.0f} from {_dq_count} INCREASE→HOLD downgrades | Active: ₹{_post_dq_allocated:,.0f}")
+                        else:
+                            print(f"      📊 [G-04] Post-DQ allocation: ₹{_post_dq_allocated:,.0f} (no budget freed by DQ-01)")
 
                     # 🔧 FAILSAFE RE-CALCULATION REMOVED
                     # This block was overwriting carefully calculated swap amounts with crude weight-based values.
