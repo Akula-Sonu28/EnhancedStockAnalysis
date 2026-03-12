@@ -191,13 +191,13 @@ class ImprovedScoringEngine:
             # Debt to Equity - Lower is better
             debt_to_equity = stock_data.get('debt_to_equity', 0)
             if pd.notna(debt_to_equity):
-                if debt_to_equity < 0.5:      # Very low debt
+                if debt_to_equity < 50:       # Very low debt
                     score += 15
-                elif debt_to_equity < 1.0:    # Moderate debt
+                elif debt_to_equity < 100:    # Moderate debt
                     score += 8
-                elif debt_to_equity > 2.0:    # High debt
+                elif debt_to_equity > 200:    # High debt
                     score -= 15
-                elif debt_to_equity > 1.5:    # Elevated debt
+                elif debt_to_equity > 150:    # Elevated debt
                     score -= 8
             
             # PB Ratio - Lower is better
@@ -231,7 +231,7 @@ class ImprovedScoringEngine:
             
             # Low debt
             debt_to_equity = stock_data.get('debt_to_equity', 999)
-            if pd.notna(debt_to_equity) and debt_to_equity < 1.0:
+            if pd.notna(debt_to_equity) and debt_to_equity < 100:
                 quality_signals += 1
             
             # Reasonable PE (not value trap, not bubble)

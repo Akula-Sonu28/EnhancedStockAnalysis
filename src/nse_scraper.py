@@ -4,12 +4,13 @@ Modified NSE Scraper to dynamically load stock symbols from a CSV file
 """
 
 import os
+import sys
 import logging
 import pandas as pd
 import yfinance as yf
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import LOG_FILE
+from config import LOG_FILE, REQUEST_DELAY
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
@@ -20,7 +21,8 @@ def get_stock_info(symbol):
     Returns: stock info dict or None if not found
     """
     try:
-        # Append .NS suffix if not already present
+        time.sleep(REQUEST_DELAY)
+
         if not symbol.endswith('.NS'):
             ticker_name = f"{symbol}.NS"
         else:

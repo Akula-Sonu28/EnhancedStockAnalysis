@@ -61,5 +61,5 @@ REQUESTS_PER_MIN = 20
 RETRY_LIMIT = 3
 RETRY_BACKOFF = 2  # seconds
 
-# Logging
-LOG_FILE = os.path.join(os.path.dirname(__file__), "data", f"nse_analysis_{TIMESTAMP}.log")
+# Timeout for yfinance calls (seconds)
+TIMEOUT_SECONDS = 120

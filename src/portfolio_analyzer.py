@@ -5,6 +5,7 @@ Analyzes a portfolio of stocks and generates trading recommendations
 including GTT (Good Till Triggered) opportunities
 """
 
+import ast
 import pandas as pd
 import logging
 from datetime import datetime
@@ -589,14 +590,14 @@ class PortfolioAnalyzer:
             # Convert to proper lists if they're strings
             if isinstance(support_levels, str):
                 try:
-                    support_levels = eval(support_levels)
-                except:
+                    support_levels = ast.literal_eval(support_levels)
+                except (ValueError, SyntaxError):
                     support_levels = [current_price * 0.95]
                     
             if isinstance(resistance_levels, str):
                 try:
-                    resistance_levels = eval(resistance_levels)
-                except:
+                    resistance_levels = ast.literal_eval(resistance_levels)
+                except (ValueError, SyntaxError):
                     resistance_levels = [current_price * 1.05]
             
             # Find nearest support and resistance
@@ -838,10 +839,10 @@ class PortfolioAnalyzer:
                 if isinstance(val, str):
                     # Try safe eval
                     try:
-                        tmp = eval(val, {"__builtins__":{}})
+                        tmp = ast.literal_eval(val)
                         if isinstance(tmp, list):
                             return [v for v in tmp if isinstance(v,(int,float))]
-                    except Exception:
+                    except (ValueError, SyntaxError):
                         pass
                 # fallback single synthetic level
                 return [current_price * fallback_multiplier]

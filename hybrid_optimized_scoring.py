@@ -48,13 +48,17 @@ class HybridOptimizedScoringEngine:
         
         # Sector performance multipliers (from 500-stock backtest)
         self.sector_multipliers = {
-            'Banking': 1.20,                  # Top performer in backtest
-            'Financial Services': 1.15,      # Strong consistent returns
-            'Energy': 1.05,                   # Moderate positive
-            'Materials': 1.00,                # Selective (mixed results)
-            'IT': 0.95,                       # Underperforming recently
-            'Consumer Durables': 0.90,        # Weak in current market
-            'Consumer Discretionary': 0.85,   # Avoid per analysis
+            'Banking': 1.20,
+            'Financial Services': 1.15,
+            'Energy': 1.05,
+            'Materials': 1.00,
+            'IT': 0.95,
+            'Consumer Durables': 0.90,
+            'Consumer Discretionary': 0.85,
+            'Healthcare': 1.00,
+            'Utilities': 0.95,
+            'Real Estate': 0.90,
+            'Communication Services': 0.95,
             'default': 1.00
         }
         
@@ -73,7 +77,7 @@ class HybridOptimizedScoringEngine:
         try:
             # Core financial metrics
             pe_ratio = stock_data.get('pe_ratio', 15)
-            roe = stock_data.get('roe', 0.1) * 100  # Convert to percentage
+            roe = stock_data.get('roe', 10)  # Already percentage from enhanced_fundamental_analyzer
             debt_equity = stock_data.get('debt_to_equity', 50)
             market_cap = stock_data.get('market_cap', 1000000000)
             
@@ -218,38 +222,29 @@ class HybridOptimizedScoringEngine:
         except Exception as e:
             return 50
     
-    def calculate_sector_momentum_score(self, symbol):
-        """
-        NEW: Sector-relative performance scoring
-        """
+    def calculate_sector_momentum_score(self, symbol, stock_data=None):
+        """Sector-relative performance scoring using yfinance sector field"""
         try:
-            # Sector mapping (simplified)
-            banking_stocks = ['SBIN', 'ICICIBANK', 'HDFCBANK', 'AXISBANK', 'KOTAKBANK', 
-                             'INDIANB', 'PNB', 'CANBK', 'BANKBARODA', 'FEDERALBNK', 
-                             'CUB', 'KARURVYSYA', 'UNIONBANK', 'BANKINDIA']
-            
-            financial_stocks = ['BAJAJFINSERV', 'BAJAJFINSV', 'MUTHOOTFIN', 'LICHSGFIN',
-                               'MOTILALOFS', 'UJJIVANSFB']
-            
-            energy_stocks = ['RELIANCE', 'ONGC', 'OIL', 'BPCL', 'IOC', 'GAIL', 'NTPC']
-            
-            materials_stocks = ['HINDALCO', 'TATASTEEL', 'JSWSTEEL', 'NMDC', 'VEDL', 'ACC']
-            
-            # Determine sector and apply momentum multiplier
-            base_symbol = symbol.replace('.NS', '')
-            
-            if base_symbol in banking_stocks:
-                return 85  # Banking performing well in backtest
-            elif base_symbol in financial_stocks:
-                return 80  # Financial services strong
-            elif base_symbol in energy_stocks:
-                return 70  # Energy moderate
-            elif base_symbol in materials_stocks:
-                return 65  # Materials mixed
-            else:
-                return 50  # Default/Other sectors
-                
-        except Exception as e:
+            sector = (stock_data.get('sector', '') if stock_data else '').lower()
+
+            sector_scores = {
+                'financial services': 85,
+                'banks': 85,
+                'energy': 70,
+                'basic materials': 65,
+                'industrials': 65,
+                'technology': 45,
+                'consumer cyclical': 55,
+                'consumer defensive': 60,
+                'healthcare': 60,
+                'utilities': 55,
+                'real estate': 50,
+                'communication services': 50,
+            }
+
+            return sector_scores.get(sector, 50)
+
+        except Exception:
             return 50
     
     def calculate_risk_adjustment_score(self, stock_data):
@@ -345,7 +340,7 @@ class HybridOptimizedScoringEngine:
             if _live_sector is not None:
                 sector_score = max(0.0, min(100.0, (float(_live_sector) + 7.0) / 14.0 * 100.0))
             else:
-                sector_score = self.calculate_sector_momentum_score(symbol)
+                sector_score = self.calculate_sector_momentum_score(symbol, stock_data)
             risk_score = self.calculate_risk_adjustment_score(stock_data)
 
             # GAP-C2 FIX: Prefer the regime already detected by MarketRegimeDetector
@@ -376,7 +371,7 @@ class HybridOptimizedScoringEngine:
 
             # Apply sector multiplier
             base_symbol = symbol.replace('.NS', '')
-            sector_multiplier = self._get_sector_multiplier(base_symbol)
+            sector_multiplier = self._get_sector_multiplier(stock_data)
             adjusted_score = weighted_score * sector_multiplier
 
             # Apply regime-level multiplier (directional bias: bear=0.90×, bull=1.10×)
@@ -408,26 +403,29 @@ class HybridOptimizedScoringEngine:
             print(f"❌ Error calculating hybrid score for {symbol}: {e}")
             return {'hybrid_score': 50, 'components': {}, 'adjustments': {}}
     
-    def _get_sector_multiplier(self, symbol):
-        """Get sector-specific multiplier"""
-        # Banking sector
-        if any(bank in symbol.upper() for bank in ['BANK', 'SBIN', 'ICICI', 'HDFC', 'AXIS', 'KOTAK']):
-            return self.sector_multipliers['Banking']
-        
-        # Financial services
-        elif any(fin in symbol.upper() for fin in ['BAJAJ', 'MUTHOOT', 'LICHS', 'MOTILAL']):
-            return self.sector_multipliers['Financial Services']
-            
-        # Energy
-        elif any(energy in symbol.upper() for energy in ['OIL', 'BPCL', 'IOC', 'GAIL', 'RELIANCE', 'ONGC']):
-            return self.sector_multipliers['Energy']
-            
-        # Materials  
-        elif any(mat in symbol.upper() for mat in ['HIND', 'TATA', 'JSW', 'NMDC', 'VEDL', 'ACC']):
-            return self.sector_multipliers['Materials']
-            
-        else:
-            return self.sector_multipliers['default']
+    def _get_sector_multiplier(self, stock_data):
+        """Get sector-specific multiplier using yfinance sector field"""
+        sector = stock_data.get('sector', '').lower()
+
+        sector_map = {
+            'financial services': 'Banking',
+            'banks': 'Banking',
+            'energy': 'Energy',
+            'basic materials': 'Materials',
+            'industrials': 'Materials',
+            'technology': 'IT',
+            'consumer cyclical': 'Consumer Discretionary',
+            'consumer defensive': 'Consumer Durables',
+            'healthcare': 'Healthcare',
+            'utilities': 'Utilities',
+            'real estate': 'Real Estate',
+            'communication services': 'Communication Services',
+        }
+
+        matched = sector_map.get(sector, None)
+        if matched and matched in self.sector_multipliers:
+            return self.sector_multipliers[matched]
+        return self.sector_multipliers['default']
     
     def generate_hybrid_recommendation(self, symbol, hybrid_scores):
         """

@@ -82,27 +82,38 @@ class StockDataBundle:
     all callers receive pre-sliced DataFrames — zero redundant HTTP calls.
     """
     __slots__ = ('symbol', 'ticker', 'hist_5y', 'hist_2y', 'hist_1y',
-                 'hist_6mo', 'hist_3mo', 'hist_1mo', 'info')
+                 'hist_6mo', 'hist_3mo', 'hist_1mo', 'info',
+                 'is_valid', 'quality_warnings')
+
+    MIN_ROWS_1Y = 200
+    STALE_DAYS = 5
 
     def __init__(self, symbol: str):
         self.symbol = symbol
         ns_sym = f"{symbol}{_config.NSE_SUFFIX}"
         self.ticker = yf.Ticker(ns_sym)
 
-        # ONE network call for full history — with rate-limit retry (A-016)
+        _RETRYABLE = (ConnectionError, TimeoutError, OSError)
+
         self.hist_5y = pd.DataFrame()
-        for _attempt in range(4):  # up to 4 attempts: 0,1,2,3
+        for _attempt in range(4):
             try:
-                self.hist_5y = self.ticker.history(period='5y', interval='1d')
+                self.hist_5y = self.ticker.history(period='5y', interval='1d',
+                                                    timeout=_config.TIMEOUT_SECONDS)
                 break
+            except _RETRYABLE as _e:
+                _wait = (2 ** _attempt) * 2
+                logging.warning(f"Network error on {symbol} hist (attempt {_attempt+1}/4): {_e}, retrying in {_wait}s")
+                time.sleep(_wait)
             except Exception as _e:
                 _msg = str(_e).lower()
                 if 'too many requests' in _msg or '429' in _msg or 'rate' in _msg:
-                    _wait = (2 ** _attempt) * 2  # 2s, 4s, 8s, 16s
+                    _wait = (2 ** _attempt) * 2
                     logging.warning(f"Rate limit on {symbol} hist (attempt {_attempt+1}/4), waiting {_wait}s")
                     time.sleep(_wait)
                 else:
-                    break  # non-rate-limit error — no point retrying
+                    logging.warning(f"Non-retryable error on {symbol} hist: {_e}")
+                    break
 
         # Compute date-range slices — no additional HTTP calls
         _tz = self.hist_5y.index.tz if not self.hist_5y.empty else None
@@ -120,12 +131,15 @@ class StockDataBundle:
         self.hist_3mo = _tail(3)
         self.hist_1mo = _tail(1)
 
-        # ONE network call for fundamentals metadata — with rate-limit retry (A-016)
         self.info = {}
         for _attempt in range(4):
             try:
                 self.info = self.ticker.info
                 break
+            except _RETRYABLE as _e:
+                _wait = (2 ** _attempt) * 2
+                logging.warning(f"Network error on {symbol} info (attempt {_attempt+1}/4): {_e}, retrying in {_wait}s")
+                time.sleep(_wait)
             except Exception as _e:
                 _msg = str(_e).lower()
                 if 'too many requests' in _msg or '429' in _msg or 'rate' in _msg:
@@ -133,7 +147,40 @@ class StockDataBundle:
                     logging.warning(f"Rate limit on {symbol} info (attempt {_attempt+1}/4), waiting {_wait}s")
                     time.sleep(_wait)
                 else:
+                    logging.warning(f"Non-retryable error on {symbol} info: {_e}")
                     break
+
+        self.quality_warnings = []
+        self.is_valid = self._validate()
+
+    def _validate(self) -> bool:
+        """Check data completeness; populate quality_warnings."""
+        ok = True
+
+        if self.hist_5y.empty:
+            self.quality_warnings.append("no_price_data")
+            return False
+
+        if 'Close' in self.hist_5y.columns and self.hist_5y['Close'].isna().all():
+            self.quality_warnings.append("all_nan_close")
+            return False
+
+        if len(self.hist_1y) < self.MIN_ROWS_1Y:
+            self.quality_warnings.append(f"low_rows_1y:{len(self.hist_1y)}")
+            ok = False
+
+        if not self.info or self.info.get('regularMarketPrice') is None:
+            self.quality_warnings.append("empty_or_stub_info")
+            ok = False
+
+        if not self.hist_5y.empty:
+            last_date = self.hist_5y.index[-1]
+            _tz = last_date.tz
+            days_stale = (pd.Timestamp.now(tz=_tz) - last_date).days
+            if days_stale > self.STALE_DAYS:
+                self.quality_warnings.append(f"stale_data:{days_stale}d")
+
+        return ok
 
 
 class EnhancedTop200StockAnalyzer:
@@ -508,7 +555,7 @@ class EnhancedTop200StockAnalyzer:
         validated_data = stock_data.copy()
         
         # 1. PRICE VALIDATION - Remove extreme outliers
-        price_fields = ['current_price', '52w_high', '52w_low', 'book_value', 'target_price']
+        price_fields = ['current_price', '52_week_high', '52_week_low', 'book_value', 'target_price']
         for field in price_fields:
             if field in validated_data and validated_data[field]:
                 try:
@@ -851,10 +898,10 @@ class EnhancedTop200StockAnalyzer:
         elif volatility > 40:
             risk_score -= 1
         
-        # Debt penalty
-        if debt_to_equity > 2:
+        # Debt penalty (debt_to_equity is in percentage from yfinance)
+        if debt_to_equity > 200:
             risk_score -= 2
-        elif debt_to_equity > 1.5:
+        elif debt_to_equity > 150:
             risk_score -= 1
         
         # Drawdown penalty
@@ -1348,7 +1395,7 @@ class EnhancedTop200StockAnalyzer:
         
         try:
             # 1. Price Data Validation
-            price_fields = ['current_price', '52w_high', '52w_low', 'book_value']
+            price_fields = ['current_price', '52_week_high', '52_week_low', 'book_value']
             for field in price_fields:
                 if field in validated_data and validated_data[field] is not None:
                     value = float(validated_data[field])
@@ -1429,7 +1476,7 @@ class EnhancedTop200StockAnalyzer:
             quality_score -= missing_critical * 15  # -15 points per missing critical field
             
             # Important fields - moderately penalize if missing
-            important_fields = ['roe', 'debt_to_equity', 'current_ratio', 'revenue']
+            important_fields = ['roe', 'debt_to_equity', 'current_ratio', 'revenue_growth']
             missing_important = sum(1 for field in important_fields if not data.get(field))
             quality_score -= missing_important * 5  # -5 points per missing important field
             
@@ -1448,21 +1495,40 @@ class EnhancedTop200StockAnalyzer:
         try:
             start_time = time.time()
 
-            # A-005: Single-download bundle — fetches 5Y OHLCV + info ONCE; all
-            # subsequent ticker.history() calls inside this method use pre-sliced
-            # DataFrames from the bundle instead of making new HTTP requests.
+            cached = self.load_from_cache(symbol)
+            if cached is not None:
+                return cached
+
             bundle = StockDataBundle(symbol)
 
-            # Initialize result dictionary
+            if not bundle.is_valid:
+                logging.warning(f"Skipping {symbol}: data validation failed — {bundle.quality_warnings}")
+                return {
+                    'symbol': symbol,
+                    'company_name': self.company_names.get(symbol, symbol),
+                    'status': 'data_invalid',
+                    'quality_warnings': bundle.quality_warnings,
+                    'overall_score': 0,
+                    'overall_score_with_value': 0,
+                    'final_blended_score': 0,
+                    'final_recommendation': 'SKIP - Data Invalid',
+                    'analysis_completeness_pct': 0.0,
+                    'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'sector': 'Unknown',
+                    'current_price': 0,
+                    'market_cap': 0,
+                }
+
             stock_data = {
                 'symbol': symbol,
-                'company_name': self.company_names.get(symbol, symbol),  # Use company name from CSV if available
+                'company_name': self.company_names.get(symbol, symbol),
                 'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'status': 'processing'
+                'status': 'processing',
+                'quality_warnings': bundle.quality_warnings
             }
             
             # 1. Fundamental Analysis with Enhanced Data Validation
-            fund_data = get_comprehensive_stock_data(symbol)
+            fund_data = get_comprehensive_stock_data(symbol, bundle=bundle)
             if fund_data:
                 # ACCURACY IMPROVEMENT #1: Enhanced Data Validation & Cleaning
                 fund_data = self._validate_and_clean_data(fund_data, symbol)
@@ -1474,7 +1540,7 @@ class EnhancedTop200StockAnalyzer:
                 logging.warning(f"Fundamental analysis failed for {symbol}")
             
             # 2. Enhanced Technical Analysis
-            enhanced_tech_data = get_short_term_technical_analysis(symbol, period_days=90)
+            enhanced_tech_data = get_short_term_technical_analysis(symbol, period_days=90, bundle=bundle)
             if enhanced_tech_data:
                 # Add with prefix to avoid conflicts
                 for key, value in enhanced_tech_data.items():
@@ -1531,7 +1597,7 @@ class EnhancedTop200StockAnalyzer:
                 logging.warning(f"Multi-timeframe analysis failed for {symbol}")
             
             # 2.8. ACCURACY IMPROVEMENT #7: Institutional Flow Analysis
-            institutional_data = self._analyze_institutional_flow(symbol)
+            institutional_data = self._analyze_institutional_flow(symbol, bundle=bundle)
             if institutional_data:
                 stock_data.update({
                     'institutional_sentiment': institutional_data.get('institutional_sentiment', 'NEUTRAL'),
@@ -2228,17 +2294,17 @@ class EnhancedTop200StockAnalyzer:
                         stock_data['52_week_high'] = float(hist['High'].max()) if len(hist) > 0 else current_price
                         stock_data['52_week_low'] = float(hist['Low'].min()) if len(hist) > 0 else current_price
                         
-                        # Volatility (standard deviation of returns)
+                        # Volatility (annualized percentage)
                         if len(hist) > 20:
                             returns = hist['Close'].pct_change().dropna()
-                            stock_data['volatility'] = float(returns.std())  # As decimal (0.155 = 15.5%)
+                            stock_data['volatility'] = float(returns.std() * (252 ** 0.5) * 100)
                         else:
                             stock_data['volatility'] = 0.0
                         
                         # 20-day price change
                         if len(hist) >= 20:
                             price_20d_ago = hist['Close'].iloc[-20]
-                            stock_data['enhanced_price_change_20d'] = float((current_price - price_20d_ago) / price_20d_ago)  # As decimal
+                            stock_data['enhanced_price_change_20d'] = float((current_price - price_20d_ago) / price_20d_ago * 100)
                         else:
                             stock_data['enhanced_price_change_20d'] = 0.0
                         
@@ -2540,6 +2606,8 @@ class EnhancedTop200StockAnalyzer:
             stock_data['analysis_completeness_pct'] = round((_completed / len(_status_keys)) * 100, 1)
             stock_data['status'] = 'complete'
 
+            self.save_to_cache(symbol, stock_data)
+
             logging.info(
                 f"Completed analysis for {symbol}: Score={corrected_score:.1f}, "
                 f"Completeness={stock_data['analysis_completeness_pct']:.0f}%, "
@@ -2749,7 +2817,9 @@ class EnhancedTop200StockAnalyzer:
                                     filtered_metrics[key] = value
                                 elif key == 'roe' and -50 < value < 100:
                                     filtered_metrics[key] = value
-                                elif key in ['debt_to_equity', 'current_ratio'] and 0 <= value < 20:
+                                elif key == 'debt_to_equity' and 0 <= value < 2000:
+                                    filtered_metrics[key] = value
+                                elif key == 'current_ratio' and 0 <= value < 20:
                                     filtered_metrics[key] = value
                                 elif key in ['operating_margin', 'revenue_growth'] and -100 < value < 200:
                                     filtered_metrics[key] = value
@@ -3046,8 +3116,8 @@ class EnhancedTop200StockAnalyzer:
             rsi = 100 - (100 / (1 + rs))
             
             return round(rsi.iloc[-1], 1) if not pd.isna(rsi.iloc[-1]) else 50.0
-        except:
-            return 50.0  # Neutral RSI if calculation fails
+        except Exception:
+            return 50.0
     
     def _calculate_macd(self, prices: pd.Series) -> dict:
         """Calculate Real MACD (Moving Average Convergence Divergence)"""
@@ -3076,7 +3146,7 @@ class EnhancedTop200StockAnalyzer:
                 'macd_histogram': round(current_histogram, 2),
                 'macd_signal': macd_signal
             }
-        except:
+        except Exception:
             return {
                 'macd_line': 0.0,
                 'macd_signal_line': 0.0,
@@ -3116,7 +3186,7 @@ class EnhancedTop200StockAnalyzer:
                 'bb_position': bb_position,
                 'bb_width': round(bb_width * 100, 2)  # As percentage
             }
-        except:
+        except Exception:
             return {
                 'bb_upper': 0.0,
                 'bb_middle': 0.0,
@@ -3153,7 +3223,7 @@ class EnhancedTop200StockAnalyzer:
                 'volume_trend': volume_trend,
                 'obv_trend': obv_trend
             }
-        except:
+        except Exception:
             return {
                 'volume_ratio': 1.0,
                 'volume_trend': 'AVERAGE',
@@ -3231,7 +3301,7 @@ class EnhancedTop200StockAnalyzer:
                 'ma10': round(ma10, 2),
                 'ma50': round(ma50, 2)
             }
-        except:
+        except Exception:
             return {
                 'price_roc': 0.0,
                 'momentum': 'NEUTRAL',
@@ -3289,8 +3359,8 @@ class EnhancedTop200StockAnalyzer:
             
             return max(min(score, 100), 0)  # Clamp between 0-100
             
-        except:
-            return 50.0  # Default neutral score
+        except Exception:
+            return 50.0
     
     def _get_fallback_technical_indicators(self) -> dict:
         """Fallback technical indicators when real calculation fails"""
@@ -3636,7 +3706,7 @@ class EnhancedTop200StockAnalyzer:
             'monthly_trend': 'NEUTRAL'
         }
 
-    def _analyze_institutional_flow(self, symbol: str) -> dict:
+    def _analyze_institutional_flow(self, symbol: str, bundle=None) -> dict:
         """
         ACCURACY IMPROVEMENT #7: Institutional Flow Analysis
         
@@ -3659,19 +3729,19 @@ class EnhancedTop200StockAnalyzer:
             }
             
             # 1. Analyze FII/DII Activity through price-volume patterns
-            fii_dii_analysis = self._analyze_fii_dii_patterns(symbol)
+            fii_dii_analysis = self._analyze_fii_dii_patterns(symbol, bundle=bundle)
             institutional_data.update(fii_dii_analysis)
             
             # 2. Detect bulk deal patterns
-            bulk_deal_analysis = self._detect_bulk_deal_patterns(symbol)
+            bulk_deal_analysis = self._detect_bulk_deal_patterns(symbol, bundle=bundle)
             institutional_data.update(bulk_deal_analysis)
             
             # 3. Analyze institutional ownership trends
-            ownership_analysis = self._analyze_ownership_trends(symbol)
+            ownership_analysis = self._analyze_ownership_trends(symbol, bundle=bundle)
             institutional_data.update(ownership_analysis)
             
             # 4. Smart money flow detection
-            smart_money_analysis = self._detect_smart_money_flow(symbol)
+            smart_money_analysis = self._detect_smart_money_flow(symbol, bundle=bundle)
             institutional_data.update(smart_money_analysis)
             
             # 5. Calculate composite institutional score
@@ -3688,16 +3758,17 @@ class EnhancedTop200StockAnalyzer:
             logging.warning(f"Institutional flow analysis failed for {symbol}: {e}")
             return self._get_fallback_institutional_analysis()
     
-    def _analyze_fii_dii_patterns(self, symbol: str) -> dict:
+    def _analyze_fii_dii_patterns(self, symbol: str, bundle=None) -> dict:
         """
         Analyze FII/DII activity patterns through volume and price behavior
         """
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            
-            # Get 6 months of data for pattern analysis
-            hist = ticker.history(period="6mo", interval="1d")
+            if bundle is not None:
+                hist = bundle.hist_6mo
+            else:
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="6mo", interval="1d")
             
             if hist.empty or len(hist) < 60:
                 return {'fii_activity': 'NEUTRAL', 'dii_activity': 'NEUTRAL'}
@@ -3745,16 +3816,17 @@ class EnhancedTop200StockAnalyzer:
             logging.debug(f"FII/DII pattern analysis failed for {symbol}: {e}")
             return {'fii_activity': 'NEUTRAL', 'dii_activity': 'NEUTRAL'}
     
-    def _detect_bulk_deal_patterns(self, symbol: str) -> dict:
+    def _detect_bulk_deal_patterns(self, symbol: str, bundle=None) -> dict:
         """
         Detect bulk deal patterns through unusual volume and price movements
         """
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            
-            # Get recent data for bulk deal detection
-            hist = ticker.history(period="3mo", interval="1d")
+            if bundle is not None:
+                hist = bundle.hist_3mo
+            else:
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="3mo", interval="1d")
             
             if hist.empty or len(hist) < 30:
                 return {'bulk_deals_signal': 'NEUTRAL', 'large_block_activity': 'NEUTRAL'}
@@ -3799,16 +3871,17 @@ class EnhancedTop200StockAnalyzer:
             logging.debug(f"Bulk deal pattern detection failed for {symbol}: {e}")
             return {'bulk_deals_signal': 'NEUTRAL', 'large_block_activity': 'NEUTRAL'}
     
-    def _analyze_ownership_trends(self, symbol: str) -> dict:
+    def _analyze_ownership_trends(self, symbol: str, bundle=None) -> dict:
         """
         Analyze institutional ownership trends using available data
         """
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            
-            # Get institutional ownership data if available
-            info = ticker.info
+            if bundle is not None:
+                info = bundle.info or {}
+            else:
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                info = ticker.info or {}
             
             ownership_data = {
                 'institutional_ownership_change': 0,
@@ -3841,16 +3914,17 @@ class EnhancedTop200StockAnalyzer:
             logging.debug(f"Ownership trend analysis failed for {symbol}: {e}")
             return {'institutional_ownership_change': 0, 'insider_activity': 'NEUTRAL'}
     
-    def _detect_smart_money_flow(self, symbol: str) -> dict:
+    def _detect_smart_money_flow(self, symbol: str, bundle=None) -> dict:
         """
         Detect smart money flow patterns
         """
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            
-            # Get data for smart money analysis
-            hist = ticker.history(period="3mo", interval="1d")
+            if bundle is not None:
+                hist = bundle.hist_3mo
+            else:
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="3mo", interval="1d")
             
             if hist.empty or len(hist) < 30:
                 return {'smart_money_flow': 'NEUTRAL'}
@@ -4236,13 +4310,13 @@ class EnhancedTop200StockAnalyzer:
             # 5. Debt-to-Equity Analysis (10% weight)
             debt_eq = stock_data.get('debt_to_equity', None)
             if debt_eq is not None:
-                if debt_eq <= 0.3:
+                if debt_eq <= 30:
                     debt_score = 100
-                elif debt_eq <= 0.5:
+                elif debt_eq <= 50:
                     debt_score = 80
-                elif debt_eq <= 0.7:
+                elif debt_eq <= 70:
                     debt_score = 60
-                elif debt_eq <= 1.0:
+                elif debt_eq <= 100:
                     debt_score = 40
                 else:
                     debt_score = 20
@@ -4267,7 +4341,7 @@ class EnhancedTop200StockAnalyzer:
             
             # 7. Price vs 52-week low (5% weight)
             current_price = stock_data.get('current_price', None)
-            week_52_low = stock_data.get('52w_low', None)
+            week_52_low = stock_data.get('52_week_low', None)
             if current_price and week_52_low and week_52_low > 0:
                 price_vs_low = (current_price / week_52_low - 1) * 100
                 if price_vs_low <= 10:  # Within 10% of 52-week low
@@ -4408,8 +4482,8 @@ class EnhancedTop200StockAnalyzer:
             
             # 4. Price Performance vs 52-week range (15% weight)
             current_price = stock_data.get('current_price', None)
-            week_52_high = stock_data.get('52w_high', None)
-            week_52_low = stock_data.get('52w_low', None)
+            week_52_high = stock_data.get('52_week_high', None)
+            week_52_low = stock_data.get('52_week_low', None)
             
             if all([current_price, week_52_high, week_52_low]) and week_52_high > week_52_low:
                 price_position = (current_price - week_52_low) / (week_52_high - week_52_low) * 100
@@ -4588,18 +4662,11 @@ class EnhancedTop200StockAnalyzer:
                     continue
                     
                 try:
-                    # Get volatility data with retry logic
-                    ticker = yf.Ticker(f"{symbol}.NS")
-                    hist = ticker.history(period="6mo", interval="1d")  # Fixed: 6mo instead of 6m
-                    
-                    if not hist.empty and len(hist) > 20:
-                        # Calculate daily returns
-                        hist['returns'] = hist['Close'].pct_change()
-                        
-                        # Risk metrics
-                        volatility = hist['returns'].std() * (252 ** 0.5) * 100  # Annualized volatility
-                        max_drawdown = self.calculate_max_drawdown(hist['Close'])
-                        beta = self.calculate_beta(hist['returns'])
+                    volatility = row.get('volatility', None)
+                    max_drawdown = row.get('max_drawdown_6m', None)
+                    beta = row.get('beta', None)
+
+                    if volatility is not None and pd.notna(volatility) and volatility > 0:
                         
                         # GAP-RISK-SCORE FIX: Use final_blended_score (V4.0 hybrid, all
                         # adjustments applied) as the base for risk_adjusted_score.
@@ -4651,6 +4718,11 @@ class EnhancedTop200StockAnalyzer:
                             else:
                                 risk_category = "VERY HIGH"
                         
+                        if max_drawdown is None or pd.isna(max_drawdown):
+                            max_drawdown = 0
+                        if beta is None or pd.isna(beta):
+                            beta = 1.0
+
                         # Update results
                         results_df.at[idx, 'volatility_6m'] = round(volatility, 2)
                         results_df.at[idx, 'max_drawdown_6m'] = round(max_drawdown, 2)
@@ -4695,7 +4767,7 @@ class EnhancedTop200StockAnalyzer:
             rolling_max = cumulative.expanding().max()
             drawdown = (cumulative - rolling_max) / rolling_max
             return abs(drawdown.min()) * 100
-        except:
+        except Exception:
             return 0
     
     def calculate_beta(self, returns):
@@ -4706,7 +4778,7 @@ class EnhancedTop200StockAnalyzer:
             market_volatility = 0.20  # Approximate market volatility
             stock_volatility = returns.std() * (252 ** 0.5)
             return stock_volatility / market_volatility
-        except:
+        except Exception:
             return 1.0
     
     def _load_holdings_from_excel(self, excel_file_path):
@@ -8746,8 +8818,8 @@ Trading Plan ({risk_tolerance} RISK):
                 worksheet.set_column('A:A', 12.0)
                 worksheet.set_column('B:B', 25.0)
                 worksheet.set_column('C:Z', 12.0)
-            except:
-                pass  # Ignore if even fallback fails
+            except Exception:
+                pass
     
     def _create_dashboard_sheet(self, workbook, df, portfolio_allocation, dashboard_title_format, 
                                metric_title_format, metric_value_format, header_format, data_format, 

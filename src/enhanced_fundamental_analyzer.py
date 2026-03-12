@@ -9,18 +9,25 @@ import logging
 from datetime import datetime
 import time
 
-def get_comprehensive_stock_data(symbol):
-    """Get comprehensive stock data from multiple sources"""
+def get_comprehensive_stock_data(symbol, bundle=None):
+    """Get comprehensive stock data. If *bundle* (StockDataBundle) is supplied,
+    reuse its pre-fetched info & hist to avoid duplicate API calls."""
     data = {
         'symbol': symbol,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     
     try:
-        # Get yfinance data
-        ticker = yf.Ticker(symbol + ".NS")  # NSE suffix
-        info = ticker.info
-        hist = ticker.history(period="1y")
+        if bundle is not None:
+            info = bundle.info
+            hist = bundle.hist_1y
+        else:
+            ticker = yf.Ticker(symbol + ".NS")
+            info = ticker.info
+            hist = ticker.history(period="1y")
+
+        if not info:
+            info = {}
         
         # Basic company info
         # Keep company_name for display but ensure symbol stays as-is
@@ -229,12 +236,12 @@ def calculate_comprehensive_fundamental_score(data):
         debt_to_equity = data.get('debt_to_equity', 0)
         current_ratio = data.get('current_ratio', 0)
         
-        if debt_to_equity < 0.3:
+        if debt_to_equity < 30:
             score += 15
             analysis_points.append("Low debt levels")
-        elif debt_to_equity < 0.6:
+        elif debt_to_equity < 60:
             score += 8
-        elif debt_to_equity > 1.0:
+        elif debt_to_equity > 100:
             score -= 10
             analysis_points.append("High debt levels")
         

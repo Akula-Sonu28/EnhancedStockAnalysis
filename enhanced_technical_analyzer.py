@@ -10,20 +10,19 @@ import numpy as np
 from datetime import datetime, timedelta
 import logging
 
-def get_short_term_technical_analysis(symbol, period_days=90):
+def get_short_term_technical_analysis(symbol, period_days=90, bundle=None):
     """
     Comprehensive short-term technical analysis (1 day to 3 months)
-    Focus on patterns, momentum, and short-term signals
+    If *bundle* (StockDataBundle) is supplied, reuse its pre-fetched hist
+    to avoid a duplicate yfinance API call.
     """
     try:
-        # Add .NS suffix for NSE stocks if not present
-        ticker_symbol = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
-        
-        # Get data for the specified period plus extra for calculations
-        ticker = yf.Ticker(ticker_symbol)
-        
-        # Get detailed data for pattern analysis
-        hist = ticker.history(period="6mo", interval="1d")  # 6 months for better pattern detection
+        if bundle is not None:
+            hist = bundle.hist_6mo
+        else:
+            ticker_symbol = f"{symbol}.NS" if not symbol.endswith('.NS') else symbol
+            ticker = yf.Ticker(ticker_symbol)
+            hist = ticker.history(period="6mo", interval="1d")
         
         if hist.empty or len(hist) < 20:
             print(f"   ⚠️  Insufficient data for {symbol}")
@@ -103,7 +102,8 @@ def analyze_price_action(df):
     # Price position relative to recent ranges
     recent_high = df['High'].tail(20).max()
     recent_low = df['Low'].tail(20).min()
-    price_analysis['price_position_20d'] = ((current_price - recent_low) / (recent_high - recent_low)) * 100
+    _denom = recent_high - recent_low
+    price_analysis['price_position_20d'] = ((current_price - recent_low) / _denom * 100) if _denom > 0 else 50.0
     
     return price_analysis
 
@@ -116,7 +116,7 @@ def calculate_short_term_indicators(df):
         delta = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
+        rs = gain / loss.replace(0, np.nan)
         return 100 - (100 / (1 + rs))
     
     indicators['rsi_14'] = calculate_rsi(df['Close'], 14).iloc[-1]
@@ -150,7 +150,8 @@ def calculate_short_term_indicators(df):
     # Stochastic oscillator
     low_14 = df['Low'].rolling(14).min()
     high_14 = df['High'].rolling(14).max()
-    k_percent = 100 * ((df['Close'] - low_14) / (high_14 - low_14))
+    _stoch_denom = (high_14 - low_14).replace(0, np.nan)
+    k_percent = 100 * ((df['Close'] - low_14) / _stoch_denom)
     indicators['stoch_k'] = k_percent.rolling(3).mean().iloc[-1]
     indicators['stoch_d'] = k_percent.rolling(3).mean().rolling(3).mean().iloc[-1]
     
