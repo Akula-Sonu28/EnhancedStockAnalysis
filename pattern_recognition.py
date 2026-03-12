@@ -311,16 +311,21 @@ class PatternRecognizer:
             peak_prices = [highs.iloc[p] for p in recent_peaks]
             trough_prices = [lows.iloc[t] for t in recent_troughs]
             
-            # Calculate slopes
-            peak_slope = (peak_prices[-1] - peak_prices[0]) / len(recent_peaks)
-            trough_slope = (trough_prices[-1] - trough_prices[0]) / len(recent_troughs)
+            # Calculate slopes normalised by price level (% per step)
+            avg_peak = np.mean(peak_prices) if np.mean(peak_prices) != 0 else 1.0
+            avg_trough = np.mean(trough_prices) if np.mean(trough_prices) != 0 else 1.0
+            peak_slope = ((peak_prices[-1] - peak_prices[0]) / len(recent_peaks)) / avg_peak
+            trough_slope = ((trough_prices[-1] - trough_prices[0]) / len(recent_troughs)) / avg_trough
             
             current_price = prices.iloc[-1]
             
+            FLAT_THRESHOLD = 0.005   # ≤0.5 % per step ≈ flat
+            TREND_THRESHOLD = 0.005  # >0.5 % per step ≈ trending
+
             # Ascending Triangle: flat resistance, rising support
-            if abs(peak_slope) < 0.01 and trough_slope > 0.01:
+            if abs(peak_slope) < FLAT_THRESHOLD and trough_slope > TREND_THRESHOLD:
                 resistance = np.mean(peak_prices)
-                if current_price > resistance * 0.98:  # Near breakout
+                if current_price > resistance * 0.98:
                     return {
                         'detected': True,
                         'confidence': 0.75,
@@ -331,9 +336,9 @@ class PatternRecognizer:
                     }
             
             # Descending Triangle: flat support, falling resistance
-            elif abs(trough_slope) < 0.01 and peak_slope < -0.01:
+            elif abs(trough_slope) < FLAT_THRESHOLD and peak_slope < -TREND_THRESHOLD:
                 support = np.mean(trough_prices)
-                if current_price < support * 1.02:  # Near breakdown
+                if current_price < support * 1.02:
                     return {
                         'detected': True,
                         'confidence': 0.75,
@@ -344,7 +349,7 @@ class PatternRecognizer:
                     }
             
             # Symmetrical Triangle: converging trendlines
-            elif peak_slope < -0.005 and trough_slope > 0.005:
+            elif peak_slope < -(TREND_THRESHOLD / 2) and trough_slope > (TREND_THRESHOLD / 2):
                 apex_distance = abs(peak_prices[-1] - trough_prices[-1])
                 if apex_distance < (peak_prices[0] - trough_prices[0]) * 0.3:  # Near apex
                     return {

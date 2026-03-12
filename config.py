@@ -18,6 +18,9 @@ class AnalysisConfig:
     TIMEOUT_SECONDS: int = 120
     RETRY_ATTEMPTS: int = 3
     
+    # Sentiment adjustment (disable until a real news API is wired in)
+    ENABLE_SENTIMENT_ADJUSTMENT: bool = False
+    
     # Caching Settings
     CACHE_ENABLED: bool = True
     CACHE_EXPIRY_HOURS: int = 4

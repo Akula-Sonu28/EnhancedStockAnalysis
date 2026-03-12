@@ -22,11 +22,21 @@ class MarketRegimeDetector:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.nifty_symbol = "^NSEI"  # NSE Nifty 50 index
+        self.bank_nifty_symbol = "^NSEBANK"  # Bank Nifty index
+        self.midcap_symbol = "NIFTY_MID_SELECT.NS"  # Nifty Midcap Select
         self.india_vix_symbol = "^INDIAVIX"  # India VIX
         
         # Regime thresholds
-        self.bull_threshold = 0.6  # 60% confidence for bull market
-        self.bear_threshold = -0.5  # -50% confidence for bear market (lowered from -0.6 — more responsive to choppy/bearish markets)
+        self.bull_threshold = 0.6
+        self.bear_threshold = -0.5
+        
+        # Default signal weights (adjusted dynamically by VIX)
+        self.base_weights = {
+            'trend': 0.35,
+            'momentum': 0.25,
+            'volatility': 0.20,
+            'breadth': 0.20,
+        }
         
     def detect_regime(self, period_days: int = 180) -> Dict:
         """
@@ -45,33 +55,43 @@ class MarketRegimeDetector:
             if nifty_data is None or len(nifty_data) < 50:
                 return self._get_default_regime()
             
-            # Calculate multiple regime indicators
+            # Calculate multiple regime indicators on primary index
             trend_signal = self._calculate_trend_signal(nifty_data)
             volatility_signal = self._calculate_volatility_signal(nifty_data)
             momentum_signal = self._calculate_momentum_signal(nifty_data)
             breadth_signal = self._calculate_breadth_signal(nifty_data)
             
-            # Combine signals with weights
+            # P4-02: VIX-adaptive weighting — fear spikes raise volatility weight
+            vix_level = self._get_vix_level()
+            weights = dict(self.base_weights)
+            if vix_level > 25:
+                extra = 0.15
+                weights['volatility'] += extra
+                weights['trend'] -= extra
+            
             regime_score = (
-                trend_signal * 0.35 +      # Trend is most important
-                momentum_signal * 0.25 +   # Momentum confirms trend
-                volatility_signal * 0.20 + # Volatility indicates fear/greed
-                breadth_signal * 0.20      # Breadth shows market participation
+                trend_signal * weights['trend'] +
+                momentum_signal * weights['momentum'] +
+                volatility_signal * weights['volatility'] +
+                breadth_signal * weights['breadth']
             )
             
-            # Classify regime
-            if regime_score > self.bull_threshold:
+            # P4-01: Multi-index consensus — adjust confidence
+            secondary_scores = self._get_secondary_index_scores(period_days)
+            index_agreement = self._compute_index_agreement(regime_score, secondary_scores)
+            
+            # Classify regime — modulate confidence by index agreement
+            effective_score = regime_score * (0.6 + 0.4 * index_agreement)
+            
+            if effective_score > self.bull_threshold:
                 regime = 'BULL'
-                regime_strength = 'STRONG' if regime_score > 0.8 else 'MODERATE'
-            elif regime_score < self.bear_threshold:
+                regime_strength = 'STRONG' if effective_score > 0.8 else 'MODERATE'
+            elif effective_score < self.bear_threshold:
                 regime = 'BEAR'
-                regime_strength = 'STRONG' if regime_score < -0.8 else 'MODERATE'
+                regime_strength = 'STRONG' if effective_score < -0.8 else 'MODERATE'
             else:
                 regime = 'SIDEWAYS'
                 regime_strength = 'CHOPPY'
-            
-            # Get VIX data for fear gauge
-            vix_level = self._get_vix_level()
             
             # Calculate regime stability (how long has this regime persisted)
             regime_stability = self._calculate_regime_stability(nifty_data, regime)
@@ -80,7 +100,8 @@ class MarketRegimeDetector:
                 'regime': regime,
                 'regime_strength': regime_strength,
                 'regime_score': regime_score,
-                'regime_confidence': abs(regime_score),
+                'regime_confidence': abs(regime_score) * (0.6 + 0.4 * index_agreement),
+                'index_agreement': index_agreement,
                 'regime_stability': regime_stability,
                 'trend_signal': trend_signal,
                 'momentum_signal': momentum_signal,
@@ -197,8 +218,9 @@ class MarketRegimeDetector:
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
+        loss_safe = loss.replace(0, np.nan)
+        rs = gain / loss_safe
+        rsi = (100 - (100 / (1 + rs))).fillna(50.0)
         current_rsi = rsi.iloc[-1]
         
         # Calculate 20-day rate of change
@@ -214,34 +236,54 @@ class MarketRegimeDetector:
     
     def _calculate_breadth_signal(self, df: pd.DataFrame) -> float:
         """
-        Calculate market breadth signal
-        Uses higher highs vs lower lows ratio
+        Calculate market breadth signal using percentage of recent closes
+        above their rolling 50-day SMA as a proxy for advance-decline breadth.
         Returns: -1 (bearish) to +1 (bullish)
         """
-        high = df['High']
-        low = df['Low']
         close = df['Close']
-        
-        # Count new highs and lows over 20-day period
-        lookback = min(20, len(df) - 1)
-        
-        new_highs = 0
-        new_lows = 0
-        
-        for i in range(1, lookback + 1):
-            if high.iloc[-i] == high.iloc[-lookback:].max():
-                new_highs += 1
-            if low.iloc[-i] == low.iloc[-lookback:].min():
-                new_lows += 1
-        
-        # Calculate breadth ratio
-        if new_highs + new_lows == 0:
+        if len(close) < 50:
             return 0.0
-        
-        breadth_ratio = (new_highs - new_lows) / (new_highs + new_lows)
-        
-        return np.clip(breadth_ratio, -1.0, 1.0)
+
+        sma_50 = close.rolling(50).mean()
+        recent = min(20, len(close) - 50)
+        recent_close = close.iloc[-recent:]
+        recent_sma = sma_50.iloc[-recent:]
+
+        valid = recent_sma.notna()
+        if valid.sum() == 0:
+            return 0.0
+
+        pct_above = (recent_close[valid] > recent_sma[valid]).sum() / valid.sum()
+        breadth = (pct_above - 0.5) * 2.0
+
+        return float(np.clip(breadth, -1.0, 1.0))
     
+    def _get_secondary_index_scores(self, period_days: int) -> list:
+        """Compute regime scores for Bank Nifty and Midcap indices."""
+        scores = []
+        for sym in (self.bank_nifty_symbol, self.midcap_symbol):
+            try:
+                data = self._get_index_data(sym, period_days)
+                if data is not None and len(data) >= 50:
+                    t = self._calculate_trend_signal(data)
+                    m = self._calculate_momentum_signal(data)
+                    scores.append(t * 0.6 + m * 0.4)
+                    continue
+            except Exception as e:
+                self.logger.debug(f"Secondary index {sym} unavailable: {e}")
+            scores.append(None)
+        return scores
+
+    @staticmethod
+    def _compute_index_agreement(primary_score: float, secondary_scores: list) -> float:
+        """Return 0-1 agreement ratio between primary and secondary indices."""
+        valid = [s for s in secondary_scores if s is not None]
+        if not valid:
+            return 1.0
+        primary_dir = 1 if primary_score > 0 else (-1 if primary_score < 0 else 0)
+        agree = sum(1 for s in valid if (s > 0) == (primary_dir > 0) or (s < 0) == (primary_dir < 0))
+        return agree / len(valid)
+
     def _get_vix_level(self) -> float:
         """Get current India VIX level"""
         try:
@@ -375,6 +417,15 @@ class MarketRegimeDetector:
         regime = regime_data['regime']
         regime_score = regime_data['regime_score']
         vix = regime_data['vix_level']
+        
+        if regime == 'UNKNOWN':
+            return {
+                'original_score': stock_score,
+                'adjusted_score': stock_score,
+                'regime_adjustment': 0.0,
+                'adjustment_reasons': ['Regime unknown — no adjustment applied'],
+                'regime_context': 'UNKNOWN market'
+            }
         
         adjustment = 0.0
         adjustments = []

@@ -310,7 +310,8 @@ class SentimentAnalyzer:
                         }
             
             # Fallback to profit margin proxy
-            profit_margin = stock_data.get('profit_margin', 0) * 100
+            _pm_raw = stock_data.get('profit_margin', 0) or 0
+            profit_margin = _pm_raw * 100 if abs(_pm_raw) < 1.0 else float(_pm_raw)
             
             if profit_margin > 15:
                 earnings_score = 70

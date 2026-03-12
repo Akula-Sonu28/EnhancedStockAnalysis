@@ -168,8 +168,8 @@ class CorrectedScoringEngine:
         try:
             # Price metrics
             current_price = float(stock_data.get('current_price', 100))
-            year_high = float(stock_data.get('year_high', current_price * 1.2))
-            year_low = float(stock_data.get('year_low', current_price * 0.8))
+            year_high = float(stock_data.get('52_week_high', stock_data.get('year_high', current_price * 1.2)))
+            year_low = float(stock_data.get('52_week_low', stock_data.get('year_low', current_price * 0.8)))
             
             # Value opportunity - how far from year high (contrarian approach)
             price_from_high = (year_high - current_price) / year_high * 100

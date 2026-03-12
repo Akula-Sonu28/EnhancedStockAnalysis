@@ -418,21 +418,28 @@ class EarlyBreakoutDetector:
         return upper_wicks
     
     def _check_bearish_divergence(self, df: pd.DataFrame, stock_data: dict) -> bool:
-        """Check for bearish divergence (price up, RSI down)"""
-        if len(df) < 10:
+        """Check for bearish divergence: price making higher highs while RSI making lower highs."""
+        if len(df) < 20:
             return False
-        
-        recent_prices = df['Close'].tail(10)
-        
-        # Price making higher highs?
-        price_higher_high = recent_prices.iloc[-1] > recent_prices.iloc[-5]
-        
-        # RSI making lower highs? (would need historical RSI - simplified)
-        rsi = stock_data.get('real_rsi', 50)
-        if rsi < 70 and price_higher_high:
-            return True  # Simplified check
-        
-        return False
+
+        close = df['Close']
+        price_higher = close.iloc[-1] > close.iloc[-10]
+
+        delta = close.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        import numpy as _np
+        loss_safe = loss.replace(0, _np.nan)
+        rs = gain / loss_safe
+        rsi_series = (100 - (100 / (1 + rs))).fillna(50)
+
+        if len(rsi_series) < 10:
+            return False
+
+        rsi_now = rsi_series.iloc[-1]
+        rsi_prior = rsi_series.iloc[-10]
+
+        return price_higher and rsi_now < rsi_prior and rsi_now > 50
     
     def _empty_result(self) -> Dict:
         """Return empty pre-breakout result"""

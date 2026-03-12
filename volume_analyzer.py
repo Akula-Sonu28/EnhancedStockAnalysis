@@ -314,6 +314,8 @@ class VolumeAnalyzer:
             # Create price bins (20 bins across price range)
             price_min = data['Low'].min()
             price_max = data['High'].max()
+            if price_min >= price_max or price_max == 0:
+                return self._empty_volume_profile(data)
             bins = np.linspace(price_min, price_max, 21)
             
             # Assign volume to price bins
@@ -347,7 +349,9 @@ class VolumeAnalyzer:
             profile_std = volume_profile.std()
             profile_mean = volume_profile.mean()
             
-            if profile_std / profile_mean < 0.5:
+            if profile_mean == 0:
+                shape = 'NORMAL'
+            elif profile_std / profile_mean < 0.5:
                 shape = 'NORMAL'  # Balanced distribution
             elif volume_profile.iloc[0] > volume_profile.iloc[1] * 2:
                 shape = 'SKEWED'  # Heavily concentrated
@@ -371,6 +375,15 @@ class VolumeAnalyzer:
                 'price_in_va': True
             }
     
+    def _empty_volume_profile(self, data: pd.DataFrame) -> Dict:
+        """Return a neutral volume profile when price range is zero/invalid."""
+        current_price = data['Close'].iloc[-1] if len(data) > 0 else 0
+        return {
+            'poc': current_price, 'vah': current_price * 1.02,
+            'val': current_price * 0.98, 'shape': 'NORMAL',
+            'price_in_va': True
+        }
+
     def _calculate_volume_sr_levels(self, data: pd.DataFrame, profile_data: Dict) -> Dict:
         """Calculate support/resistance levels based on volume."""
         try:
@@ -466,6 +479,9 @@ class VolumeAnalyzer:
                 if blocks_data['recent_direction'] == 'BUY':
                     score += 5
                     signals.append(('BLOCKS', 'MODERATE_BUYING'))
+                elif blocks_data['recent_direction'] == 'SELL':
+                    score -= 5
+                    signals.append(('BLOCKS', 'MODERATE_SELLING'))
             
             # 4. Volume Profile (20% weight)
             if profile_data['price_in_va']:
@@ -551,8 +567,8 @@ class VolumeAnalyzer:
             # Clamp to max adjustment
             adjustment = max(-self.max_adjustment, min(self.max_adjustment, adjustment))
             
-            # Apply adjustment
-            adjusted_score = base_score + adjustment
+            # Apply adjustment and clamp to [0, 100]
+            adjusted_score = max(0.0, min(100.0, base_score + adjustment))
             
             # Generate adjustment reasons
             reasons = []

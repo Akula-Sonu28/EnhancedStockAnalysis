@@ -75,11 +75,10 @@ class HybridOptimizedScoringEngine:
         Focus on metrics that actually predict returns
         """
         try:
-            # Core financial metrics
-            pe_ratio = stock_data.get('pe_ratio', 15)
-            roe = stock_data.get('roe', 10)  # Already percentage from enhanced_fundamental_analyzer
-            debt_equity = stock_data.get('debt_to_equity', 50)
-            market_cap = stock_data.get('market_cap', 1000000000)
+            pe_ratio = self._safe_float(stock_data.get('pe_ratio'), 15)
+            roe = self._safe_float(stock_data.get('roe'), 10)
+            debt_equity = self._safe_float(stock_data.get('debt_to_equity'), 50)
+            market_cap = self._safe_float(stock_data.get('market_cap'), 1000000000)
             
             # Quality indicators (normalized 0-100)
             quality_components = []
@@ -135,34 +134,60 @@ class HybridOptimizedScoringEngine:
         except Exception as e:
             return 50  # Neutral score on error
     
-    def calculate_momentum_technical_score(self, stock_data):
+    @staticmethod
+    def _safe_float(val, default=0.0):
+        """Safely convert a value to float, handling None and NaN."""
+        if val is None:
+            return default
+        try:
+            f = float(val)
+            return default if np.isnan(f) else f
+        except (TypeError, ValueError):
+            return default
+
+    def calculate_momentum_technical_score(self, stock_data, market_regime=None):
         """
         MOMENTUM approach (opposite of harmful contrarian)
         High momentum = Good (proven in 500-stock backtest)
+        Regime-aware: RSI > 70 is penalized in bear markets.
         """
         try:
-            rsi = stock_data.get('rsi', 50)
-            price_change_1m = stock_data.get('price_change_1m', 0)
-            price_change_1w = stock_data.get('price_change_1w', 0)
-            current_price = stock_data.get('current_price', 100)
-            sma_50 = stock_data.get('sma_50', current_price)
+            rsi = self._safe_float(stock_data.get('rsi'), 50)
+            price_change_1m = self._safe_float(stock_data.get('price_change_1m'), 0)
+            current_price = self._safe_float(stock_data.get('current_price'), 100)
+            sma_50 = self._safe_float(stock_data.get('sma_50'), current_price)
             
+            _regime = (market_regime or stock_data.get('market_regime', '')).upper()
+            _is_bear = _regime in ('BEAR', 'BEARISH')
+
             momentum_components = []
             
-            # 1. RSI Momentum (30 points) - High RSI = Strong momentum
-            if rsi > 70:
-                rsi_score = 30  # Strong momentum
-            elif rsi > 60:
-                rsi_score = 25
-            elif rsi > 50:
-                rsi_score = 20
-            elif rsi > 40:
-                rsi_score = 15
+            # 1. RSI Momentum (30 points) — regime-aware
+            if _is_bear:
+                if rsi > 70:
+                    rsi_score = 5    # Overbought in bear = dangerous
+                elif rsi > 60:
+                    rsi_score = 15
+                elif rsi > 50:
+                    rsi_score = 20
+                elif rsi > 30:
+                    rsi_score = 25   # Oversold in bear = potential opportunity
+                else:
+                    rsi_score = 30
             else:
-                rsi_score = 5   # Weak momentum
+                if rsi > 70:
+                    rsi_score = 30
+                elif rsi > 60:
+                    rsi_score = 25
+                elif rsi > 50:
+                    rsi_score = 20
+                elif rsi > 40:
+                    rsi_score = 15
+                else:
+                    rsi_score = 5
             momentum_components.append(rsi_score)
             
-            # 2. Price Momentum 1M (35 points) - Recent performance
+            # 2. Price Momentum 1M (35 points)
             if price_change_1m > 15:
                 price_1m_score = 35
             elif price_change_1m > 10:
@@ -177,8 +202,8 @@ class HybridOptimizedScoringEngine:
                 price_1m_score = 5
             momentum_components.append(price_1m_score)
             
-            # 3. Price vs Moving Average (35 points) - Trend strength  
-            price_vs_sma = ((current_price - sma_50) / sma_50) * 100
+            # 3. Price vs Moving Average (35 points)
+            price_vs_sma = ((current_price - sma_50) / sma_50) * 100 if sma_50 != 0 else 0
             if price_vs_sma > 10:
                 trend_score = 35
             elif price_vs_sma > 5:
@@ -249,26 +274,36 @@ class HybridOptimizedScoringEngine:
     
     def calculate_risk_adjustment_score(self, stock_data):
         """
-        NEW: Risk-adjusted scoring (volatility and drawdown)
+        Risk-adjusted scoring: volatility penalty + max-drawdown penalty.
         """
         try:
-            volatility = stock_data.get('volatility', 25) # Default 25% volatility
-            
-            # Lower volatility = Higher score (risk-adjusted returns)
+            volatility = self._safe_float(stock_data.get('volatility'), 25)
+
             if volatility < 15:
-                risk_score = 100  # Low risk
+                risk_score = 100
             elif volatility < 25:
-                risk_score = 80   # Moderate risk
+                risk_score = 80
             elif volatility < 35:
-                risk_score = 60   # Higher risk
+                risk_score = 60
             elif volatility < 50:
-                risk_score = 40   # High risk
+                risk_score = 40
             else:
-                risk_score = 20   # Very high risk
-            
+                risk_score = 20
+
+            current_price = self._safe_float(stock_data.get('current_price'), 0)
+            high_52w = self._safe_float(stock_data.get('52_week_high'), current_price)
+            if high_52w > 0 and current_price > 0:
+                drawdown_pct = (high_52w - current_price) / high_52w * 100
+                if drawdown_pct > 40:
+                    risk_score = max(0, risk_score - 30)
+                elif drawdown_pct > 25:
+                    risk_score = max(0, risk_score - 20)
+                elif drawdown_pct > 15:
+                    risk_score = max(0, risk_score - 10)
+
             return risk_score
-            
-        except Exception as e:
+
+        except Exception:
             return 50
     
     def detect_market_regime(self):
@@ -323,9 +358,11 @@ class HybridOptimizedScoringEngine:
         },
     }
 
-    def calculate_hybrid_score(self, symbol, stock_data):
+    def calculate_hybrid_score(self, symbol, stock_data, adaptive_weights=None):
         """
         Calculate the optimized hybrid score (V4.1 — regime-adaptive weights).
+        If adaptive_weights dict is supplied (from AdaptiveMarketRegimeStrategy),
+        it overrides the internal _REGIME_WEIGHTS lookup.
         """
         try:
             # Calculate all component scores
@@ -358,7 +395,11 @@ class HybridOptimizedScoringEngine:
                 market_regime = self.detect_market_regime()
 
             # Select regime-adaptive component weights
-            weights = self._REGIME_WEIGHTS.get(market_regime, self._REGIME_WEIGHTS['neutral'])
+            # Prefer externally supplied adaptive weights (from AdaptiveMarketRegimeStrategy)
+            if adaptive_weights and isinstance(adaptive_weights, dict):
+                weights = adaptive_weights
+            else:
+                weights = self._REGIME_WEIGHTS.get(market_regime, self._REGIME_WEIGHTS['neutral'])
 
             # Apply regime-adaptive component weights
             weighted_score = (
@@ -401,7 +442,7 @@ class HybridOptimizedScoringEngine:
 
         except Exception as e:
             print(f"❌ Error calculating hybrid score for {symbol}: {e}")
-            return {'hybrid_score': 50, 'components': {}, 'adjustments': {}}
+            return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': str(e)}
     
     def _get_sector_multiplier(self, stock_data):
         """Get sector-specific multiplier using yfinance sector field"""

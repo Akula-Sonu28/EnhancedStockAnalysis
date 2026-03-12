@@ -53,7 +53,7 @@ class CrisisDetector:
     }
 
     # ── Upstream oil producers — benefit when crude spikes ──────────────────
-    OIL_UPSTREAM_SYMBOLS = {'ONGC', 'OIL', 'CAIRN', 'GIPCL'}
+    OIL_UPSTREAM_SYMBOLS = {'ONGC', 'OIL', 'VEDL'}
 
     # ── Symbol → conceptual sector override ─────────────────────────────────
     # yfinance uses broad sector labels (Industrials, Energy) that don't map

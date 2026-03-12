@@ -166,7 +166,7 @@ class MLPricePredictor:
                 current_price / max(self._safe_float(stock_data.get('52_week_high', current_price)), 1),
             ])
             
-            # 3. Volume Patterns (8 features)
+            # 3. Volume Patterns (8 features — MFI removed here; already in technical block)
             features.extend([
                 self._safe_float(stock_data.get('enhanced_volume_ratio', 1)),
                 self._safe_float(stock_data.get('enhanced_volume_trend', 0)),
@@ -175,7 +175,7 @@ class MLPricePredictor:
                 self._safe_float(stock_data.get('avg_volume', 0)),
                 self._safe_float(stock_data.get('volume_ma_ratio', 1)),
                 self._safe_float(stock_data.get('enhanced_obv', 0)),
-                self._safe_float(stock_data.get('enhanced_mfi', 50)),
+                self._safe_float(stock_data.get('enhanced_cmf', 0)),
             ])
             
             # 4. Fundamental Metrics (15 features)
@@ -358,16 +358,18 @@ class MLPricePredictor:
             elif 40 <= rsi <= 60:
                 score += 1  # Neutral zone
             
-            # MACD signal
-            if 'BUY' in str(macd_signal).upper():
+            # MACD signal (handles both BUY/SELL and BULLISH/BEARISH naming)
+            _macd_upper = str(macd_signal).upper()
+            if _macd_upper in ('BUY', 'BULLISH') or 'BUY' in _macd_upper:
                 score += 2
-            elif 'SELL' in str(macd_signal).upper():
+            elif _macd_upper in ('SELL', 'BEARISH') or 'SELL' in _macd_upper:
                 score -= 2
             
-            # Momentum
-            if 'STRONG' in str(momentum).upper():
+            # Momentum (handles BULLISH/BEARISH and STRONG/WEAK)
+            _mom_upper = str(momentum).upper()
+            if 'STRONG' in _mom_upper or _mom_upper == 'BULLISH':
                 score += 1
-            elif 'WEAK' in str(momentum).upper():
+            elif 'WEAK' in _mom_upper or _mom_upper == 'BEARISH':
                 score -= 1
             
             # Volume

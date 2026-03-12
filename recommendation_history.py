@@ -7,6 +7,8 @@ Implements cooldown periods and change detection.
 
 import pandas as pd
 import os
+import fcntl
+import yfinance as yf
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import logging
@@ -44,22 +46,86 @@ class RecommendationHistory:
             logging.info("No recommendation history found, creating new")
             return self._create_empty_history()
     
+    OUTCOME_COLUMNS = [
+        'price_7d', 'price_30d', 'price_90d',
+        'return_7d', 'return_30d', 'return_90d',
+    ]
+
     def _create_empty_history(self) -> pd.DataFrame:
         """Create empty history dataframe with proper schema"""
         return pd.DataFrame(columns=[
-            'date', 'symbol', 'action', 'score', 'price', 'pe_ratio', 
-            'roe', 'debt_to_equity', 'reason', 'rank', 'sector'
-        ])
+            'date', 'symbol', 'action', 'score', 'price', 'pe_ratio',
+            'roe', 'debt_to_equity', 'reason', 'rank', 'sector',
+        ] + self.OUTCOME_COLUMNS)
     
     def _save_history(self):
-        """Save recommendation history to CSV"""
+        """Save recommendation history to CSV with file locking for concurrency safety."""
         try:
             os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
-            self.history_df.to_csv(self.history_file, index=False)
+            tmp_path = self.history_file + '.tmp'
+            self.history_df.to_csv(tmp_path, index=False)
+            with open(tmp_path, 'r') as lock_fh:
+                fcntl.flock(lock_fh, fcntl.LOCK_EX)
+                os.replace(tmp_path, self.history_file)
             logging.info(f"Saved recommendation history: {len(self.history_df)} records")
         except Exception as e:
             logging.error(f"Error saving recommendation history: {e}")
     
+    def update_outcomes(self) -> int:
+        """
+        Back-fill forward returns for past recommendations whose outcome windows
+        have elapsed.  Returns the number of rows updated.
+        """
+        updated = 0
+        now = datetime.now()
+        horizons = {'7d': 7, '30d': 30, '90d': 90}
+
+        for idx, row in self.history_df.iterrows():
+            rec_date = pd.to_datetime(row['date'])
+            rec_price = row.get('price')
+            if pd.isna(rec_price) or rec_price in (None, 0):
+                continue
+
+            needs_update = False
+            for label, days in horizons.items():
+                col_price = f'price_{label}'
+                if pd.isna(row.get(col_price)) and (now - rec_date).days >= days:
+                    needs_update = True
+                    break
+
+            if not needs_update:
+                continue
+
+            symbol = row['symbol']
+            try:
+                suffix = '.NS' if not symbol.endswith('.NS') else ''
+                ticker = yf.Ticker(f"{symbol}{suffix}")
+                start = rec_date - timedelta(days=1)
+                end = rec_date + timedelta(days=95)
+                hist = ticker.history(start=start, end=end)
+                if hist.empty:
+                    continue
+
+                for label, days in horizons.items():
+                    col_price = f'price_{label}'
+                    col_ret = f'return_{label}'
+                    if pd.isna(row.get(col_price)) and (now - rec_date).days >= days:
+                        target_date = rec_date + timedelta(days=days)
+                        future = hist[hist.index >= target_date]
+                        if not future.empty:
+                            fwd_price = float(future['Close'].iloc[0])
+                            fwd_ret = ((fwd_price - float(rec_price)) / float(rec_price)) * 100
+                            self.history_df.at[idx, col_price] = fwd_price
+                            self.history_df.at[idx, col_ret] = round(fwd_ret, 2)
+                            updated += 1
+            except Exception as e:
+                logging.debug(f"Outcome fetch failed for {symbol}: {e}")
+
+        if updated:
+            self._save_history()
+            logging.info(f"Updated {updated} outcome fields")
+        return updated
+
     def get_last_recommendation(self, symbol: str) -> Optional[Dict]:
         """
         Get the most recent recommendation for a symbol

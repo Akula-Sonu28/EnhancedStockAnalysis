@@ -216,6 +216,7 @@ class EnhancedTop200StockAnalyzer:
         self.low_quality_stocks = []  # Track stocks with low data quality for retry
         self._state_lock = threading.Lock()  # Thread safety: protects shared mutable state in worker threads
         self._sector_adj_cache = {}  # Per-run sector adjustment cache (computed once per sector)
+        self.ENABLE_SENTIMENT_ADJUSTMENT = getattr(_config, 'ENABLE_SENTIMENT_ADJUSTMENT', False)
         self._ml_using_fallback = not os.path.exists('models/ml_predictor_latest.pkl')
         if self._ml_using_fallback:
             logging.warning("[ML] 'models/ml_predictor_latest.pkl' not found — "
@@ -1466,29 +1467,8 @@ class EnhancedTop200StockAnalyzer:
             logging.debug(f"Cross-validation error for {symbol}: {e}")
     
     def _calculate_data_quality_score(self, data: dict) -> float:
-        """Calculate overall data quality score (0-100)"""
-        try:
-            quality_score = 100.0
-            
-            # Critical fields - heavily penalize if missing
-            critical_fields = ['current_price', 'pe_ratio', 'pb_ratio', 'market_cap']
-            missing_critical = sum(1 for field in critical_fields if not data.get(field))
-            quality_score -= missing_critical * 15  # -15 points per missing critical field
-            
-            # Important fields - moderately penalize if missing
-            important_fields = ['roe', 'debt_to_equity', 'current_ratio', 'revenue_growth']
-            missing_important = sum(1 for field in important_fields if not data.get(field))
-            quality_score -= missing_important * 5  # -5 points per missing important field
-            
-            # Bonus for additional data availability
-            optional_fields = ['operating_margin', 'net_margin', 'revenue_growth', 'earnings_growth']
-            available_optional = sum(1 for field in optional_fields if data.get(field))
-            quality_score += available_optional * 2  # +2 points per available optional field
-            
-            return max(min(quality_score, 100), 0)  # Clamp between 0-100
-            
-        except Exception:
-            return 50.0  # Default moderate score
+        """Delegate to the canonical public implementation."""
+        return self.calculate_data_quality_score(data)
     
     def analyze_single_stock(self, symbol):
         """Analyze a single stock with comprehensive data"""
@@ -1772,13 +1752,13 @@ class EnhancedTop200StockAnalyzer:
                                 self.market_regime = self.regime_detector.detect_regime(period_days=180)
                                 if not self.market_regime:
                                     self.market_regime = {'regime': 'SIDEWAYS', 'regime_strength': 'MODERATE', 'vix_level': 15.0,
-                                                          'regime_score': 50, 'regime_confidence': 0.5, 'market_sentiment': 'NEUTRAL',
+                                                          'regime_score': 0.0, 'regime_confidence': 0.0, 'market_sentiment': 'NEUTRAL',
                                                           'risk_level': 'MEDIUM', 'trading_recommendation': 'SELECTIVE', 'current_nifty': 0}
                                 self.current_market_regime = self.market_regime.get('regime', 'SIDEWAYS')
                                 logging.info(f"[REGIME] Single-stock fallback detection: {self.current_market_regime}")
                             except Exception as _re:
                                 self.market_regime = {'regime': 'SIDEWAYS', 'regime_strength': 'MODERATE', 'vix_level': 15.0,
-                                                      'regime_score': 50, 'regime_confidence': 0.5, 'market_sentiment': 'NEUTRAL',
+                                                      'regime_score': 0.0, 'regime_confidence': 0.0, 'market_sentiment': 'NEUTRAL',
                                                       'risk_level': 'MEDIUM', 'trading_recommendation': 'SELECTIVE', 'current_nifty': 0}
                                 self.current_market_regime = 'SIDEWAYS'
                                 logging.warning(f"[REGIME] Fallback detection failed: {_re} — using SIDEWAYS")
@@ -2088,56 +2068,63 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['regime_context'] = 'Error'
             
             # 🎭 PHASE 2 - TASK 7: Apply Sentiment-Based Score Adjustment
-            try:
-                # Get the score from previous step (regime-adjusted or phase1)
-                base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
-                
-                # Prepare sentiment data for adjustment
-                sentiment_data = {
-                    'composite_score': stock_data.get('sentiment_composite_score', 50),
-                    'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
-                    'confidence': stock_data.get('sentiment_confidence', 40),
-                    'news_sentiment': {
-                        'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
-                        'volume_surge': stock_data.get('volume_trend', 1.0)
-                    },
-                    'analyst_sentiment': {
-                        'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
-                        'total_recommendations': (
-                            stock_data.get('analyst_buy_count', 0) +
-                            stock_data.get('analyst_hold_count', 0) +
-                            stock_data.get('analyst_sell_count', 0)
-                        )
-                    },
-                    'earnings_sentiment': {
-                        'earnings_growth': stock_data.get('earnings_growth', 0)
-                    }
-                }
-                
-                # Apply sentiment adjustment
-                sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
-                    base_score_for_sentiment,
-                    sentiment_data
-                )
-                
-                # Update stock data with sentiment-adjusted scores
-                stock_data.update({
-                    'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
-                    'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
-                    'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
-                    'sentiment_context': sentiment_adjustment_result['sentiment_context']
-                })
-                
-                if sentiment_adjustment_result['sentiment_adjustment'] != 0:
-                    logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
-                               f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
-            
-            except Exception as e:
-                logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
-                stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
+            base_score_for_sentiment = phase1_adjusted_score  # safe default before try
+            if not self.ENABLE_SENTIMENT_ADJUSTMENT:
+                stock_data['sentiment_adjusted_score'] = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
                 stock_data['sentiment_adjustment_amount'] = 0.0
-                stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
-                stock_data['sentiment_context'] = 'Error'
+                stock_data['sentiment_adjustment_reasons'] = 'Sentiment adjustment disabled (no real news API)'
+                stock_data['sentiment_context'] = 'DISABLED'
+            else:
+                try:
+                    base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
+                    
+                    sentiment_data = {
+                        'composite_score': stock_data.get('sentiment_composite_score', 50),
+                        'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
+                        'confidence': stock_data.get('sentiment_confidence', 40),
+                        'news_sentiment': {
+                            'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
+                            'volume_surge': ({'VERY_HIGH': 3.0, 'HIGH': 2.5, 'ABOVE_AVERAGE': 1.5,
+                                              'AVERAGE': 1.0, 'BELOW_AVERAGE': 0.7, 'LOW': 0.5, 'VERY_LOW': 0.3}
+                                             .get(str(stock_data.get('volume_trend', 'AVERAGE')).upper(), 1.0)
+                                             if isinstance(stock_data.get('volume_trend'), str)
+                                             else float(stock_data.get('volume_trend', 1.0) or 1.0))
+                        },
+                        'analyst_sentiment': {
+                            'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
+                            'total_recommendations': (
+                                stock_data.get('analyst_buy_count', 0) +
+                                stock_data.get('analyst_hold_count', 0) +
+                                stock_data.get('analyst_sell_count', 0)
+                            )
+                        },
+                        'earnings_sentiment': {
+                            'earnings_growth': stock_data.get('earnings_growth', 0)
+                        }
+                    }
+                    
+                    sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
+                        base_score_for_sentiment,
+                        sentiment_data
+                    )
+                    
+                    stock_data.update({
+                        'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
+                        'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
+                        'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
+                        'sentiment_context': sentiment_adjustment_result['sentiment_context']
+                    })
+                    
+                    if sentiment_adjustment_result['sentiment_adjustment'] != 0:
+                        logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
+                                   f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
+                
+                except Exception as e:
+                    logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
+                    stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
+                    stock_data['sentiment_adjustment_amount'] = 0.0
+                    stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
+                    stock_data['sentiment_context'] = 'Error'
             
             # PHASE 2 - TASK 5: Apply Volume Profile & Order Flow Adjustments
             try:
@@ -2231,11 +2218,13 @@ class EnhancedTop200StockAnalyzer:
                                 if self.market_regime else 0.5
                             )
                 
-                hybrid_results = self.hybrid_scoring_engine.calculate_hybrid_score(symbol, stock_data)
+                regime_key = self.current_market_regime.upper() if self.current_market_regime else 'SIDEWAYS'
+                _adaptive_wts = self.adaptive_strategy.get_adaptive_scoring_weights(regime_key)
+                hybrid_results = self.hybrid_scoring_engine.calculate_hybrid_score(
+                    symbol, stock_data, adaptive_weights=_adaptive_wts
+                )
                 
                 # Create adaptive recommendation based on market regime
-                # Ensure we have a valid regime before proceeding
-                regime_key = self.current_market_regime.upper() if self.current_market_regime else 'SIDEWAYS'
                 position_size = self.adaptive_strategy.get_position_sizing_strategy(regime_key)
                 regime_performance = self.adaptive_strategy.market_performance.get(
                     regime_key, 
@@ -2344,22 +2333,15 @@ class EnhancedTop200StockAnalyzer:
             ml_signal = stock_data.get('ml_signal', 'HOLD')
             ml_prediction_quality = stock_data.get('ml_prediction_quality', 'none')
             
-            # A-019: ML score adjustment — capped to ±8 pts to match model accuracy (CV=39.77%).
-            # Only applies when:
-            #   - Source is trained model (not rule-based fallback)
-            #   - Confidence > 40% (model is not maximally uncertain)
-            #   - Prediction is UP or DOWN (HOLD is neutral; don't adjust)
-            # Formula: adjustment = (confidence - 40) / 60  *  max_pts
-            #   → at 40% conf = 0 pts; at 100% conf = full max_pts
+            # ML score adjustment — reduced cap to ±4 pts (noise reduction).
             ml_score_adjustment = 0
             _ml_is_trained_src = (stock_data.get('ml_model_source') == 'trained_model')
             if _ml_is_trained_src and ml_confidence > 40:
-                _scaled = (ml_confidence - 40.0) / 60.0   # 0.0 at conf=40, 1.0 at conf=100
+                _scaled = (ml_confidence - 40.0) / 60.0
                 if ml_signal == 'BUY':
-                    ml_score_adjustment = round(_scaled * 8, 1)   # max +8 pts
+                    ml_score_adjustment = round(_scaled * 4, 1)   # max +4 pts
                 elif ml_signal == 'SELL':
-                    ml_score_adjustment = round(-_scaled * 8, 1)  # max -8 pts
-                # HOLD adds 0 adjustment
+                    ml_score_adjustment = round(-_scaled * 4, 1)  # max -4 pts
             logging.debug(f"ML adjustment for {symbol}: {ml_score_adjustment:+.1f} "
                           f"(Signal={ml_signal}, Conf={ml_confidence:.0f}%, "
                           f"Src={'trained' if _ml_is_trained_src else 'fallback'})")
@@ -2377,10 +2359,14 @@ class EnhancedTop200StockAnalyzer:
             # Falls back to V2 (improved_score) only if hybrid engine returned 0.
             # A-019: ML adjustment is NOW applied here (was computed but never added before).
             # GAP-1 FIX: Sentiment + Volume adjustments were computed but never applied — now wired in.
-            _sent_adj = float(stock_data.get('sentiment_adjustment_amount', 0) or 0)
-            _vol_adj  = float(stock_data.get('volume_adjustment_amount', 0) or 0)
-            _sent_adj = max(-5.0, min(5.0, _sent_adj))   # cap ±5 pts (free news is noisy)
-            _vol_adj  = max(-5.0, min(5.0, _vol_adj))    # cap ±5 pts (OHLCV proxy signal)
+            _sent_adj_raw = float(stock_data.get('sentiment_adjustment_amount', 0) or 0)
+            _vol_adj_raw  = float(stock_data.get('volume_adjustment_amount', 0) or 0)
+            _sent_adj_raw = max(-3.0, min(3.0, _sent_adj_raw))   # reduced cap ±3 (proxy signal)
+            _vol_adj_raw  = max(-3.0, min(3.0, _vol_adj_raw))    # reduced cap ±3 (OHLCV proxy)
+            _sent_conf = float(stock_data.get('sentiment_confidence', 50) or 50)
+            _vol_conf  = float(stock_data.get('volume_confidence', 50) or 50)
+            _sent_adj = _sent_adj_raw * min(1.0, _sent_conf / 70.0)
+            _vol_adj  = _vol_adj_raw  * min(1.0, _vol_conf / 70.0)
             stock_data['sentiment_score_contribution'] = round(_sent_adj, 1)
             stock_data['volume_score_contribution']    = round(_vol_adj, 1)
 
@@ -2392,9 +2378,9 @@ class EnhancedTop200StockAnalyzer:
             _patt_signal = stock_data.get('pattern_dominant_signal', 'neutral')
             _patt_conf   = float(stock_data.get('pattern_confidence', 0.0) or 0.0)
             if _patt_signal == 'bullish':
-                _pattern_adj = round(min(4.0, _patt_conf * 4.0), 1)    # max +4 pts
+                _pattern_adj = round(min(2.0, _patt_conf * 2.0), 1)    # reduced cap +2 pts
             elif _patt_signal == 'bearish':
-                _pattern_adj = round(max(-4.0, -_patt_conf * 4.0), 1)  # max −4 pts
+                _pattern_adj = round(max(-2.0, -_patt_conf * 2.0), 1)  # reduced cap −2 pts
             else:
                 _pattern_adj = 0.0
             stock_data['pattern_score_contribution'] = _pattern_adj
@@ -2408,7 +2394,25 @@ class EnhancedTop200StockAnalyzer:
             stock_data['crisis_severity']         = _cd.get('severity_label', 'NONE')
             stock_data['crisis_score_adjustment'] = _crisis_adj
 
-            final_blended_score = (hybrid_score if hybrid_score > 0 else improved_score) + ml_score_adjustment + _sent_adj + _vol_adj + _pattern_adj + _crisis_adj
+            # Signal agreement conviction: scale total adjustment by how many signals agree
+            _adj_signals = [
+                1 if ml_score_adjustment > 0 else (-1 if ml_score_adjustment < 0 else 0),
+                1 if _sent_adj > 0 else (-1 if _sent_adj < 0 else 0),
+                1 if _vol_adj > 0 else (-1 if _vol_adj < 0 else 0),
+                1 if _pattern_adj > 0 else (-1 if _pattern_adj < 0 else 0),
+            ]
+            _active = sum(1 for s in _adj_signals if s != 0)
+            if _active > 0:
+                _bullish_n = sum(1 for s in _adj_signals if s > 0)
+                _bearish_n = sum(1 for s in _adj_signals if s < 0)
+                _agreement = max(_bullish_n, _bearish_n) / _active
+                _conviction_scale = 0.5 + 0.5 * _agreement  # 0.5 when split, 1.0 when unanimous
+            else:
+                _conviction_scale = 1.0
+            _total_signal_adj = (ml_score_adjustment + _sent_adj + _vol_adj + _pattern_adj) * _conviction_scale
+            stock_data['signal_conviction_scale'] = round(_conviction_scale, 2)
+
+            final_blended_score = (hybrid_score if hybrid_score > 0 else improved_score) + _total_signal_adj + _crisis_adj
 
             # Store intermediate scoring versions for backtesting reference
             stock_data['phase1_blended_score'] = old_phase1_blend  # Legacy V1 comparison
@@ -2420,13 +2424,11 @@ class EnhancedTop200StockAnalyzer:
             data_quality = stock_data.get('data_quality_score', 100)
             portfolio_fit = stock_data.get('portfolio_fit', 'unknown')
 
-            # Quality penalty: reduce score if data quality is poor
-            if data_quality < 40:
-                final_blended_score -= 10
-                logging.debug(f"Quality penalty applied to {symbol}: -10 points (quality={data_quality:.0f})")
-            elif data_quality < 60:
-                final_blended_score -= 5
-                logging.debug(f"Quality penalty applied to {symbol}: -5 points (quality={data_quality:.0f})")
+            # Graduated quality penalty: linear scale, max 15 at quality 0
+            _quality_penalty = max(0, (60 - data_quality) * 0.25) if data_quality < 60 else 0
+            if _quality_penalty > 0:
+                final_blended_score -= _quality_penalty
+                logging.debug(f"Quality penalty applied to {symbol}: -{_quality_penalty:.1f} points (quality={data_quality:.0f})")
 
             # Portfolio fit adjustment
             if portfolio_fit == 'excellent':
@@ -2485,10 +2487,14 @@ class EnhancedTop200StockAnalyzer:
             # slightly easier in BULL/BULLISH (−2). Prevents over-buying in down markets.
             # GAP-Q5 FIX: MarketRegimeDetector returns 'BEAR'/'BULL' (not 'BEARISH'/'BULLISH').
             # Check both variants so the threshold delta fires correctly.
-            _curr_regime = stock_data.get('market_regime', 'SIDEWAYS').upper()
+            _resolved_regime = (stock_data.get('market_regime_detected') or stock_data.get('market_regime', 'SIDEWAYS'))
+            _resolved_regime = str(_resolved_regime).upper()
+            if _resolved_regime in ('UNKNOWN', ''):
+                _resolved_regime = stock_data.get('market_regime', 'SIDEWAYS').upper()
+            _curr_regime = _resolved_regime
             _is_bear = _curr_regime in ('BEAR', 'BEARISH')
             _is_bull = _curr_regime in ('BULL', 'BULLISH')
-            _regime_thr_delta = 5 if _is_bear else (-2 if _is_bull else 0)
+            _regime_thr_delta = 8 if _is_bear else (-2 if _is_bull else 0)
             _strong_buy_thr = _config.STRONG_BUY_THRESHOLD + _regime_thr_delta
             _buy_thr        = _config.BUY_THRESHOLD        + _regime_thr_delta
             _hold_thr       = _config.HOLD_THRESHOLD
@@ -2516,7 +2522,7 @@ class EnhancedTop200StockAnalyzer:
                 phase2_recommendation = "🔴 SELL"
             
             # 🚀 ADAPTIVE MARKET REGIME ADJUSTMENT: Consider current market conditions
-            market_regime = stock_data.get('market_regime_detected', 'UNKNOWN')
+            market_regime = _resolved_regime
             adaptive_position = stock_data.get('adaptive_position_size', 'MEDIUM')
             adaptive_quintile = stock_data.get('adaptive_quintile_target', 'Q3')
             hybrid_confidence = stock_data.get('hybrid_confidence', 0.5)
@@ -2566,7 +2572,13 @@ class EnhancedTop200StockAnalyzer:
             # Store all recommendations for comparison and backtesting validation
             stock_data['original_recommendation'] = original_recommendation
             stock_data['corrected_recommendation'] = corrected_recommendation
-            stock_data['phase1_recommendation'] = stock_data.get('phase1_recommendation', original_recommendation)
+            _p1_score = stock_data.get('phase1_adjusted_score', best_score)
+            stock_data['phase1_recommendation'] = (
+                'STRONG BUY' if _p1_score >= 70 else
+                'BUY' if _p1_score >= 60 else
+                'HOLD' if _p1_score >= 40 else
+                'SELL'
+            )
             stock_data['phase2_recommendation'] = phase2_recommendation
             stock_data['final_recommendation'] = phase2_recommendation  # PRIMARY: Phase 2 with Hybrid V4.0 + ML + Adaptive Regime
             
@@ -4427,7 +4439,7 @@ class EnhancedTop200StockAnalyzer:
                 weights.append(0.20)
             
             # 2. Earnings Growth Rate (20% weight)
-            profit_growth = stock_data.get('profit_growth', 0)
+            profit_growth = stock_data.get('profit_growth') or stock_data.get('earnings_growth', 0)
             if profit_growth is not None:
                 if profit_growth >= 35:       # Explosive earnings growth
                     profit_score = 100

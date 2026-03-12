@@ -180,19 +180,32 @@ class AdaptiveMarketRegimeStrategy:
         else:
             return 'LOW'
     
+    REGIME_MAP = {
+        'BULL': 'BULL_MODERATE', 'BULL_STRONG': 'BULL_MODERATE', 'BULLISH': 'BULL_MODERATE',
+        'BEAR': 'BEAR_MODERATE', 'BEAR_STRONG': 'BEAR_MODERATE', 'BEARISH': 'BEAR_MODERATE',
+        'SIDEWAYS': 'SIDEWAYS', 'CALM': 'CALM', 'UNKNOWN': 'CALM', 'NEUTRAL': 'CALM',
+        'BULL_MODERATE': 'BULL_MODERATE', 'BEAR_MODERATE': 'BEAR_MODERATE',
+    }
+
+    def _map_regime(self, regime_key):
+        """Map detector regime keys (BULL/BEAR) to strategy keys (BULL_MODERATE/BEAR_MODERATE)"""
+        return self.REGIME_MAP.get(str(regime_key).upper(), 'CALM')
+
     def get_adaptive_scoring_weights(self, current_regime):
         """Get scoring weights optimized for current market regime"""
-        return self.adaptive_weights.get(current_regime, self.adaptive_weights['CALM'])
+        mapped = self._map_regime(current_regime)
+        return self.adaptive_weights.get(mapped, self.adaptive_weights['CALM'])
     
     def get_position_sizing_strategy(self, current_regime):
         """Get position sizing strategy for current market regime"""
-        return self.position_sizing.get(current_regime, self.position_sizing['CALM'])
+        mapped = self._map_regime(current_regime)
+        return self.position_sizing.get(mapped, self.position_sizing['CALM'])
     
     def generate_regime_specific_recommendations(self, stocks_scores, current_regime):
         """Generate recommendations tailored to current market regime"""
-        
-        regime_data = self.market_performance[current_regime]
-        position_strategy = self.position_sizing[current_regime]
+        mapped = self._map_regime(current_regime)
+        regime_data = self.market_performance.get(mapped, self.market_performance['CALM'])
+        position_strategy = self.position_sizing.get(mapped, self.position_sizing['CALM'])
         
         # Sort stocks by score
         sorted_stocks = sorted(stocks_scores.items(), key=lambda x: x[1], reverse=True)

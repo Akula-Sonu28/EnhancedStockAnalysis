@@ -111,25 +111,29 @@ class ImprovedScoringEngine:
     
     def calculate_contrarian_momentum_score(self, stock_data):
         """
-        MOMENTUM STRENGTH — For swing trading
-        Strong trending stocks with volume confirmation = GOOD
-        Flat/sideways stocks = BAD
+        TREND STRENGTH — reward uptrends, penalize downtrends.
+        Strong uptrend with volume confirmation = GOOD
+        Flat/sideways or downtrend = BAD
         """
         score = 50
         
         try:
-            # 20D price change — trending is good, flat is bad
             price_change_20d = stock_data.get('enhanced_price_change_20d', 0)
             if pd.notna(price_change_20d):
-                abs_change = abs(price_change_20d)
-                if abs_change > 10:       # Strong trend
+                if price_change_20d >= 15:
                     score += 25
-                elif abs_change > 5:      # Moderate trend
-                    score += 15
-                elif abs_change > 3:      # Mild trend
-                    score += 8
-                elif abs_change < 1:      # Flat/sideways — bad for swing
-                    score -= 15
+                elif price_change_20d >= 8:
+                    score += 20
+                elif price_change_20d >= 3:
+                    score += 12
+                elif price_change_20d >= -1:
+                    score += 0
+                elif price_change_20d >= -5:
+                    score -= 10
+                elif price_change_20d >= -10:
+                    score -= 18
+                else:
+                    score -= 25
 
             # Volume surge — confirms trend validity
             volume_ratio = stock_data.get('enhanced_volume_ratio', 1.0)
@@ -142,7 +146,7 @@ class ImprovedScoringEngine:
                     score -= 10
 
             # ADX (trend strength) — if available
-            adx = stock_data.get('adx_14', 0)
+            adx = stock_data.get('enhanced_adx', stock_data.get('adx_14', 0))
             if pd.notna(adx) and adx > 0:
                 if adx > 30:             # Strong trend
                     score += 10
@@ -282,9 +286,21 @@ class ImprovedScoringEngine:
         }
         return sector_map.get(symbol, 'default')
     
-    def calculate_sector_adjustment(self, symbol, base_score):
-        """Apply sector multiplier"""
-        sector = self.get_sector_classification(symbol)
+    def calculate_sector_adjustment(self, symbol, base_score, stock_data=None):
+        """Apply sector multiplier — prefer live sector from stock_data"""
+        if stock_data and stock_data.get('sector'):
+            live = stock_data['sector'].lower()
+            live_map = {
+                'financial services': 'Financial Services', 'banks': 'Banking',
+                'energy': 'default', 'basic materials': 'Capital Goods',
+                'industrials': 'Capital Goods', 'technology': 'IT',
+                'consumer cyclical': 'Consumer Durables', 'consumer defensive': 'FMCG',
+                'healthcare': 'Pharma', 'utilities': 'default',
+                'real estate': 'default', 'communication services': 'IT',
+            }
+            sector = live_map.get(live, 'default')
+        else:
+            sector = self.get_sector_classification(symbol)
         multiplier = self.sector_multipliers.get(sector, 1.0)
         return base_score * multiplier
     
@@ -323,7 +339,7 @@ class ImprovedScoringEngine:
             )
             
             # Apply sector adjustment
-            sector_adjusted_score = self.calculate_sector_adjustment(symbol, base_score)
+            sector_adjusted_score = self.calculate_sector_adjustment(symbol, base_score, stock_data)
             
             # Apply timing factor
             timing_factor = self.calculate_timing_factor()

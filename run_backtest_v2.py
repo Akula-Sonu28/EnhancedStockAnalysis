@@ -242,26 +242,141 @@ class BacktestValidator:
             'market_cap':     (fundamentals or {}).get('market_cap', 1000000000000)
         }
 
+class WalkForwardBacktest:
+    """
+    Rolling-window walk-forward backtest.
+    Score at T, measure return at T+forward_days, roll forward by step_days.
+    Fundamentals are fetched once and re-used (minor look-ahead for fundamentals
+    but no price look-ahead).
+    """
+
+    def __init__(self, symbols=None, forward_days=30, step_days=30,
+                 total_windows=6, history_days=365):
+        self.validator = BacktestValidator()
+        self.symbols = symbols or self.validator.get_stock_list()
+        self.forward_days = forward_days
+        self.step_days = step_days
+        self.total_windows = total_windows
+        self.history_days = history_days
+
+    def run(self):
+        """Execute the walk-forward backtest and return a DataFrame of results."""
+        all_results = []
+        now = datetime.now()
+
+        for w in range(self.total_windows):
+            score_date = now - timedelta(days=self.forward_days + w * self.step_days)
+            eval_date = score_date + timedelta(days=self.forward_days)
+            window_label = score_date.strftime('%Y-%m-%d')
+            print(f"\n[Window {w+1}/{self.total_windows}] Score@{window_label}  Eval@{eval_date.strftime('%Y-%m-%d')}")
+
+            for symbol in self.symbols:
+                try:
+                    hist = self.validator.fetch_history(symbol, lookback_days=self.history_days)
+                    if hist.empty or len(hist) < 60:
+                        continue
+
+                    idx = hist.index.tz_localize(None)
+                    scoring_hist = hist[idx <= score_date]
+                    if len(scoring_hist) < 50:
+                        continue
+
+                    future_hist = hist[(idx > score_date) & (idx <= eval_date)]
+                    if future_hist.empty:
+                        continue
+
+                    start_price = scoring_hist['Close'].iloc[-1]
+                    end_price = future_hist['Close'].iloc[-1]
+                    actual_return = (end_price - start_price) / start_price * 100
+
+                    fundamentals = self.validator.fetch_fundamentals(symbol)
+                    stock_data = self.validator.prepare_stock_data(scoring_hist, fundamentals)
+
+                    for name, engine in self.validator.engines.items():
+                        try:
+                            if name == 'Improved_V3':
+                                res = engine.calculate_improved_overall_score(symbol, stock_data)
+                                score = res.get('improved_overall_score', 50)
+                            elif name == 'Hybrid_V4':
+                                res = engine.calculate_hybrid_score(symbol, stock_data)
+                                score = res.get('hybrid_score', 50)
+                            else:
+                                score = 50
+
+                            all_results.append({
+                                'window': window_label,
+                                'symbol': symbol,
+                                'engine': name,
+                                'score': score,
+                                'return': actual_return,
+                                'start_price': start_price,
+                                'end_price': end_price,
+                            })
+                        except Exception:
+                            pass
+                except Exception as e:
+                    print(f"  Skip {symbol}: {e}")
+
+        df = pd.DataFrame(all_results)
+        if df.empty:
+            print("No results generated.")
+            return df
+
+        print("\n\n" + "=" * 80)
+        print("WALK-FORWARD BACKTEST RESULTS")
+        print("=" * 80)
+        print(f"{'Engine':<15} | {'Window':<12} | {'N':>4} | {'Corr':>8} | {'Top-20% Ret':>12} | {'Bot-20% Ret':>12} | {'Spread':>8}")
+        print("-" * 85)
+
+        for engine in df['engine'].unique():
+            for window in sorted(df['window'].unique()):
+                sub = df[(df['engine'] == engine) & (df['window'] == window)]
+                if len(sub) < 5:
+                    continue
+                corr = sub['score'].corr(sub['return'])
+                q80 = sub['score'].quantile(0.80)
+                q20 = sub['score'].quantile(0.20)
+                top_ret = sub[sub['score'] >= q80]['return'].mean()
+                bot_ret = sub[sub['score'] <= q20]['return'].mean()
+                spread = top_ret - bot_ret
+                print(f"{engine:<15} | {window:<12} | {len(sub):>4} | {corr:>8.4f} | {top_ret:>11.2f}% | {bot_ret:>11.2f}% | {spread:>7.2f}%")
+
+        for engine in df['engine'].unique():
+            sub = df[df['engine'] == engine]
+            corr = sub['score'].corr(sub['return'])
+            q80 = sub['score'].quantile(0.80)
+            q20 = sub['score'].quantile(0.20)
+            top_ret = sub[sub['score'] >= q80]['return'].mean()
+            bot_ret = sub[sub['score'] <= q20]['return'].mean()
+            print(f"\n  {engine} OVERALL — N={len(sub)}, Corr={corr:.4f}, Top-20%={top_ret:.2f}%, Bot-20%={bot_ret:.2f}%, Spread={top_ret - bot_ret:.2f}%")
+
+        return df
+
+
 if __name__ == "__main__":
-    validator = BacktestValidator()
-    df_res = validator.run_backtest()
-    
-    if not df_res.empty:
-        print("\n\n📊 BACKTEST RESULTS SUMMARY")
-        print("="*40)
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'snapshot'
+
+    if mode == 'walkforward':
+        wf = WalkForwardBacktest()
+        wf.run()
+    else:
+        validator = BacktestValidator()
+        df_res = validator.run_backtest()
         
-        # Correlation Analysis
-        print(f"{'Engine':<15} | {'Period':<7} | {'Correlation':<12} | {'Avg Return (High Score)':<25}")
-        print("-" * 70)
-        
-        for engine in df_res['engine'].unique():
-            for period in df_res['period'].unique():
-                subset = df_res[(df_res['engine'] == engine) & (df_res['period'] == period)]
-                corr = subset['score'].corr(subset['return'])
-                
-                # Check return of top decile (>90th percentile score)
-                threshold = subset['score'].quantile(0.8)
-                top_picks = subset[subset['score'] >= threshold]
-                avg_ret = top_picks['return'].mean()
-                
-                print(f"{engine:<15} | {period:<7} | {corr:<12.4f} | {avg_ret:<6.2f}%")
+        if not df_res.empty:
+            print("\n\n📊 BACKTEST RESULTS SUMMARY")
+            print("="*40)
+            
+            print(f"{'Engine':<15} | {'Period':<7} | {'Correlation':<12} | {'Avg Return (High Score)':<25}")
+            print("-" * 70)
+            
+            for engine in df_res['engine'].unique():
+                for period in df_res['period'].unique():
+                    subset = df_res[(df_res['engine'] == engine) & (df_res['period'] == period)]
+                    corr = subset['score'].corr(subset['return'])
+                    
+                    threshold = subset['score'].quantile(0.8)
+                    top_picks = subset[subset['score'] >= threshold]
+                    avg_ret = top_picks['return'].mean()
+                    
+                    print(f"{engine:<15} | {period:<7} | {corr:<12.4f} | {avg_ret:<6.2f}%")
