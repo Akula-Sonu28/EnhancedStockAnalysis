@@ -1,8 +1,13 @@
 """Complete Gap Analysis for Portfolio Allocation Sheet"""
 import warnings; warnings.filterwarnings('ignore')
 import pandas as pd, numpy as np
+import glob, os
 
-f = 'reports/Enhanced_Stock_Report_20260302_182808.xlsx'
+reports = sorted(glob.glob('reports/Enhanced_Stock_Report_*.xlsx'))
+if not reports:
+    raise FileNotFoundError("No Enhanced_Stock_Report_*.xlsx found in reports/")
+f = reports[-1]
+print(f"Using report: {os.path.basename(f)}")
 pa = pd.read_excel(f, sheet_name='Portfolio Allocation')
 cd = pd.read_excel(f, sheet_name='Complete Data')
 
@@ -111,7 +116,8 @@ for _, r in buy_all.iterrows():
         dist = (float(r['PRICE']) - float(r['SUPPORT'])) / float(r['SUPPORT']) * 100
         warn = ' <<< >10% from support' if dist > 10 else ''
         print(f'    {r["symbol"]:<15} Price={r["PRICE"]:>8.2f}  Support={r["SUPPORT"]:>8.2f}  dist={dist:+.1f}%{warn}')
-    except: pass
+    except Exception:
+        pass
 
 # ===================================================================
 # BLOCK 5: SECTOR CONCENTRATION

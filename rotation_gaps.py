@@ -5,8 +5,13 @@ Goal: Identify what BLOCKS or SLOWS rotation in the current system.
 """
 import warnings; warnings.filterwarnings('ignore')
 import pandas as pd, numpy as np
+import glob, os
 
-f = 'reports/Enhanced_Stock_Report_20260302_182808.xlsx'
+reports = sorted(glob.glob('reports/Enhanced_Stock_Report_*.xlsx'))
+if not reports:
+    raise FileNotFoundError("No Enhanced_Stock_Report_*.xlsx found in reports/")
+f = reports[-1]
+print('Using report: {}'.format(os.path.basename(f)))
 pa = pd.read_excel(f, sheet_name='Portfolio Allocation')
 cd = pd.read_excel(f, sheet_name='Complete Data')
 
@@ -151,7 +156,8 @@ for _, r in win_pool.head(20).iterrows():
             r['symbol'], float(r[sc_col]), rsi_val, rsi_flag,
             r.get('ml_signal', '?'), float(r.get('20d_price_change', 0)),
             pr, from_low, str(r.get('sector', ''))[:20]))
-    except: pass
+    except Exception:
+        pass
 
 # Count available low-RSI winners
 good_rotation = win_pool[(win_pool[rsi_col] < 60) & (win_pool[sc_col] > 80)]

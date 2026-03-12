@@ -2,9 +2,17 @@ import pandas as pd
 import warnings
 warnings.filterwarnings('ignore')
 import glob, os
+import sys
+
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 # Find latest report
 reports = sorted(glob.glob('reports/Enhanced_Stock_Report_*.xlsx'))
+if not reports:
+    raise FileNotFoundError('No Enhanced_Stock_Report_*.xlsx found in reports/')
 latest = reports[-1]
 print(f"\nReport: {os.path.basename(latest)}\n")
 

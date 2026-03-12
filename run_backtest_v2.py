@@ -7,6 +7,7 @@ import warnings
 import json
 import os
 import sys
+import glob
 
 # Add current directory to path
 sys.path.append('.')
@@ -33,11 +34,17 @@ class BacktestValidator:
             self.engines['Improved_V3'] = ImprovedScoringEngine()
         if HybridOptimizedScoringEngine:
             self.engines['Hybrid_V4'] = HybridOptimizedScoringEngine()
-            
-        self.report_path = r"c:\Users\A KAVYA SHREE\OneDrive\Documents\Sanji\Stock Analyis\Stock_Analysis - Copy\reports\Enhanced_Stock_Report_20251210_120903.xlsx"
+        reports = sorted(glob.glob('reports/Enhanced_Stock_Report_*.xlsx'))
+        self.report_path = reports[-1] if reports else None
+        if self.report_path:
+            print(f"Using report: {self.report_path}")
+        else:
+            print("⚠️ No enhanced report found in reports/. Falling back to default stock list.")
         
     def get_stock_list(self):
         try:
+            if not self.report_path or not os.path.exists(self.report_path):
+                return ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK']
             print(f"Loading stocks from: {self.report_path}")
             xls = pd.ExcelFile(self.report_path)
             # Try to find a sheet with 'Complete Data' or just first sheet

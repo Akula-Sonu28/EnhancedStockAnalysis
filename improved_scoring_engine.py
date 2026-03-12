@@ -20,14 +20,29 @@ class ImprovedScoringEngine:
     Improved scoring based on what ACTUALLY predicts returns
     """
     
-    def __init__(self):
-        # NEW WEIGHTS - Only components that work
-        self.component_weights = {
-            'fundamental_quality': 0.40,      # Doubled (was best predictor)
-            'momentum_technical': 0.30,       # NEW - follow momentum, not contrarian
-            'contrarian_momentum': 0.20,      # Keep (5.5% spread)
-            'quality_multiplier': 0.10        # NEW - reward good companies
-        }
+    def __init__(self, risk_profile='moderate'):
+        # NEW WEIGHTS - adjusted by risk profile
+        if risk_profile == 'aggressive':
+            self.component_weights = {
+                'fundamental_quality': 0.20,      # Less focus on fundamentals
+                'momentum_technical': 0.40,       # High focus on momentum
+                'contrarian_momentum': 0.30,      # Now measures momentum strength
+                'quality_multiplier': 0.10        # Reward good companies
+            }
+        elif risk_profile == 'conservative':
+            self.component_weights = {
+                'fundamental_quality': 0.50,      # High focus on fundamentals
+                'momentum_technical': 0.20,       # Lower focus on momentum
+                'contrarian_momentum': 0.15,      # Lower focus on momentum strength
+                'quality_multiplier': 0.15        # Reward good companies
+            }
+        else: # moderate
+            self.component_weights = {
+                'fundamental_quality': 0.40,      # Original was best predictor
+                'momentum_technical': 0.30,       # Follow momentum, not contrarian
+                'contrarian_momentum': 0.20,      # Now measures momentum strength
+                'quality_multiplier': 0.10        # Reward good companies
+            }
         
         # Sector multipliers (keep from before)
         self.sector_multipliers = {
@@ -96,32 +111,44 @@ class ImprovedScoringEngine:
     
     def calculate_contrarian_momentum_score(self, stock_data):
         """
-        STABILITY - Keep this (it worked in backtest)
-        Low volatility = Stable = GOOD
+        MOMENTUM STRENGTH — For swing trading
+        Strong trending stocks with volume confirmation = GOOD
+        Flat/sideways stocks = BAD
         """
         score = 50
         
         try:
-            # Low volatility is good
-            volatility = stock_data.get('volatility', 0)
-            if pd.notna(volatility):
-                if volatility < 1.5:
-                    score += 20
-                elif volatility < 2.0:
-                    score += 10
-                elif volatility > 3.0:
-                    score -= 15
-                elif volatility > 2.5:
-                    score -= 5
-            
-            # Moderate price changes (stability)
-            price_change_20d = abs(stock_data.get('enhanced_price_change_20d', 0))
+            # 20D price change — trending is good, flat is bad
+            price_change_20d = stock_data.get('enhanced_price_change_20d', 0)
             if pd.notna(price_change_20d):
-                if price_change_20d < 3:      # Very stable
+                abs_change = abs(price_change_20d)
+                if abs_change > 10:       # Strong trend
+                    score += 25
+                elif abs_change > 5:      # Moderate trend
                     score += 15
-                elif price_change_20d < 5:    # Stable
+                elif abs_change > 3:      # Mild trend
                     score += 8
-                elif price_change_20d > 15:   # Too volatile
+                elif abs_change < 1:      # Flat/sideways — bad for swing
+                    score -= 15
+
+            # Volume surge — confirms trend validity
+            volume_ratio = stock_data.get('enhanced_volume_ratio', 1.0)
+            if pd.notna(volume_ratio):
+                if volume_ratio > 1.5:    # Strong volume surge
+                    score += 15
+                elif volume_ratio > 1.2:  # Above-average volume
+                    score += 8
+                elif volume_ratio < 0.7:  # Low volume — weak trend
+                    score -= 10
+
+            # ADX (trend strength) — if available
+            adx = stock_data.get('adx_14', 0)
+            if pd.notna(adx) and adx > 0:
+                if adx > 30:             # Strong trend
+                    score += 10
+                elif adx > 20:           # Moderate trend
+                    score += 5
+                elif adx < 15:           # No trend
                     score -= 10
             
             return max(0, min(100, score))

@@ -92,8 +92,19 @@ class CorrectedScoringEngine:
         """
         try:
             # Original momentum components
-            momentum_flags = int(stock_data.get('momentum_flags', 0))
-            breakout_patterns = int(stock_data.get('breakout_patterns', 0))
+            raw_flags = stock_data.get('momentum_flags', '')
+            if isinstance(raw_flags, str) and raw_flags not in ('0', 'NONE', 'NOT ANALYZED', ''):
+                momentum_flags = len([f for f in raw_flags.split('|') if f.strip()])
+            else:
+                try:
+                    momentum_flags = int(raw_flags or 0)
+                except ValueError:
+                    momentum_flags = 0
+            
+            try:
+                breakout_patterns = int(stock_data.get('breakout_patterns', 0))
+            except ValueError:
+                breakout_patterns = 0
             
             # CONTRARIAN APPROACH - Fewer flags = more stable = better
             stability_score = max(0, 100 - (momentum_flags * 20))

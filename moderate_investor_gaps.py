@@ -4,8 +4,13 @@ Focus: No capital loss | Book profits | Rotate booked capital
 """
 import warnings; warnings.filterwarnings('ignore')
 import pandas as pd, numpy as np
+import glob, os
 
-f = 'reports/Enhanced_Stock_Report_20260302_182808.xlsx'
+reports = sorted(glob.glob('reports/Enhanced_Stock_Report_*.xlsx'))
+if not reports:
+    raise FileNotFoundError("No Enhanced_Stock_Report_*.xlsx found in reports/")
+f = reports[-1]
+print('Using report: {}'.format(os.path.basename(f)))
 pa = pd.read_excel(f, sheet_name='Portfolio Allocation')
 cd = pd.read_excel(f, sheet_name='Complete Data')
 

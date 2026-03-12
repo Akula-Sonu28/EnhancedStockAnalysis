@@ -179,8 +179,8 @@ class EnhancedTop200StockAnalyzer:
         self.company_names = {}  # Map symbols to company names
         
         # 🚀 ENHANCEMENT: Add caching system
-        self.cache_enabled = _config.CACHE_ENABLED        # [G-12] config.py IS live: CACHE_ENABLED, NSE_SUFFIX, thresholds all used below
-        self.cache_expiry_hours = _config.CACHE_EXPIRY_HOURS  # [G-12] CACHE_EXPIRY_HOURS wired — do NOT delete config.py
+        self.cache_enabled = _config.CACHE_ENABLED        # A-009: from config.py
+        self.cache_expiry_hours = _config.CACHE_EXPIRY_HOURS  # A-009: from config.py
         self.cache_dir = "data/cache"
         os.makedirs(self.cache_dir, exist_ok=True)
         
@@ -1235,7 +1235,7 @@ class EnhancedTop200StockAnalyzer:
                 good_threshold = 0.35
                 stop_loss = -0.18
                 category = "⭐ HIGH QUALITY"
-            elif (hasattr(self, 'classify_stock_type') and 'GROWTH' in (self.classify_stock_type(symbol, sector) or '')):
+            elif 'GROWTH' in self.classify_stock_type(symbol, sector) if hasattr(self, 'classify_stock_type') else False:
                 # Growth stocks - higher risk, higher reward
                 mega_threshold = 1.00
                 big_threshold = 0.70
@@ -4993,13 +4993,6 @@ class EnhancedTop200StockAnalyzer:
                         if len(holdings_df) < initial_count:
                             print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
                     
-                    # [G-18 FIX] Deduplicate by Instrument to prevent inflated portfolio value and mis-calibrated 5% caps
-                    if 'Instrument' in holdings_df.columns:
-                        before_dedup = len(holdings_df)
-                        holdings_df = holdings_df.drop_duplicates(subset=['Instrument'])
-                        if len(holdings_df) < before_dedup:
-                            print(f"   ⚠️ Removed {before_dedup - len(holdings_df)} duplicate holding rows [G-18]")
-                    
                     return holdings_df
             
             print("   ⚠️  No holdings file found - using allocation without current portfolio")
@@ -5604,8 +5597,8 @@ class EnhancedTop200StockAnalyzer:
                     allocation_df['holdings_rank'] = 0
                 
                 total_holdings = len(current_holdings_df)
-                top_30_pct = max(1, int(total_holdings * 0.30))    # [G-17 FIX] floor at 1 — prevents 0 INCREASE slots for small portfolios (≤3 holdings)
-                bottom_20_pct = max(1, int(total_holdings * 0.20)) # [G-17 FIX] floor at 1 — prevents 0 SELL slots for small portfolios
+                top_30_pct = int(total_holdings * 0.30)
+                bottom_20_pct = int(total_holdings * 0.20)
                 
                 print(f"      📊 Holdings ranked: Top {top_30_pct} (INCREASE), Bottom {bottom_20_pct} (CONSIDER SELLING)")
                 print(f"      🏆 Best performer: {current_holdings_df.nsmallest(1, 'holdings_rank')['symbol'].iloc[0]} (Rank #{current_holdings_df['holdings_rank'].min()})")
@@ -5993,9 +5986,8 @@ class EnhancedTop200StockAnalyzer:
                     category_stocks = allocation_df[allocation_df['stock_type'] == category].copy()
                     
                     if not category_stocks.empty:
-                        # [G-26 FIX] Sort by overall_score (V4.0 Hybrid) to align with INCREASE funding priority
-                        # Previously sorted by risk_adjusted_score (V3) causing keep/fund mismatch
-                        category_stocks = category_stocks.sort_values('overall_score', ascending=False, na_position='last')
+                        # Sort by risk_adjusted_score (descending - best first)
+                        category_stocks = category_stocks.sort_values('risk_adjusted_score', ascending=False, na_position='last')
                         target_count = target_counts.get(category, 0)
                         available_count = len(category_stocks)
                         
@@ -6157,7 +6149,7 @@ class EnhancedTop200StockAnalyzer:
                         elif 'REBALANCE' in exit_reason:
                             # Bottom 20% but profitable - check if we really need to sell
                             profit = row.get('current_profit_pct', 0)
-                            if profit < 0.05:  # [G-16 FIX] current_profit_pct is decimal (0.054=5.4%); threshold 0.05=5%
+                            if profit < 5:  # Low profit, can sell for rebalancing
                                 allocation_df.at[idx, 'action_recommendation'] = 'SELL'
                                 allocation_df.at[idx, 'keep_stock'] = False
                             else:  # Good profit, just hold
@@ -6182,23 +6174,7 @@ class EnhancedTop200StockAnalyzer:
             sell_recommendations_df = allocation_df[allocation_df['keep_stock'] == False].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
             
             # STEP 3.4: 🎯 SALE PROCEEDS + PROFIT BOOKING + NEW CAPITAL ALLOCATION
-            # [G-03 FIX] Pre-compute proceeds BEFORE the guard so we can check total_available, not just target_amount.
-            # Previously guard was 'target_amount > 0' — skipped entire allocation if user passed Rs0 even with SELL proceeds.
-            _early_sell_proceeds = allocation_df[
-                (allocation_df['action_recommendation'] == 'SELL') &
-                (allocation_df['is_current_holding'] == True)
-            ]['current_value'].sum() if 'keep_stock' in allocation_df.columns else 0
-            _early_book_df = allocation_df[
-                (allocation_df['action_recommendation'] == 'BOOK_PROFIT') &
-                (allocation_df['is_current_holding'] == True)
-            ] if 'keep_stock' in allocation_df.columns else pd.DataFrame()
-            _early_book_proceeds = sum(
-                row.get('profit_booking_pct', 0) * row.get('current_value', 0)
-                for _, row in _early_book_df.iterrows()
-            ) if not _early_book_df.empty else 0
-            _early_total_available = target_amount + _early_sell_proceeds + _early_book_proceeds
-            
-            if 'keep_stock' in allocation_df.columns and _early_total_available > 0:
+            if 'keep_stock' in allocation_df.columns and target_amount > 0:
                 # Calculate sale proceeds from stocks marked for SELL (100% of position)
                 sell_proceeds = allocation_df[
                     (allocation_df['action_recommendation'] == 'SELL') & 
@@ -6230,54 +6206,6 @@ class EnhancedTop200StockAnalyzer:
                 print(f"      [BOOK] BOOK_PROFIT proceeds: Rs{book_profit_proceeds:,.0f}")
                 print(f"      [DATA] Total available: Rs{total_available:,.0f}")
                 
-                # ═══════════════════════════════════════════════════════════════════════
-                # 🌐 MARKET REGIME DETECTION — [G-02 FIX] runs HERE before allocation loop
-                # Previously this ran at line ~7080 AFTER allocation finished (too late).
-                # Now total_available is scaled by regime exposure BEFORE remaining_budget is set.
-                # ═══════════════════════════════════════════════════════════════════════
-                print(f"\n   🌐 DETECTING MARKET REGIME (Pre-Allocation)...")
-                try:
-                    regime_info = self.detect_market_regime(results_df)
-                    market_regime = regime_info['regime']
-                    recommended_exposure = regime_info['recommended_exposure']
-                    regime_strategy = regime_info['strategy']
-                    
-                    print(f"      📊 Market Regime: {market_regime}")
-                    print(f"      💰 Recommended Exposure: {recommended_exposure*100:.0f}%")
-                    print(f"      📈 Strategy: {regime_strategy}")
-                    
-                    # Scale the entire deployable capital pool before ANY allocation runs
-                    original_total = total_available
-                    total_available = total_available * recommended_exposure
-                    cash_reserve = original_total - total_available
-                    
-                    if market_regime == 'BEARISH':
-                        print(f"      ⚠️ DEFENSIVE MODE: Deploying only {recommended_exposure*100:.0f}% of capital")
-                        print(f"         Deploying: ₹{total_available:,.0f}")
-                        print(f"         Cash Reserve: ₹{cash_reserve:,.0f} (safety buffer)")
-                    elif market_regime == 'ROTATION':
-                        print(f"      🔄 SELECTIVE MODE: Deploying {recommended_exposure*100:.0f}% of capital")
-                        print(f"         Deploying: ₹{total_available:,.0f}")
-                        print(f"         Cash Reserve: ₹{cash_reserve:,.0f} (opportunity fund)")
-                    elif market_regime == 'BULLISH':
-                        print(f"      🚀 AGGRESSIVE MODE: Full deployment recommended")
-                    else:  # NEUTRAL
-                        print(f"      ⚖️ BALANCED MODE: Deploying {recommended_exposure*100:.0f}% of capital")
-                        print(f"         Deploying: ₹{total_available:,.0f}")
-                        print(f"         Cash Reserve: ₹{cash_reserve:,.0f}")
-                    
-                    regime_adjustment = {
-                        'market_regime': market_regime,
-                        'recommended_exposure': recommended_exposure,
-                        'original_capital': original_total,
-                        'adjusted_capital': total_available,
-                        'cash_reserve': cash_reserve,
-                        'regime_strategy': regime_strategy
-                    }
-                except Exception as e:
-                    print(f"      ⚠️ Market regime detection skipped: {e}")
-                    regime_adjustment = {'market_regime': 'NEUTRAL', 'recommended_exposure': 1.0}
-                
                 # [RANK] UNIFIED RANKING-BASED ALLOCATION (No 80/20 split)
                 # Combine ALL opportunities (existing INCREASE + new BUY) into ONE ranked list
                 print(f"\n   [RANK] UNIFIED RANKING-BASED CAPITAL ALLOCATION:")
@@ -6303,20 +6231,11 @@ class EnhancedTop200StockAnalyzer:
                         
                         # 🚀 UPDATED: Include ALL holdings for analysis (even mediocre ones for potential SWAP)
                         # We used to filter by rank, but now we let the Unified Allocation logic decide.
+                        # [RT-08 FIX] Only allow INCREASE opportunity if not at meaningful loss (unless ML=STRONG_BUY)
                         _profit_for_increase = float(row.get('current_profit_pct', 0) or 0)
                         _ml_for_increase = str(row.get('ml_signal', ''))
-                        # [G-11 FIX] Graduated loss scale replaces binary RT-08 -2% cliff
-                        # All holdings enter opportunity list (needed for SWAP analysis); investment is scaled
-                        if _profit_for_increase >= 0 or _ml_for_increase == 'STRONG_BUY':
-                            _increase_scale = 1.0   # In profit or ML=STRONG_BUY: full INCREASE
-                        elif _profit_for_increase >= -0.005:
-                            _increase_scale = 0.7   # Slight loss (0% to -0.5%): 70% of max additional
-                        elif _profit_for_increase >= -0.01:
-                            _increase_scale = 0.4   # Moderate loss (-0.5% to -1%): 40% of max additional
-                        else:
-                            _increase_scale = 0.0   # Deep loss (>-1%): no new capital; stays in list for SWAP
-                        is_top_performer = True  # [G-11 FIX] always enter block — investment scaled by _increase_scale
-
+                        is_top_performer = (_profit_for_increase >= -0.02) or (_ml_for_increase == 'STRONG_BUY')
+                        
                         if is_top_performer:
                             current_value = row['current_value']
                             market_cap = row.get('market_cap', 0)
@@ -6336,11 +6255,8 @@ class EnhancedTop200StockAnalyzer:
                                 max_additional = max(0, extended_cap - current_value)
                             else:
                                 max_additional = max(0, max_allocation_per_stock - current_value)
-
-                            # [G-07 FIX] Position-maturity guard: if already >12% of portfolio, block INCREASE
-                            if total_target_portfolio > 0 and (current_value / total_target_portfolio) >= 0.12:
-                                max_additional = 0  # [G-07 FIX] Mature position — no fresh INCREASE; stays in list for SWAP
-                            # always add for SWAP analysis (weak/mediocre holdings need to appear here)
+                            
+                            # allow all holdings to be added (for SWAP analysis), even if fully allocated
                             if True: 
                                 # [FIX-SCORE] allocation_df does not carry final_blended_score (only in results_df).
                                 # Use overall_score (the capped 100-pt score written to allocation_df) as the
@@ -6355,7 +6271,7 @@ class EnhancedTop200StockAnalyzer:
                                     'score': _opp_score,
                                     'rank': rank,
                                     'current_value': current_value,
-                                    'max_investment': max(0, max_additional * _increase_scale),  # [G-11 FIX] graduated loss scale
+                                    'max_investment': max_additional,
                                     'current_price': row['current_price'],
                                     'sector': row.get('sector', 'Unknown'),
                                     'market_cap_category': cap_category,
@@ -6471,7 +6387,6 @@ class EnhancedTop200StockAnalyzer:
                         })
                 
                 # Add new opportunities to the unified list
-                action_rec = ''  # [G-01 FIX] reset — do not inherit stale value from pre-breakout loop above
                 for _, analyzed_stock in new_opportunities_candidates.iterrows():
                     symbol = str(analyzed_stock.get('symbol', '')).upper()
                     
@@ -6550,7 +6465,6 @@ class EnhancedTop200StockAnalyzer:
                     print(f"      [CUT] CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
                     wh['recommendation'] = "SELL (WEAK)"
                     wh['action_comment'] = "Score < 50: Fundamental momentum lost"
-                    wh['priority_sell'] = True  # [G-22 FIX] prevent main allocation loop from funding score<50 stocks
                 
                 # 2. Identify "Mediocre" Holdings (Score 50-70) - SWAP CANDIDATES
                 mediocre_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and 50 <= op['score'] < 70]
@@ -6607,7 +6521,7 @@ class EnhancedTop200StockAnalyzer:
                 print(f"\n   💰 Allocating ₹{total_available:,.0f} across ranked opportunities...")
                 
                 remaining_budget = total_available
-                sector_allocation = {}  # [G-05 FIX] Track sector diversification — moved BEFORE SWAP steps so SWAP-funded stocks count toward the 10-stock sector cap
+                sector_allocation = {}  # Track sector diversification
                 increase_count = 0
                 buy_count = 0
                 total_allocated = 0
@@ -6640,11 +6554,6 @@ class EnhancedTop200StockAnalyzer:
                         # 💰 RECYCLE CAPITAL back to budget
                         remaining_budget += current_val
                         print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f}")
-                        # [G-14 FIX] Free the sector slot occupied by the SWAP source so the target
-                        # stock (typically a different sector) isn't penalised by source sector cap
-                        _sw1_sector = opportunity.get('sector', '')
-                        if _sw1_sector and _sw1_sector in sector_allocation:
-                            sector_allocation[_sw1_sector] = max(0, sector_allocation[_sw1_sector] - 1)
                         with open("critical_debug.txt", "a", encoding='utf-8') as f: 
                             f.write(f"{opportunity['symbol']} Recycled {current_val} -> New Budget {remaining_budget}\n")
                 
@@ -6659,15 +6568,10 @@ class EnhancedTop200StockAnalyzer:
                         # Cap at 40% of total budget OR recycled amount, whichever is HIGHER for high-ROI swaps
                         roi_score = opportunity.get('score', 0)
                         max_swap_allocation = total_available * 0.40
-                        # [G-06 FIX] Always cap SWAP at extended_cap (7.5% of portfolio) even for high-ROI scores
-                        # Previously roi_score>=85 was uncapped: final_cap = swap_source_value (no ceiling)
-                        market_cap = opportunity.get('market_cap', 0)
-                        _, max_allocation_pct = self.classify_market_cap(market_cap)
-                        extended_cap = (current_portfolio_value + total_available) * max_allocation_pct * 1.5
                         
                         if roi_score >= 85:
-                            final_cap = min(swap_source_value, extended_cap)  # [G-06 FIX] capped
-                            cap_reason = f"Very High ROI (Score {roi_score:.1f}, capped at {extended_cap:,.0f})"
+                            final_cap = swap_source_value  # Allow full recycled amount for very high ROI
+                            cap_reason = f"Very High ROI (Score {roi_score:.1f})"
                         else:
                             # For lower scores, use min of recycled amount and 40% cap
                             final_cap = min(swap_source_value, max_swap_allocation) if swap_source_value > 0 else max_swap_allocation
@@ -6677,9 +6581,6 @@ class EnhancedTop200StockAnalyzer:
                         
                         if optimal_investment >= 3000:
                             current_price = float(opportunity['current_price'])
-                            if current_price <= 0:  # [G-19 FIX] guard against ZeroDivisionError for halted/delisted stocks
-                                print(f"      ⚠️ SWAP SKIP {symbol}: current_price=0 (halted/delisted)")
-                                continue
                             shares_to_buy = int(optimal_investment / current_price)
                             actual_investment = shares_to_buy * current_price
                             
@@ -6760,9 +6661,6 @@ class EnhancedTop200StockAnalyzer:
                     
                     # Calculate whole shares only
                     current_price = float(opportunity['current_price'])
-                    if current_price <= 0:  # [G-19 FIX] guard against ZeroDivisionError for halted/delisted stocks
-                        print(f"      ⚠️ SKIP {opportunity['symbol']}: current_price=0 (halted/delisted)")
-                        continue
                     shares_to_buy = int(optimal_investment / current_price)
                     actual_investment = shares_to_buy * current_price
                     
@@ -6771,9 +6669,8 @@ class EnhancedTop200StockAnalyzer:
 
                     # Final validation
                     if actual_investment < 3000 or shares_to_buy < 1:
-                        opportunity['funded'] = True  # [G-10 FIX] prevent re-processing; rounding made investment too small
                         continue
-
+                    
                     # ALLOCATE FUNDS
                     if opportunity['type'] == 'INCREASE':
                         # [FIX] Use symbol-based lookup instead of stale index.
@@ -6866,30 +6763,10 @@ class EnhancedTop200StockAnalyzer:
                 print(f"      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 print(f"      📊 Total available: ₹{total_available:,.0f}")
                 print(f"      ✅ Total allocated: ₹{total_allocated:,.0f}")
-                # [G-21 FIX] Count actual action_recommendation=='INCREASE' rows (vs loop counter that only counts funded)
-                _actual_inc_count = int((allocation_df['action_recommendation'] == 'INCREASE').sum()) if 'action_recommendation' in allocation_df.columns else increase_count
-                print(f"      🔼 INCREASE actions: {_actual_inc_count} (funded: {increase_count})")
+                print(f"      🔼 INCREASE actions: {increase_count}")
                 print(f"      🆕 BUY actions: {buy_count}")
                 print(f"      💵 Remaining funds: ₹{remaining_budget:,.0f}")
-
-                # [G-09 FIX] Print unfunded BUY/PRE-BREAKOUT candidates with reason
-                _unfunded = [
-                    op for op in all_opportunities
-                    if not op.get('funded') and not op.get('priority_sell')
-                    and op.get('type') in ('BUY', 'PRE-BREAKOUT')
-                    and op.get('score', 0) >= 60
-                ]
-                if _unfunded:
-                    _unfunded_sorted = sorted(_unfunded, key=lambda x: x['score'], reverse=True)[:8]
-                    print(f"\n   📋 UNFUNDED CANDIDATES ({len(_unfunded)} total — showing top {len(_unfunded_sorted)}):")
-                    for _uop in _unfunded_sorted:
-                        _ureason = 'Budget exhausted' if remaining_budget < 3000 else f"Sector cap ({_uop.get('sector','')})"
-                        print(f"      ⏭ {_uop['symbol']}: Score={_uop['score']:.1f} | Reason: {_ureason}")
-
-                # [G-20 FIX] Cast suggested_quantity back to int after pd.concat (NaN coerces int→float64)
-                if 'suggested_quantity' in allocation_df.columns:
-                    allocation_df['suggested_quantity'] = pd.to_numeric(allocation_df['suggested_quantity'], errors='coerce').fillna(0).astype(int)
-
+                
                 # Show sector diversification
                 if sector_allocation:
                     print(f"\n   📊 Sector Diversification:")
@@ -7200,9 +7077,53 @@ class EnhancedTop200StockAnalyzer:
                      with open("critical_debug.txt", "a", encoding='utf-8') as f: f.write(f"LATE_CHECK: NMDC Investment={row_debug['investment_amount']} Action={row_debug['action_recommendation']}\n")
 
             # ═══════════════════════════════════════════════════════════════════════
-            # [G-02 FIX] Regime was already detected and applied BEFORE allocation ran.
-            # This section previously modified target_amount AFTER all capital was committed — now a no-op.
-            print(f"\n   🌐 Market Regime already applied pre-allocation: {regime_adjustment.get('market_regime', 'NEUTRAL')} | Exposure: {regime_adjustment.get('recommended_exposure', 1.0)*100:.0f}%")
+            print(f"\n   🌐 DETECTING MARKET REGIME (Enhancement #2)...")
+            
+            try:
+                regime_info = self.detect_market_regime(results_df)
+                market_regime = regime_info['regime']
+                recommended_exposure = regime_info['recommended_exposure']
+                regime_strategy = regime_info['strategy']
+                
+                print(f"      📊 Market Regime: {market_regime}")
+                print(f"      💰 Recommended Exposure: {recommended_exposure*100:.0f}%")
+                print(f"      📈 Strategy: {regime_strategy}")
+                
+                # Adjust capital allocation based on market regime
+                original_target = target_amount
+                adjusted_target = target_amount * recommended_exposure
+                cash_reserve = target_amount - adjusted_target
+                
+                if market_regime == 'BEARISH':
+                    print(f"      ⚠️ DEFENSIVE MODE: Deploying only {recommended_exposure*100:.0f}% of capital")
+                    print(f"         Deploying: ₹{adjusted_target:,.0f}")
+                    print(f"         Cash Reserve: ₹{cash_reserve:,.0f} (safety buffer)")
+                    target_amount = adjusted_target
+                elif market_regime == 'ROTATION':
+                    print(f"      🔄 SELECTIVE MODE: Deploying {recommended_exposure*100:.0f}% of capital")
+                    print(f"         Deploying: ₹{adjusted_target:,.0f}")
+                    print(f"         Cash Reserve: ₹{cash_reserve:,.0f} (opportunity fund)")
+                    target_amount = adjusted_target
+                elif market_regime == 'BULLISH':
+                    print(f"      🚀 AGGRESSIVE MODE: Full deployment recommended")
+                else:  # NEUTRAL
+                    print(f"      ⚖️ BALANCED MODE: Deploying {recommended_exposure*100:.0f}% of capital")
+                    print(f"         Deploying: ₹{adjusted_target:,.0f}")
+                    print(f"         Cash Reserve: ₹{cash_reserve:,.0f}")
+                    target_amount = adjusted_target
+                
+                # Store regime info
+                regime_adjustment = {
+                    'market_regime': market_regime,
+                    'recommended_exposure': recommended_exposure,
+                    'original_capital': original_target,
+                    'adjusted_capital': adjusted_target,
+                    'cash_reserve': cash_reserve,
+                    'regime_strategy': regime_strategy
+                }
+            except Exception as e:
+                print(f"      ⚠️ Market regime detection skipped: {e}")
+                regime_adjustment = {'market_regime': 'NEUTRAL', 'recommended_exposure': 0.85}
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🎯 ENHANCEMENT #3: CONFIDENCE BANDS
@@ -7242,18 +7163,22 @@ class EnhancedTop200StockAnalyzer:
                         cautious_count += 1
                         if regime_adjustment.get('market_regime') in ['BEARISH', 'ROTATION']:
                             if current_action == 'BUY' and not row.get('is_current_holding', False):
-                                # [G-23 FIX] Removed already_allocated guard — confidence beats pre-allocation
-                                allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
-                                allocation_df.at[idx, 'skip_reason'] = f"Low confidence (Score: {score:.1f}) in {regime_adjustment.get('market_regime')} market"
-                                confidence_filtered += 1
+                                # 🔧 FIX: Don't skip if funds were already allocated
+                                already_allocated = allocation_df.at[idx, 'investment_amount'] > 0
+                                if not already_allocated:
+                                    allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
+                                    allocation_df.at[idx, 'skip_reason'] = f"Low confidence (Score: {score:.1f}) in {regime_adjustment.get('market_regime')} market"
+                                    confidence_filtered += 1
                     
                     # AVOID: Skip new positions
                     elif confidence_level == 'AVOID':
                         if current_action == 'BUY' and not row.get('is_current_holding', False):
-                            # [G-23 FIX] Removed already_allocated guard — confidence beats pre-allocation
-                            allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
-                            allocation_df.at[idx, 'skip_reason'] = f"Below confidence threshold (Score: {score:.1f})"
-                            confidence_filtered += 1
+                            # 🔧 FIX: Don't skip if funds were already allocated
+                            already_allocated = allocation_df.at[idx, 'investment_amount'] > 0
+                            if not already_allocated:
+                                allocation_df.at[idx, 'action_recommendation'] = 'SKIP'
+                                allocation_df.at[idx, 'skip_reason'] = f"Below confidence threshold (Score: {score:.1f})"
+                                confidence_filtered += 1
                     
                     if risk_warning:
                         allocation_df.at[idx, 'risk_warning'] = risk_warning
@@ -7409,7 +7334,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 self.recommendation_history.record_recommendation(
                     symbol=row['symbol'],
-                    action=row.get('action_recommendation', row['action_type']),  # [G-24 FIX] use final post-DQ action, not stale action_type
+                    action=row['action_type'],
                     score=score_val,
                     price=price_val,
                     fundamentals=fundamentals,
@@ -8361,8 +8286,6 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   🔧 [DQ-01] Resolving PRE-BREAKOUT/INCREASE contradictions...")
                     _rsi_dq  = 'enhanced_rsi_14' if 'enhanced_rsi_14' in alloc_df_simple.columns else 'RSI'
                     _dq_count = 0
-                    # [G-08 FIX] Snapshot allocated total before DQ-01 converts INCREASE→HOLD (used by G-04 resync below)
-                    _pre_dq_allocated = pd.to_numeric(alloc_df_simple['investment_amount'], errors='coerce').fillna(0).sum() if 'investment_amount' in alloc_df_simple.columns else 0.0
                     if _ml_cp and _own_cp and _pnl_cp:
                         for _idxdq, _rowdq in alloc_df_simple.iterrows():
                             _act_dq     = str(_rowdq.get('action_recommendation', ''))
@@ -8414,26 +8337,6 @@ Trading Plan ({risk_tolerance} RISK):
                     alloc_df_simple.loc[skip_mask, 'investment_amount'] = 0
                     alloc_df_simple.loc[skip_mask, 'suggested_quantity'] = 0
                     print(f"      ✅ Zeroed ₹0 for {skip_mask.sum()} SKIP stocks [GA-01]")
-
-                    # [G-15 FIX] Zero emoji-HOLD: conflict emojis on HOLD/WAIT/KEEP = decorative, not fundable
-                    # ⚠️ HOLD, 🟡 HOLD etc. must get ₹0 just like plain HOLD
-                    _emoji_hold_kw = ['HOLD', 'WAIT', 'KEEP']
-                    _emoji_hold_mask = has_emoji & alloc_df_simple['action_recommendation'].astype(str).apply(
-                        lambda x: any(kw in x.upper() for kw in _emoji_hold_kw)
-                    )
-                    alloc_df_simple.loc[_emoji_hold_mask, 'investment_amount'] = 0
-                    alloc_df_simple.loc[_emoji_hold_mask, 'suggested_quantity'] = 0
-                    if _emoji_hold_mask.sum() > 0:
-                        print(f"      ✅ [G-15] Zeroed ₹0 for {_emoji_hold_mask.sum()} emoji-HOLD stocks")
-
-                    # [G-04 FIX] Resync post-DQ total_allocated: GA-01 has now zeroed DQ-01-converted HOLDs
-                    if 'investment_amount' in alloc_df_simple.columns:
-                        _post_dq_allocated = pd.to_numeric(alloc_df_simple['investment_amount'], errors='coerce').fillna(0).sum()
-                        _freed = _pre_dq_allocated - _post_dq_allocated
-                        if _freed > 0:
-                            print(f"      📊 [G-04] DQ-01 freed ₹{_freed:,.0f} from {_dq_count} INCREASE→HOLD downgrades | Active: ₹{_post_dq_allocated:,.0f}")
-                        else:
-                            print(f"      📊 [G-04] Post-DQ allocation: ₹{_post_dq_allocated:,.0f} (no budget freed by DQ-01)")
 
                     # 🔧 FAILSAFE RE-CALCULATION REMOVED
                     # This block was overwriting carefully calculated swap amounts with crude weight-based values.
@@ -11176,7 +11079,7 @@ def main():
             <div class="card"><div class="card-title">Average Score</div><div class="card-value">""" + f"{avg_score:.1f}" + """</div><div class="card-subtitle">Out of 100</div></div>
             <div class="card"><div class="card-title">Capital Needed</div><div class="card-value">Rs """ + f"{total_investment:,.0f}" + """</div><div class="card-subtitle">For BUY stocks</div></div>
             <div class="card"><div class="card-title">Profitable</div><div class="card-value">""" + str(profitable) + """</div><div class="card-subtitle">""" + str(losses) + """ in loss</div></div>
-            <div class="card"><div class="card-title">Avg Profit</div><div class="card-value" style="color: """ + ('#51cf66' if avg_profit > 0 else '#ff6b6b') + """">""" + f"{avg_profit * 100:.1f}%" + """</div><div class="card-subtitle">Across portfolio</div></div>
+            <div class="card"><div class="card-title">Avg Profit</div><div class="card-value" style="color: """ + ('#51cf66' if avg_profit > 0 else '#ff6b6b') + """">""" + f"{avg_profit:.1f}%" + """</div><div class="card-subtitle">Across portfolio</div></div>
         </div>
         <div class="charts">
             <div class="chart-card"><h3>Action Breakdown</h3><div class="chart-container"><canvas id="chart1"></canvas></div></div>
@@ -11221,7 +11124,7 @@ def main():
             const pClass = s['MY_PROFIT_%'] > 0 ? 'profit-positive' : 'profit-negative';
             const pSign = s['MY_PROFIT_%'] > 0 ? '+' : '';
             const badgeClass = s.ACTION === 'SELL' ? 'badge-sell' : s.ACTION === 'BUY' ? 'badge-buy' : 'badge-keep';
-            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_Rs'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${(s['MY_PROFIT_%']*100).toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
+            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${s.ACTION}</span></div><div class="stock-details">${s['INVEST_Rs'] > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${s['INVEST_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${s['MY_VALUE_Rs'].toLocaleString()}</span></div>` : ''}${s['MY_VALUE_Rs'] > 0 ? `<div><span class="detail-label">Profit/Loss:</span> <span class="detail-value ${pClass}">${pSign}${s['MY_PROFIT_%'].toFixed(2)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${s.SCORE.toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${s.PRICE.toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE}</span></div></div>${s.WHY ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.WHY}</div>` : ''}</div>`;
         }
         function showList(id, stocks) {
             const html = stocks.length === 0 ? '<div class="empty">No stocks in this category</div>' : '<div class="stock-list">' + stocks.map(s => createStockCard(s)).join('') + '</div>';
@@ -11525,12 +11428,13 @@ def main():
                     print(f"{'='*70}")
                     _result = subprocess.run(
                         [_sys.executable, _dash_script],
-                        capture_output=True, text=True, timeout=60
+                        capture_output=True, text=True, timeout=120
                     )
                     if _result.returncode == 0:
                         print(f"[GUIDE] ✅ portfolio_guide.html generated and opened in browser!")
                     else:
-                        print(f"[GUIDE] ⚠️  Guide generation skipped (non-critical): {_result.stderr[:120]}")
+                        _err_msg = (_result.stderr or _result.stdout or "unknown error").strip()
+                        print(f"[GUIDE] ⚠️  Guide generation skipped (non-critical): {_err_msg[:300]}")
                 else:
                     print(f"[GUIDE] portfolio_dashboard.py not found — skipping guide generation")
             except Exception as _dash_err:
