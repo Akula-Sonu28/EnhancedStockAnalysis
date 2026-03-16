@@ -279,7 +279,7 @@ class EarlyBreakoutDetector:
             
             # Signal 6: Distance from moving averages
             ma_20 = df['Close'].tail(20).mean()
-            ma_20 = ma_20 if ma_20 != 0 else 1.0
+            ma_20 = ma_20 if pd.notna(ma_20) and ma_20 != 0 else 1.0
             distance_from_ma = ((current_price - ma_20) / ma_20) * 100
             if distance_from_ma > 15:
                 signals.append(f"📏 Extended: {distance_from_ma:.1f}% above 20-MA")

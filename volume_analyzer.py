@@ -351,11 +351,13 @@ class VolumeAnalyzer:
                     break
             
             # Value Area High and Low
-            vah = max([bin.right for bin in value_area_bins])
-            val = min([bin.left for bin in value_area_bins])
-            
-            # Current price in value area?
             current_price = data['Close'].iloc[-1]
+            if not value_area_bins:
+                vah = float(current_price)
+                val = float(current_price)
+            else:
+                vah = max([bin.right for bin in value_area_bins])
+                val = min([bin.left for bin in value_area_bins])
             price_in_va = val <= current_price <= vah
             
             # Profile shape analysis

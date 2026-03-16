@@ -188,7 +188,7 @@ class HybridOptimizedScoringEngine:
             momentum_components.append(price_1m_score)
             
             # 3. Price vs Moving Average (35 points)
-            price_vs_sma = ((current_price - sma_50) / sma_50) * 100 if sma_50 != 0 else 0
+            price_vs_sma = ((current_price - sma_50) / sma_50) * 100 if pd.notna(sma_50) and sma_50 != 0 else 0
             if price_vs_sma > 10:
                 trend_score = 35
             elif price_vs_sma > 5:

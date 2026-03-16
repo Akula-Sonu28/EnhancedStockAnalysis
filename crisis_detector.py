@@ -336,7 +336,7 @@ class CrisisDetector:
                 if len(hist) >= 2:
                     today     = float(hist['Close'].iloc[-1])
                     yesterday = float(hist['Close'].iloc[-2])
-                    pct = (today - yesterday) / yesterday * 100 if yesterday != 0 else 0.0
+                    pct = (today - yesterday) / yesterday * 100 if pd.notna(yesterday) and yesterday != 0 else 0.0
                     signals[name] = {'value': round(today, 4), 'change_pct': round(pct, 3)}
                 else:
                     signals[name] = {'value': 0.0, 'change_pct': 0.0}

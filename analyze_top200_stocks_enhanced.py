@@ -2410,8 +2410,8 @@ class EnhancedTop200StockAnalyzer:
             # GAP-1 FIX: Sentiment + Volume adjustments were computed but never applied — now wired in.
             _sent_adj_raw = _nv(stock_data.get('sentiment_adjustment_amount'), 0)
             _vol_adj_raw  = _nv(stock_data.get('volume_adjustment_amount'), 0)
-            _sent_adj_raw = max(-3.0, min(3.0, _sent_adj_raw))   # reduced cap ±3 (proxy signal)
-            _vol_adj_raw  = max(-3.0, min(3.0, _vol_adj_raw))    # reduced cap ±3 (OHLCV proxy)
+            _sent_adj_raw = max(-5.0, min(5.0, _sent_adj_raw))   # cap ±5 (proxy signal)
+            _vol_adj_raw  = max(-5.0, min(5.0, _vol_adj_raw))    # cap ±5 (OHLCV proxy)
             _sent_conf = _nv(stock_data.get('sentiment_confidence'), 50)
             _vol_conf  = _nv(stock_data.get('volume_confidence'), 50)
             _sent_adj = _sent_adj_raw * min(1.0, _sent_conf / 70.0)
@@ -4767,7 +4767,8 @@ class EnhancedTop200StockAnalyzer:
                         # divergence from FBS — Top Picks ranking and allocation sorting
                         # were based on a different score than the one driving recommendations.
                         improved_score = row.get('final_blended_score', row.get('improved_overall_score', 50))
-                        overall_score = improved_score  # V4.0 hybrid score as primary
+                        improved_score = improved_score if pd.notna(improved_score) else 50
+                        overall_score = improved_score
                         underval_score = row.get('undervaluation_score', 50)
                         
                         # Sharpe ratio proxy (using score as return proxy)
@@ -5453,6 +5454,12 @@ class EnhancedTop200StockAnalyzer:
                             # ✅ ENHANCED: Additional retail investor columns
                             'improved_overall_score': stock_data.get('improved_overall_score', stock_data.get('risk_adjusted_score', 0)),
                             'pe_ratio': stock_data.get('pe_ratio', None),
+                            'pb_ratio': stock_data.get('pb_ratio', None),
+                            'price_change_1m': stock_data.get('price_change_1m', None),
+                            'price_change_3m': stock_data.get('price_change_3m', None),
+                            'beta': stock_data.get('beta', None),
+                            'dividend_yield': stock_data.get('dividend_yield', None),
+                            'optimized_score': stock_data.get('optimized_score', stock_data.get('overall_score_with_value', None)),
                             'roe': stock_data.get('roe', None),
                             'debt_to_equity': stock_data.get('debt_to_equity', None),
                             '52_week_high': stock_data.get('52_week_high', None),
@@ -5479,10 +5486,10 @@ class EnhancedTop200StockAnalyzer:
                         # Holdings not in analysis - default to HOLD
                         allocation_data.append({
                             'symbol': symbol,
-                            'company_name': symbol,  # Use symbol as company name fallback
-                            'sector': 'Unknown',  # No analysis data available
+                            'company_name': symbol,
+                            'sector': 'Unknown',
                             'current_value': holding['Cur. val'],
-                            'current_quantity': holding.get('Qty.', 0),  # Fixed column name
+                            'current_quantity': holding.get('Qty.', 0),
                             'current_price': holding.get('LTP', 0),
                             'avg_cost': holding.get('Avg. cost', 0),
                             'holding_percentage': holding_percentage,
@@ -5495,8 +5502,7 @@ class EnhancedTop200StockAnalyzer:
                             'priority': 'LOW',
                             'is_current_holding': True,
                             'volatility_6m': 0,
-                            'market_cap': 0,  # No market cap data available for unanalyzed stocks
-                            # DEFAULT PREDICTIVE FEATURES
+                            'market_cap': 0,
                             'momentum_score': 0,
                             'momentum_flags': 'NOT ANALYZED',
                             'breakout_patterns': 'NOT ANALYZED',
@@ -5504,7 +5510,39 @@ class EnhancedTop200StockAnalyzer:
                             'profit_booking_action': 'HOLD (NOT ANALYZED)',
                             'profit_booking_pct': 0,
                             'profit_booking_reason': 'Stock not in analysis scope',
-                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) if holding.get('Invested', 0) > 0 else 0
+                            'current_profit_pct': ((holding['Cur. val'] - holding.get('Invested', 0)) / max(holding.get('Invested', 1), 1)) if holding.get('Invested', 0) > 0 else 0,
+                            'pre_breakout_detected': False,
+                            'breakout_probability': 0,
+                            'pre_breakout_signals': 'NOT ANALYZED',
+                            'exhaustion_detected': False,
+                            'exhaustion_score': 0,
+                            'exit_signals': 'NOT ANALYZED',
+                            'improved_overall_score': 0,
+                            'pe_ratio': None,
+                            'pb_ratio': None,
+                            'price_change_1m': None,
+                            'price_change_3m': None,
+                            'beta': None,
+                            'dividend_yield': None,
+                            'optimized_score': None,
+                            'roe': None,
+                            'debt_to_equity': None,
+                            '52_week_high': None,
+                            '52_week_low': None,
+                            'enhanced_price_change_20d': None,
+                            'support_level': None,
+                            'resistance_level': None,
+                            'enhanced_rsi_14': None,
+                            'volatility': None,
+                            'improved_fundamental_quality': None,
+                            'improved_momentum_technical': None,
+                            'ml_signal': 'NOT ANALYZED',
+                            'ml_confidence': 0,
+                            'ml_score_adjustment': 0,
+                            'sector_performance_adj': 0,
+                            'sentiment_score_contribution': 0,
+                            'volume_score_contribution': 0,
+                            'pattern_score_contribution': 0,
                         })
             
             print(f"   🔧 CHECKPOINT 3: Processed {len(allocation_data)} current holdings")
@@ -5642,11 +5680,10 @@ class EnhancedTop200StockAnalyzer:
                         'current_quantity': 0,
                         'current_price': stock.get('current_price', 0),
                         'avg_cost': 0,
-                        'avg_cost': 0,
                         # ✅ UPDATED: Robust Score fallback (Hybrid V4 -> Overall -> Improved -> Risk-Adj)
                         'overall_score': stock.get('final_blended_score', stock.get('improved_score_used', 0)),
-                        'risk_adjusted_score': stock['risk_adjusted_score'],
-                        'undervaluation_score': stock['undervaluation_score'],
+                        'risk_adjusted_score': stock.get('risk_adjusted_score', 0),
+                        'undervaluation_score': stock.get('undervaluation_score', 50),
                         'risk_category': stock.get('risk_category', 'MODERATE'),
                         'recommendation': stock.get('final_recommendation', ''),
                         'action_type': action_type,
@@ -5671,8 +5708,14 @@ class EnhancedTop200StockAnalyzer:
                         'exhaustion_score': 0,
                         'exit_signals': 'NONE',
                         # ✅ ENHANCED: Additional retail investor columns
-                        'improved_overall_score': stock.get('improved_overall_score', stock['risk_adjusted_score']),
+                        'improved_overall_score': stock.get('improved_overall_score', stock.get('risk_adjusted_score', 0)),
                         'pe_ratio': stock.get('pe_ratio', None),
+                        'pb_ratio': stock.get('pb_ratio', None),
+                        'price_change_1m': stock.get('price_change_1m', None),
+                        'price_change_3m': stock.get('price_change_3m', None),
+                        'beta': stock.get('beta', None),
+                        'dividend_yield': stock.get('dividend_yield', None),
+                        'optimized_score': stock.get('optimized_score', stock.get('overall_score_with_value', None)),
                         'roe': stock.get('roe', None),
                         'debt_to_equity': stock.get('debt_to_equity', None),
                         '52_week_high': stock.get('52_week_high', None),
@@ -6029,18 +6072,17 @@ class EnhancedTop200StockAnalyzer:
             
             # 🎯 VALUE INVESTING: 40/30/20/10 STRATEGY CLASSIFICATION
             print(f"\n   🎯 Applying VALUE INVESTING Strategy (40/30/20/10)...")
-            print(f"      � CORE_VALUE (40%): Deep undervalued stocks (P/E <12, P/B <2)")
-            print(f"      🚀 CORE_MOMENTUM (30%): Undervalued + trending (P/E <18, momentum)")
+            print(f"      💎 CORE_VALUE (40%): Deep undervalued stocks (P/E <20, P/B <3.5)")
+            print(f"      🚀 CORE_MOMENTUM (30%): Undervalued + trending (P/E <25, relative strength)")
             print(f"      🛡️  OPPORTUNISTIC (20%): Defensive/hedging (low beta, defensive sectors)")
-            print(f"      ⚡ SPECULATIVE (10%): High risk/high reward (volatility >35%)")
+            print(f"      ⚡ SPECULATIVE (10%): High risk/high reward (volatility >45%)")
             
             allocation_df['stock_classification'] = 'CORE_VALUE'  # Default
             
             # Classify based on VALUE INVESTING characteristics
-            # Priority: OPPORTUNISTIC > CORE_VALUE > CORE_MOMENTUM > SPECULATIVE
+            # Priority: OPPORTUNISTIC > CORE_MOMENTUM > CORE_VALUE > SPECULATIVE
             for idx, row in allocation_df.iterrows():
-                # Use optimized_score (VALUE-based, 0-100) not risk_adjusted_score
-                score = row.get('optimized_score', row.get('overall_score_with_value', 50))
+                score = row.get('risk_adjusted_score', row.get('overall_score', 50))
                 score = score if pd.notna(score) else 50
                 
                 # Handle None values with safe defaults
@@ -6069,33 +6111,33 @@ class EnhancedTop200StockAnalyzer:
                 underval_score = underval_score if pd.notna(underval_score) else 50
                 
                 # 1. OPPORTUNISTIC (20%): Defensive/hedging stocks - FIRST PRIORITY
+                div_yield = row.get('dividend_yield', 0)
+                div_yield = div_yield if pd.notna(div_yield) else 0
                 if sector in ['Consumer Defensive', 'Healthcare', 'Utilities', 'Consumer Staples']:
                     allocation_df.at[idx, 'stock_classification'] = 'OPPORTUNISTIC'
-                elif beta < 0.85 and volatility < 22:  # Low correlation with market
+                elif beta < 0.3 and volatility < 15:
                     allocation_df.at[idx, 'stock_classification'] = 'OPPORTUNISTIC'
                 
-                # 2. CORE_VALUE (40%): Deep undervalued stocks - SECOND PRIORITY
-                # Buy LOW: P/E <15, P/B <2.5, High undervaluation score
-                elif underval_score >= 80 and score >= 55:  # Strong undervaluation
-                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
-                elif pe_ratio < 12 and pb_ratio < 2.5:  # Very cheap fundamentals
-                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
-                elif pe_ratio < 15 and pb_ratio < 2.0 and score >= 60:  # Good value + quality
-                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
+                # 2. CORE_MOMENTUM (30%): Positive 3M momentum + reasonable valuation
+                elif price_change_3m > 5 and pe_ratio > 0 and pe_ratio < 30 and score >= 55:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
+                elif price_change_3m > 5 and underval_score >= 65:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
+                elif price_change_1m > 3 and score >= 65:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
                 
-                # 3. CORE_MOMENTUM (30%): Undervalued + trending - THIRD PRIORITY
-                # Buy low but MOVING: P/E <20, positive momentum
-                elif pe_ratio < 18 and price_change_3m > 5 and score >= 60:  # Undervalued + momentum
-                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
-                elif pe_ratio < 20 and price_change_1m > 3 and underval_score >= 70:  # Fair value + recent strength
-                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
-                elif price_change_3m > 10 and score >= 65:  # Strong momentum + quality
-                    allocation_df.at[idx, 'stock_classification'] = 'CORE_MOMENTUM'
+                # 3. CORE_VALUE (40%): Good fundamentals, flat/negative momentum
+                elif underval_score >= 80 and score >= 55:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
+                elif pe_ratio > 0 and pe_ratio < 20 and pb_ratio < 3.5:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
+                elif pe_ratio > 0 and pe_ratio < 25 and score >= 60:
+                    allocation_df.at[idx, 'stock_classification'] = 'CORE_VALUE'
                 
                 # 4. SPECULATIVE (10%): High risk/reward - LAST PRIORITY
-                elif volatility > 40 and score < 50:  # Very high volatility + weak
+                elif volatility > 45 and score < 40:
                     allocation_df.at[idx, 'stock_classification'] = 'SPECULATIVE'
-                elif pe_ratio > 30 or pe_ratio < 0:  # Very expensive or loss-making
+                elif pe_ratio > 50 or (pe_ratio < 0 and score < 45):
                     allocation_df.at[idx, 'stock_classification'] = 'SPECULATIVE'
                 
                 # 5. Default: Put in CORE categories based on score
@@ -6440,7 +6482,7 @@ class EnhancedTop200StockAnalyzer:
                                     'current_price': row['current_price'],
                                     'sector': row.get('sector', 'Unknown'),
                                     'market_cap_category': cap_category,
-                                    'stock_class': row.get('stock_classification', 'CORE'),
+                                    'stock_class': row.get('stock_classification', 'CORE_VALUE'),
                                     'is_existing_holding': True
                                 })
                 
@@ -6595,10 +6637,12 @@ class EnhancedTop200StockAnalyzer:
                         if roi_boost > 0:
                             print(f"         {roi_label}: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f})")
                         
+                        action_rec = str(analyzed_stock.get('action_recommendation', analyzed_stock.get('final_recommendation', 'BUY')))
+                        
                         all_opportunities.append({
                             'type': 'BUY',
                             'symbol': symbol,
-                            'score': adjusted_score,  # Use ROI-adjusted score
+                            'score': adjusted_score,
                             'base_score': base_score,
                             'roi_boost': roi_boost,
                             'roi_label': roi_label,
@@ -6612,7 +6656,7 @@ class EnhancedTop200StockAnalyzer:
                             'action_recommendation': action_rec,
                             'company_name': analyzed_stock.get('company_name', symbol),
                             'market_cap': market_cap,
-                            'rank': 0,  # New stocks don't have rank
+                            'rank': 0,
                             'breakout_probability': analyzed_stock.get('breakout_probability', 0)
                         })
                 
@@ -6770,7 +6814,7 @@ class EnhancedTop200StockAnalyzer:
                                     'keep_stock': True,
                                     'recommendation': 'BUY (SWAP)',
                                     'exit_reason': opportunity.get('roi_label', 'SWAP upgrade'),
-                                    'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC'
+                                    'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC'
                                 })
                                 
                                 # Check if already exists
@@ -6887,7 +6931,7 @@ class EnhancedTop200StockAnalyzer:
                             'is_current_holding': False,
                             'exit_reason': opportunity.get('roi_label', 'New opportunity - Quality stock not in portfolio'),
                             'exit_strategy': '🆕 NEW POSITION',
-                            'stock_classification': 'CORE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
+                            'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
                             'holdings_rank': 0,
                             'current_profit_pct': 0,
                             'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0
@@ -6945,7 +6989,7 @@ class EnhancedTop200StockAnalyzer:
             if not current_holdings_only.empty:
                 total_portfolio_value = current_holdings_only['current_value'].sum()
                 
-                core_value = current_holdings_only[current_holdings_only['stock_classification'] == 'CORE']['current_value'].sum()
+                core_value = current_holdings_only[current_holdings_only['stock_classification'].isin(['CORE', 'CORE_VALUE', 'CORE_MOMENTUM'])]['current_value'].sum()
                 opp_value = current_holdings_only[current_holdings_only['stock_classification'] == 'OPPORTUNISTIC']['current_value'].sum()
                 spec_value = current_holdings_only[current_holdings_only['stock_classification'] == 'SPECULATIVE']['current_value'].sum()
                 
@@ -6975,7 +7019,7 @@ class EnhancedTop200StockAnalyzer:
                 # 🔧 NEW: SECTOR CONCENTRATION CHECK (Max 50% in CORE 70%)
                 print(f"\n   🏢 SECTOR CONCENTRATION CHECK (Max 50% in CORE):")
                 
-                core_holdings = current_holdings_only[current_holdings_only['stock_classification'] == 'CORE']
+                core_holdings = current_holdings_only[current_holdings_only['stock_classification'].isin(['CORE', 'CORE_VALUE', 'CORE_MOMENTUM'])]
                 core_total_value = 0  # Initialize to avoid UnboundLocalError
                 sector_allocation = {}  # Initialize empty dict
                 if not core_holdings.empty:
@@ -8733,7 +8777,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.merge_range(f'E{row}:G{row}', 'RECOMMENDATIONS', metric_title_format)
         
         row += 1
-        total_stocks = len(df)
+        total_stocks = max(len(df), 1)
         buy_count = len(df[df['final_recommendation'].str.contains('BUY', na=False)])
         strong_buy_count = len(df[df['final_recommendation'].str.contains('STRONG BUY', na=False)])
         hold_count = len(df[df['final_recommendation'].str.contains('HOLD', na=False)])

@@ -487,24 +487,19 @@ class SentimentAnalyzer:
             confidence = 40
         
         # Calculate sentiment adjustment (±15 points based on sentiment)
-        if composite_score >= 75:
-            # Very positive sentiment
+        if composite_score >= 70:
             adjustment = 12 * (confidence / 100)
             reasons.append(f"Very positive sentiment (+{adjustment:.1f})")
-        elif composite_score >= 65:
-            # Positive sentiment
+        elif composite_score >= 58:
             adjustment = 8 * (confidence / 100)
             reasons.append(f"Positive sentiment (+{adjustment:.1f})")
-        elif composite_score >= 35:
-            # Neutral sentiment - small adjustment
+        elif composite_score >= 42:
             adjustment = 0
             reasons.append("Neutral sentiment (no adjustment)")
-        elif composite_score >= 25:
-            # Negative sentiment
+        elif composite_score >= 35:
             adjustment = -8 * (confidence / 100)
             reasons.append(f"Negative sentiment ({adjustment:.1f})")
         else:
-            # Very negative sentiment
             adjustment = -12 * (confidence / 100)
             reasons.append(f"Very negative sentiment ({adjustment:.1f})")
         

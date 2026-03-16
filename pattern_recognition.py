@@ -322,8 +322,10 @@ class PatternRecognizer:
             trough_prices = [lows.iloc[t] for t in recent_troughs]
             
             # Calculate slopes normalised by price level (% per step)
-            avg_peak = np.mean(peak_prices) if np.mean(peak_prices) != 0 else 1.0
-            avg_trough = np.mean(trough_prices) if np.mean(trough_prices) != 0 else 1.0
+            _mp = np.mean(peak_prices)
+            avg_peak = _mp if pd.notna(_mp) and _mp != 0 else 1.0
+            _mt = np.mean(trough_prices)
+            avg_trough = _mt if pd.notna(_mt) and _mt != 0 else 1.0
             peak_slope = ((peak_prices[-1] - peak_prices[0]) / len(recent_peaks)) / avg_peak
             trough_slope = ((trough_prices[-1] - trough_prices[0]) / len(recent_troughs)) / avg_trough
             

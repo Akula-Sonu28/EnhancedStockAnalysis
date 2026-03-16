@@ -119,7 +119,7 @@ def get_comprehensive_stock_data(symbol, bundle=None):
                 if pd.isna(d) or d == 0: return 0
                 return ((series.iloc[-1] - d) / d * 100)
             _vol_raw = hist['Close'].pct_change().std() * 100 * (252**0.5) if len(hist) > 1 else 0
-            _cummax = hist['Close'].cummax()
+            _cummax = hist['Close'].cummax().replace(0, np.nan)
             _drawdown = (hist['Close'] - _cummax) / _cummax * 100
             _max_dd = float(_drawdown.min()) if len(_drawdown) > 0 else 0
             data.update({

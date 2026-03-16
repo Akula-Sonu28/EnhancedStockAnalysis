@@ -426,7 +426,7 @@ class MarketRegimeDetector:
             Dict with adjusted score and explanations
         """
         regime = regime_data.get('regime', 'UNKNOWN')
-        regime_score = regime_data.get('regime_score', 50)
+        regime_score = regime_data.get('regime_score', 0)
         vix = regime_data.get('vix_level', 15.0)
         
         if regime == 'UNKNOWN':

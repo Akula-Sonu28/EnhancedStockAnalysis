@@ -24,9 +24,9 @@ def calculate_indicators(df):
         # Current Price & Changes
         indicators['Close'] = df['Close'].iloc[-1]
         _d2 = df['Close'].iloc[-2] if len(df) >= 2 else df['Close'].iloc[-1]
-        indicators['Daily_Change'] = ((df['Close'].iloc[-1] / _d2 - 1) * 100) if _d2 != 0 else 0
+        indicators['Daily_Change'] = ((df['Close'].iloc[-1] / _d2 - 1) * 100) if pd.notna(_d2) and _d2 != 0 else 0
         _d6 = df['Close'].iloc[-6] if len(df) >= 6 else df['Close'].iloc[0]
-        indicators['Weekly_Change'] = ((df['Close'].iloc[-1] / _d6 - 1) * 100) if _d6 != 0 else 0
+        indicators['Weekly_Change'] = ((df['Close'].iloc[-1] / _d6 - 1) * 100) if pd.notna(_d6) and _d6 != 0 else 0
         
         # 52-Week High & Low, All-time High & Low
         indicators['52W_High'] = df['High'].rolling(window=252).max().iloc[-1]
@@ -84,10 +84,10 @@ def calculate_indicators(df):
         indicators['stoch_d'] = safe_float(k.rolling(window=3).mean().rolling(window=3).mean().iloc[-1])
         
         current_price = safe_float(df['Close'].iloc[-1])
-        if current_price:
+        if pd.notna(current_price) and current_price != 0:
             bb_range = safe_float(upper_band.iloc[-1] - lower_band.iloc[-1])
-            if bb_range:
-                indicators['volatility'] = bb_range / current_price if current_price != 0 else 0
+            if pd.notna(bb_range) and bb_range != 0:
+                indicators['volatility'] = bb_range / current_price
         
         # Support and Resistance Levels
         window = 20  # Look back period for S/R levels
@@ -127,6 +127,8 @@ def calculate_indicators(df):
         indicators['volume_trend'] = 'Increasing' if df['Volume'].iloc[-5:].mean() > indicators['volume_sma20'] else 'Decreasing'
         
         # Trend Direction
+        if current_price is None or (isinstance(current_price, float) and np.isnan(current_price)):
+            current_price = 0
         if all(indicators[ma] < current_price for ma in ['sma20', 'sma50', 'sma200']):
             indicators['trend'] = 'Strong Uptrend'
         elif all(indicators[ma] > current_price for ma in ['sma20', 'sma50', 'sma200']):
