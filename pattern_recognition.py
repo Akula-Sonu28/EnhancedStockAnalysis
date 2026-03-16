@@ -76,6 +76,9 @@ class PatternRecognizer:
             head = prices.iloc[head_idx]
             right_shoulder = prices.iloc[right_shoulder_idx]
             
+            if left_shoulder == 0 or head == 0:
+                continue
+
             # Head should be higher than both shoulders
             if head > left_shoulder and head > right_shoulder:
                 # Shoulders should be roughly equal (within 3%)
@@ -139,6 +142,9 @@ class PatternRecognizer:
             head = prices.iloc[head_idx]
             right_shoulder = prices.iloc[right_shoulder_idx]
             
+            if left_shoulder == 0 or head == 0:
+                continue
+
             # Head should be lower than both shoulders
             if head < left_shoulder and head < right_shoulder:
                 # Shoulders should be roughly equal (within 3%)
@@ -154,7 +160,7 @@ class PatternRecognizer:
                         
                         # Pattern confirmed if price breaks above neckline
                         if current_price > neckline:
-                            head_prominence = (min(left_shoulder, right_shoulder) - head) / head
+                            head_prominence = (min(left_shoulder, right_shoulder) - head) / head if head != 0 else 0
                             confidence = min(0.9, 0.5 + head_prominence * 10)
                             
                             target_distance = neckline - head
@@ -197,6 +203,8 @@ class PatternRecognizer:
             first_peak = prices.iloc[first_peak_idx]
             second_peak = prices.iloc[second_peak_idx]
             
+            if first_peak == 0:
+                continue
             # Peaks should be roughly equal (within 2%)
             peak_diff = abs(first_peak - second_peak) / first_peak
             
@@ -253,6 +261,8 @@ class PatternRecognizer:
             first_trough = prices.iloc[first_trough_idx]
             second_trough = prices.iloc[second_trough_idx]
             
+            if first_trough == 0:
+                continue
             # Troughs should be roughly equal (within 2%)
             trough_diff = abs(first_trough - second_trough) / first_trough
             
@@ -380,9 +390,12 @@ class PatternRecognizer:
         recent_prices = prices.tail(10)
         
         # Bullish flag: strong uptrend then sideways
+        _flag_mean = recent_prices.mean()
+        if _flag_mean == 0:
+            return {'detected': False, 'confidence': 0.0, 'type': 'flag'}
         if consolidation_start > flagpole_start * 1.05:  # 5%+ move up
             price_range = recent_prices.max() - recent_prices.min()
-            if price_range / recent_prices.mean() < 0.03:  # Tight consolidation
+            if price_range / _flag_mean < 0.03:  # Tight consolidation
                 return {
                     'detected': True,
                     'confidence': 0.70,
@@ -394,7 +407,7 @@ class PatternRecognizer:
         # Bearish flag: strong downtrend then sideways
         elif consolidation_start < flagpole_start * 0.95:  # 5%+ move down
             price_range = recent_prices.max() - recent_prices.min()
-            if price_range / recent_prices.mean() < 0.03:
+            if price_range / _flag_mean < 0.03:
                 return {
                     'detected': True,
                     'confidence': 0.70,
@@ -427,6 +440,8 @@ class PatternRecognizer:
         cup_end = cup_prices.iloc[-1]
         
         # Check for U-shape: start and end near same level, significant dip
+        if cup_start == 0:
+            return {'detected': False, 'confidence': 0.0, 'type': 'cup_and_handle'}
         if abs(cup_start - cup_end) / cup_start < 0.05:  # Within 5%
             cup_depth = (cup_start - cup_low) / cup_start
             
@@ -434,7 +449,7 @@ class PatternRecognizer:
                 # Handle should drift down slightly
                 handle_high = handle_prices.max()
                 handle_low = handle_prices.min()
-                handle_depth = (handle_high - handle_low) / handle_high
+                handle_depth = (handle_high - handle_low) / handle_high if handle_high != 0 else 0
                 
                 if handle_depth < 0.15 and handle_prices.iloc[-1] > handle_low * 1.02:
                     # Pattern confirmed - breakout above cup rim

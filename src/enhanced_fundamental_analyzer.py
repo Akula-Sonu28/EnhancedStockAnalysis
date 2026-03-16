@@ -31,7 +31,7 @@ def get_comprehensive_stock_data(symbol, bundle=None):
         
         # Basic company info
         # Keep company_name for display but ensure symbol stays as-is
-        company_full_name = info.get('longName', symbol)
+        company_full_name = info.get('longName') or symbol
         data.update({
             'company_name': company_full_name if company_full_name != symbol else symbol,
             'sector': info.get('sector', 'Unknown'),
@@ -113,12 +113,22 @@ def get_comprehensive_stock_data(symbol, bundle=None):
         
         # Calculate additional metrics from historical data
         if not hist.empty and len(hist) > 0:
+            def _safe_pct(series, offset):
+                if len(series) < offset: return 0
+                d = series.iloc[-offset]
+                if pd.isna(d) or d == 0: return 0
+                return ((series.iloc[-1] - d) / d * 100)
+            _vol_raw = hist['Close'].pct_change().std() * 100 * (252**0.5) if len(hist) > 1 else 0
+            _cummax = hist['Close'].cummax()
+            _drawdown = (hist['Close'] - _cummax) / _cummax * 100
+            _max_dd = float(_drawdown.min()) if len(_drawdown) > 0 else 0
             data.update({
-                'price_change_1m': ((hist['Close'].iloc[-1] - hist['Close'].iloc[-22]) / hist['Close'].iloc[-22] * 100) if len(hist) >= 22 else 0,
-                'price_change_3m': ((hist['Close'].iloc[-1] - hist['Close'].iloc[-66]) / hist['Close'].iloc[-66] * 100) if len(hist) >= 66 else 0,
-                'price_change_6m': ((hist['Close'].iloc[-1] - hist['Close'].iloc[-132]) / hist['Close'].iloc[-132] * 100) if len(hist) >= 132 else 0,
-                'price_change_1y': ((hist['Close'].iloc[-1] - hist['Close'].iloc[0]) / hist['Close'].iloc[0] * 100) if len(hist) > 1 else 0,
-                'volatility': hist['Close'].pct_change().std() * 100 * (252**0.5) if len(hist) > 1 else 0  # Annualized volatility
+                'price_change_1m': _safe_pct(hist['Close'], 22),
+                'price_change_3m': _safe_pct(hist['Close'], 66),
+                'price_change_6m': _safe_pct(hist['Close'], 132),
+                'price_change_1y': _safe_pct(hist['Close'], len(hist)) if len(hist) > 1 else 0,
+                'volatility': 0 if pd.isna(_vol_raw) else _vol_raw,
+                'max_drawdown_6m': 0 if pd.isna(_max_dd) else round(_max_dd, 2)
             })
         
         # Calculate fundamental score
@@ -234,6 +244,8 @@ def calculate_comprehensive_fundamental_score(data):
         
         # Financial Health Score (25 points)
         debt_to_equity = data.get('debt_to_equity', 0)
+        if isinstance(debt_to_equity, (int, float)) and 0 < debt_to_equity < 5:
+            debt_to_equity = debt_to_equity * 100  # normalize ratio to percentage
         current_ratio = data.get('current_ratio', 0)
         
         if debt_to_equity < 30:
@@ -255,6 +267,8 @@ def calculate_comprehensive_fundamental_score(data):
             analysis_points.append("Liquidity concerns")
         
         # Ensure score is within bounds
+        if isinstance(score, float) and np.isnan(score):
+            score = 50.0
         score = max(0, min(100, score))
         
         # Determine rating

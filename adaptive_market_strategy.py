@@ -119,11 +119,13 @@ class AdaptiveMarketRegimeStrategy:
             hist = nifty.history(period="2mo")  # Last 2 months
             
             if len(hist) < 30:
-                return 'CALM'  # Default to calm if insufficient data
+                return {'regime': 'CALM', 'confidence': 'LOW'}
             
             # Calculate metrics
             current_price = hist['Close'].iloc[-1]
             price_30d_ago = hist['Close'].iloc[-30] if len(hist) > 30 else hist['Close'].iloc[0]
+            if price_30d_ago == 0 or np.isnan(price_30d_ago):
+                price_30d_ago = current_price if current_price != 0 else 1.0
             
             return_30d = (current_price - price_30d_ago) / price_30d_ago
             
@@ -133,7 +135,11 @@ class AdaptiveMarketRegimeStrategy:
             
             # Calculate moving averages
             sma_20 = hist['Close'].rolling(20).mean().iloc[-1]
+            if sma_20 == 0 or np.isnan(sma_20):
+                sma_20 = current_price if current_price != 0 else 1.0
             sma_50 = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) > 50 else sma_20
+            if sma_50 == 0 or np.isnan(sma_50):
+                sma_50 = sma_20
             
             # Classify market regime
             if return_30d > 0.05 and current_price > sma_20 > sma_50:
@@ -149,7 +155,7 @@ class AdaptiveMarketRegimeStrategy:
                 'regime': regime,
                 'return_30d': return_30d * 100,
                 'volatility': volatility * 100,
-                'price_vs_sma20': (current_price / sma_20 - 1) * 100,
+                'price_vs_sma20': (current_price / sma_20 - 1) * 100 if sma_20 != 0 else 0,
                 'confidence': self._calculate_regime_confidence(return_30d, volatility, current_price, sma_20)
             }
             
@@ -162,7 +168,7 @@ class AdaptiveMarketRegimeStrategy:
         
         # Strong signals increase confidence
         strong_trend = abs(return_30d) > 0.10
-        clear_direction = abs(price / sma_20 - 1) > 0.05
+        clear_direction = abs(price / sma_20 - 1) > 0.05 if sma_20 != 0 else False
         stable_volatility = 0.15 < volatility < 0.30
         
         confidence_score = 0
@@ -213,14 +219,17 @@ class AdaptiveMarketRegimeStrategy:
         recommendations = {
             'market_regime': current_regime,
             'regime_performance': regime_data,
-            'strategy': regime_data['strategy'],
+            'strategy': regime_data.get('strategy', 'BALANCED_APPROACH'),
             'positions': [],
             'portfolio_allocation': {},
             'risk_management': {}
         }
         
         # Determine quintiles
-        scores = [score for _, score in sorted_stocks]
+        scores = [score for _, score in sorted_stocks if not (isinstance(score, float) and np.isnan(score))]
+        if not scores:
+            recommendations['positions'] = []
+            return recommendations
         quintile_thresholds = np.percentile(scores, [20, 40, 60, 80])
         
         total_weight = 0
@@ -239,30 +248,26 @@ class AdaptiveMarketRegimeStrategy:
             else:
                 quintile = 'Q1'
             
-            # Regime-specific position sizing
-            if current_regime == 'BULL_MODERATE':
-                # In bull markets, focus on momentum (Q3 performed best)
+            # Regime-specific position sizing (use mapped regime key)
+            if mapped == 'BULL_MODERATE':
                 if quintile in ['Q3', 'Q4', 'Q5']:
                     position_weight = max_position * (1.0 if quintile == 'Q3' else 0.8)
                 else:
                     position_weight = max_position * 0.3
                     
-            elif current_regime == 'SIDEWAYS':
-                # In sideways markets, contrarian approach (Q1 performed best!)
+            elif mapped == 'SIDEWAYS':
                 if quintile in ['Q1', 'Q2']:
                     position_weight = max_position * 1.0
                 else:
                     position_weight = max_position * 0.5
                     
-            elif current_regime == 'BEAR_MODERATE':
-                # In bear markets, focus on quality (Q2 performed best)
+            elif mapped == 'BEAR_MODERATE':
                 if quintile in ['Q2', 'Q3']:
                     position_weight = max_position * 1.0
                 else:
                     position_weight = max_position * 0.4
                     
             else:  # CALM
-                # Balanced approach (Q3 performed best)
                 if quintile in ['Q3', 'Q4']:
                     position_weight = max_position * 1.0
                 elif quintile == 'Q5':
@@ -273,7 +278,7 @@ class AdaptiveMarketRegimeStrategy:
             # Don't exceed portfolio exposure limits
             if total_weight + position_weight <= position_strategy['portfolio_exposure']:
                 action = 'BUY' if position_weight >= max_position * 0.5 else 'SMALL_POSITION'
-                confidence = 'HIGH' if quintile in [regime_data['best_quintile']] else 'MEDIUM'
+                confidence = 'HIGH' if quintile in [regime_data.get('best_quintile', 'Q1')] else 'MEDIUM'
                 
                 recommendations['positions'].append({
                     'symbol': symbol,
@@ -282,7 +287,7 @@ class AdaptiveMarketRegimeStrategy:
                     'weight': position_weight,
                     'action': action,
                     'confidence': confidence,
-                    'regime_rationale': f"{regime_data['strategy']} - {quintile} historically {self._get_quintile_performance(current_regime, quintile)}"
+                    'regime_rationale': f"{regime_data.get('strategy', 'BALANCED')} - {quintile} historically {self._get_quintile_performance(mapped, quintile)}"
                 })
                 
                 total_weight += position_weight
@@ -398,7 +403,7 @@ def create_adaptive_strategy_report():
         print(f"{regime:<15} {data['avg_return']:+8.2f}%    {data['success_rate']:8.1f}%     {data['best_quintile']:<12}")
     
     # Current regime strategy
-    regime_data = strategy.market_performance[current_regime]
+    regime_data = strategy.market_performance.get(current_regime, strategy.market_performance.get('CALM', {}))
     print(f"\n🚀 CURRENT REGIME STRATEGY: {regime_data['strategy']}")
     print(f"   Expected Return: {regime_data['avg_return']:+.2f}%")
     print(f"   Success Rate: {regime_data['success_rate']:.1f}%")

@@ -10,6 +10,16 @@ import numpy as np
 from datetime import datetime
 import math
 
+def _sf(val, default=0.0):
+    """Safe float: return default if val is None, NaN, or non-numeric."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return default if (np.isnan(f) or np.isinf(f)) else f
+    except (TypeError, ValueError):
+        return default
+
 class CorrectedScoringEngine:
     """
     Fixed scoring engine that corrects the inverse correlations discovered in backtesting
@@ -20,13 +30,12 @@ class CorrectedScoringEngine:
         self.approach = "CONTRARIAN_VALUE"
         
         # Corrected weights based on backtest analysis
+        # sector_adjustment and timing_factor are multiplicative, not additive — kept separate
         self.component_weights = {
-            'contrarian_technical': 0.25,    # Inverse of technical - oversold is good
-            'contrarian_momentum': 0.20,     # Inverse of momentum - stability over hype
-            'fundamental_quality': 0.20,     # Keep fundamental but reweight
-            'value_opportunity': 0.15,       # Enhanced undervaluation detection
-            'sector_adjustment': 0.10,       # Sector-specific logic
-            'timing_factor': 0.10           # Market timing component
+            'contrarian_technical': 0.3125,  # Inverse of technical - oversold is good
+            'contrarian_momentum': 0.25,     # Inverse of momentum - stability over hype
+            'fundamental_quality': 0.25,     # Keep fundamental but reweight
+            'value_opportunity': 0.1875,     # Enhanced undervaluation detection
         }
         
         # Sector-specific multipliers (from backtest insights)
@@ -59,9 +68,9 @@ class CorrectedScoringEngine:
         """
         try:
             # Get original technical indicators
-            rsi = float(stock_data.get('real_rsi', 50))
-            price_change_5d = float(stock_data.get('enhanced_price_change_5d', 0))
-            volume_ratio = float(stock_data.get('enhanced_volume_ratio', 1))
+            rsi = _sf(stock_data.get('real_rsi'), 50)
+            price_change_5d = _sf(stock_data.get('enhanced_price_change_5d'), 0)
+            volume_ratio = _sf(stock_data.get('enhanced_volume_ratio'), 1)
             
             # CONTRARIAN APPROACH - Lower RSI = Higher Score (Oversold = Opportunity)
             rsi_score = max(0, 100 - rsi)  # Invert RSI: 30 RSI → 70 score
@@ -80,7 +89,8 @@ class CorrectedScoringEngine:
                 volume_score * 0.2
             )
             
-            return min(100, max(0, contrarian_technical))
+            result = min(100, max(0, contrarian_technical))
+            return result if not np.isnan(result) else 50
             
         except (ValueError, TypeError):
             return 50  # Neutral score
@@ -115,7 +125,8 @@ class CorrectedScoringEngine:
             # Combine for contrarian momentum
             contrarian_momentum = (stability_score * 0.6 + undervalued_score * 0.4)
             
-            return min(100, max(0, contrarian_momentum))
+            _cm = min(100, max(0, contrarian_momentum))
+            return _cm if not np.isnan(_cm) else 50
             
         except (ValueError, TypeError):
             return 50
@@ -126,10 +137,10 @@ class CorrectedScoringEngine:
         """
         try:
             # Core fundamental metrics (these were less problematic)
-            pe_ratio = float(stock_data.get('pe_ratio', 20))
-            pb_ratio = float(stock_data.get('pb_ratio', 2))
-            debt_to_equity = float(stock_data.get('debt_to_equity', 1))
-            roe = float(stock_data.get('roe', 10))
+            pe_ratio = _sf(stock_data.get('pe_ratio'), 20)
+            pb_ratio = _sf(stock_data.get('pb_ratio'), 2)
+            debt_to_equity = _sf(stock_data.get('debt_to_equity'), 1)
+            roe = _sf(stock_data.get('roe'), 10)
             
             # PE Score - reasonable PE is good (10-25 range optimal)
             if 10 <= pe_ratio <= 25:
@@ -156,7 +167,8 @@ class CorrectedScoringEngine:
                 roe_score * 0.2
             )
             
-            return min(100, max(0, fundamental_quality))
+            result = min(100, max(0, fundamental_quality))
+            return result if not np.isnan(result) else 50
             
         except (ValueError, TypeError):
             return 50
@@ -167,11 +179,13 @@ class CorrectedScoringEngine:
         """
         try:
             # Price metrics
-            current_price = float(stock_data.get('current_price', 100))
-            year_high = float(stock_data.get('52_week_high', stock_data.get('year_high', current_price * 1.2)))
-            year_low = float(stock_data.get('52_week_low', stock_data.get('year_low', current_price * 0.8)))
+            current_price = _sf(stock_data.get('current_price'), 100)
+            year_high = _sf(stock_data.get('52_week_high', stock_data.get('year_high')), current_price * 1.2)
+            year_low = _sf(stock_data.get('52_week_low', stock_data.get('year_low')), current_price * 0.8)
             
             # Value opportunity - how far from year high (contrarian approach)
+            if year_high <= 0:
+                year_high = current_price if current_price > 0 else 1.0
             price_from_high = (year_high - current_price) / year_high * 100
             opportunity_score = min(100, price_from_high * 2)  # Higher discount = better
             
@@ -185,7 +199,8 @@ class CorrectedScoringEngine:
             # Combine value metrics
             value_opportunity = (opportunity_score * 0.6 + support_score * 0.4)
             
-            return min(100, max(0, value_opportunity))
+            result = min(100, max(0, value_opportunity))
+            return result if not np.isnan(result) else 50
             
         except (ValueError, TypeError):
             return 50
@@ -246,6 +261,8 @@ class CorrectedScoringEngine:
             
             # Ensure score is in valid range
             final_score = min(100, max(0, final_score))
+            if np.isnan(final_score):
+                final_score = 50.0
             
             return {
                 'corrected_overall_score': final_score,

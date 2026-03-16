@@ -18,8 +18,8 @@ class AnalysisConfig:
     TIMEOUT_SECONDS: int = 120
     RETRY_ATTEMPTS: int = 3
     
-    # Sentiment adjustment (disable until a real news API is wired in)
-    ENABLE_SENTIMENT_ADJUSTMENT: bool = False
+    # Sentiment adjustment (capped at ±3 pts, confidence-weighted)
+    ENABLE_SENTIMENT_ADJUSTMENT: bool = True
     
     # Caching Settings
     CACHE_ENABLED: bool = True
@@ -69,7 +69,6 @@ class AnalysisConfig:
     
     # Default Stock Lists
     NIFTY_50_STOCKS: List[str] = None
-    NIFTY_200_STOCKS: List[str] = None
     
     def __post_init__(self):
         """Initialize default stock lists"""

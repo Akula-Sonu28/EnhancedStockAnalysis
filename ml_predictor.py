@@ -166,7 +166,9 @@ class MLPricePredictor:
                 current_price / max(self._safe_float(stock_data.get('52_week_high', current_price)), 1),
             ])
             
-            # 3. Volume Patterns (8 features — MFI removed here; already in technical block)
+            # 3. Volume Patterns (8 features)
+            # Note: enhanced_mfi appears in both technical and volume blocks intentionally
+            # to match the trained model's feature vector. Do NOT change without retraining.
             features.extend([
                 self._safe_float(stock_data.get('enhanced_volume_ratio', 1)),
                 self._safe_float(stock_data.get('enhanced_volume_trend', 0)),
@@ -175,7 +177,7 @@ class MLPricePredictor:
                 self._safe_float(stock_data.get('avg_volume', 0)),
                 self._safe_float(stock_data.get('volume_ma_ratio', 1)),
                 self._safe_float(stock_data.get('enhanced_obv', 0)),
-                self._safe_float(stock_data.get('enhanced_cmf', 0)),
+                self._safe_float(stock_data.get('enhanced_mfi', 50)),
             ])
             
             # 4. Fundamental Metrics (15 features)
@@ -280,9 +282,9 @@ class MLPricePredictor:
                 'signal': signal,
                 'expected_return': expected_return,
                 'probabilities': {
-                    'down': float(probabilities[0]),
-                    'hold': float(probabilities[1]),
-                    'up': float(probabilities[2])
+                    'down': float(probabilities[0]) if len(probabilities) > 0 else 0.33,
+                    'hold': float(probabilities[1]) if len(probabilities) > 1 else 0.34,
+                    'up': float(probabilities[2]) if len(probabilities) > 2 else 0.33,
                 }
             }
             
@@ -328,9 +330,9 @@ class MLPricePredictor:
                 'signal':          signal,
                 'expected_return': expected_return,
                 'probabilities': {
-                    'down': float(probabilities[0]),
-                    'hold': float(probabilities[1]),
-                    'up':   float(probabilities[2]),
+                    'down': float(probabilities[0]) if len(probabilities) > 0 else 0.33,
+                    'hold': float(probabilities[1]) if len(probabilities) > 1 else 0.34,
+                    'up':   float(probabilities[2]) if len(probabilities) > 2 else 0.33,
                 },
             }
         except Exception as e:
@@ -397,7 +399,7 @@ class MLPricePredictor:
                 'confidence': float(confidence),
                 'signal': signal,
                 'expected_return': prediction * confidence * 0.15,
-                'probabilities': {}
+                'probabilities': {'down': 0.33, 'hold': 0.34, 'up': 0.33}
             }
             
         except Exception as e:
@@ -407,7 +409,7 @@ class MLPricePredictor:
                 'confidence': 0.0,
                 'signal': 'HOLD',
                 'expected_return': 0.0,
-                'probabilities': {}
+                'probabilities': {'down': 0.33, 'hold': 0.34, 'up': 0.33}
             }
 
 # Singleton instance

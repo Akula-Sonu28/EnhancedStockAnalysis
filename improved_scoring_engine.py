@@ -104,7 +104,8 @@ class ImprovedScoringEngine:
                 if volume_ratio > 1.2:    # High volume on up move
                     score += 5
             
-            return max(0, min(100, score))
+            score = max(0, min(100, score))
+            return score if not np.isnan(score) else 50
             
         except Exception as e:
             return 50
@@ -120,20 +121,21 @@ class ImprovedScoringEngine:
         try:
             price_change_20d = stock_data.get('enhanced_price_change_20d', 0)
             if pd.notna(price_change_20d):
+                # Halved vs momentum to reduce overlap with calculate_momentum_technical_score
                 if price_change_20d >= 15:
-                    score += 25
-                elif price_change_20d >= 8:
-                    score += 20
-                elif price_change_20d >= 3:
                     score += 12
+                elif price_change_20d >= 8:
+                    score += 10
+                elif price_change_20d >= 3:
+                    score += 6
                 elif price_change_20d >= -1:
                     score += 0
                 elif price_change_20d >= -5:
-                    score -= 10
+                    score -= 5
                 elif price_change_20d >= -10:
-                    score -= 18
+                    score -= 9
                 else:
-                    score -= 25
+                    score -= 12
 
             # Volume surge — confirms trend validity
             volume_ratio = stock_data.get('enhanced_volume_ratio', 1.0)
@@ -155,7 +157,8 @@ class ImprovedScoringEngine:
                 elif adx < 15:           # No trend
                     score -= 10
             
-            return max(0, min(100, score))
+            score = max(0, min(100, score))
+            return score if not np.isnan(score) else 50
             
         except Exception as e:
             return 50
@@ -214,7 +217,8 @@ class ImprovedScoringEngine:
                 elif pb_ratio > 5:     # Overvalued
                     score -= 10
             
-            return max(0, min(100, score))
+            score = max(0, min(100, score))
+            return score if not np.isnan(score) else 50
             
         except Exception as e:
             return 50
@@ -256,7 +260,8 @@ class ImprovedScoringEngine:
             # Award points for each quality signal
             score = 50 + (quality_signals * 10)  # 0-5 signals = 50-100 score
             
-            return max(0, min(100, score))
+            score = max(0, min(100, score))
+            return score if not np.isnan(score) else 50
             
         except Exception as e:
             return 50
@@ -289,7 +294,7 @@ class ImprovedScoringEngine:
     def calculate_sector_adjustment(self, symbol, base_score, stock_data=None):
         """Apply sector multiplier — prefer live sector from stock_data"""
         if stock_data and stock_data.get('sector'):
-            live = stock_data['sector'].lower()
+            live = str(stock_data['sector'] or '').lower()
             live_map = {
                 'financial services': 'Financial Services', 'banks': 'Banking',
                 'energy': 'default', 'basic materials': 'Capital Goods',
@@ -347,6 +352,8 @@ class ImprovedScoringEngine:
             
             # Ensure score is in valid range
             final_score = min(100, max(0, final_score))
+            if np.isnan(final_score):
+                final_score = 50.0
             
             return {
                 'improved_overall_score': final_score,

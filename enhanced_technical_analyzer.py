@@ -80,14 +80,18 @@ def analyze_price_action(df):
     current_price = df['Close'].iloc[-1]
     
     # Price changes over different periods
+    def _pchg(series, offset):
+        if len(series) <= offset: return 0
+        d = series.iloc[-1 - offset]
+        return ((series.iloc[-1] / d) - 1) * 100 if d != 0 else 0
     price_analysis = {
         'current_price': current_price,
-        'price_change_1d': ((df['Close'].iloc[-1] / df['Close'].iloc[-2]) - 1) * 100 if len(df) > 1 else 0,
-        'price_change_5d': ((df['Close'].iloc[-1] / df['Close'].iloc[-6]) - 1) * 100 if len(df) > 5 else 0,
-        'price_change_10d': ((df['Close'].iloc[-1] / df['Close'].iloc[-11]) - 1) * 100 if len(df) > 10 else 0,
-        'price_change_20d': ((df['Close'].iloc[-1] / df['Close'].iloc[-21]) - 1) * 100 if len(df) > 20 else 0,
-        'price_change_30d': ((df['Close'].iloc[-1] / df['Close'].iloc[-31]) - 1) * 100 if len(df) > 30 else 0,
-        'price_change_60d': ((df['Close'].iloc[-1] / df['Close'].iloc[-61]) - 1) * 100 if len(df) > 60 else 0,
+        'price_change_1d': _pchg(df['Close'], 1),
+        'price_change_5d': _pchg(df['Close'], 5),
+        'price_change_10d': _pchg(df['Close'], 10),
+        'price_change_20d': _pchg(df['Close'], 20),
+        'price_change_30d': _pchg(df['Close'], 30),
+        'price_change_60d': _pchg(df['Close'], 60),
     }
     
     # Volatility measures
@@ -96,7 +100,7 @@ def analyze_price_action(df):
         'volatility_5d': returns.tail(5).std() * 100 * (5**0.5),
         'volatility_10d': returns.tail(10).std() * 100 * (10**0.5),
         'volatility_20d': returns.tail(20).std() * 100 * (20**0.5),
-        'avg_daily_range': ((df['High'] - df['Low']) / df['Close'] * 100).tail(20).mean(),
+        'avg_daily_range': ((df['High'] - df['Low']) / df['Close'].replace(0, np.nan) * 100).tail(20).mean() or 0,
     })
     
     # Price position relative to recent ranges
@@ -116,11 +120,16 @@ def calculate_short_term_indicators(df):
         delta = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        all_gains = (loss == 0) & (gain > 0)
         rs = gain / loss.replace(0, np.nan)
-        return 100 - (100 / (1 + rs))
+        rsi = 100 - (100 / (1 + rs))
+        rsi = rsi.where(~all_gains, 100.0).fillna(50.0)
+        return rsi
     
-    indicators['rsi_14'] = calculate_rsi(df['Close'], 14).iloc[-1]
-    indicators['rsi_7'] = calculate_rsi(df['Close'], 7).iloc[-1]
+    _rsi14 = calculate_rsi(df['Close'], 14).iloc[-1]
+    indicators['rsi_14'] = 50.0 if np.isnan(_rsi14) else _rsi14
+    _rsi7 = calculate_rsi(df['Close'], 7).iloc[-1]
+    indicators['rsi_7'] = 50.0 if np.isnan(_rsi7) else _rsi7
     
     # MACD for short-term signals
     ema_12 = df['Close'].ewm(span=12).mean()
@@ -133,8 +142,8 @@ def calculate_short_term_indicators(df):
         'macd': macd.iloc[-1],
         'macd_signal': signal.iloc[-1],
         'macd_histogram': histogram.iloc[-1],
-        'macd_crossover': 'bullish' if macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2] else 
-                         'bearish' if macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2] else 'none'
+        'macd_crossover': ('bullish' if (len(macd) >= 2 and macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]) else 
+                         'bearish' if (len(macd) >= 2 and macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]) else 'none')
     })
     
     # Moving averages for short-term trend
@@ -262,10 +271,12 @@ def detect_chart_patterns(df):
         patterns['pattern_signals'].append("Consolidation phase")
     
     # Flag pattern detection (after strong move)
-    price_change_10d = ((closes.iloc[-1] / closes.iloc[-11]) - 1) * 100 if len(closes) > 10 else 0
+    _d11 = closes.iloc[-11] if len(closes) > 10 else 0
+    price_change_10d = ((closes.iloc[-1] / _d11) - 1) * 100 if (len(closes) > 10 and _d11 != 0) else 0
     
     if abs(price_change_10d) > 5:  # Strong prior move
-        recent_5d_volatility = closes.tail(5).std() / closes.tail(5).mean() * 100
+        _5d_mean = closes.tail(5).mean()
+        recent_5d_volatility = (closes.tail(5).std() / _5d_mean * 100) if _5d_mean != 0 else 0
         if recent_5d_volatility < 2:  # Low volatility consolidation
             if price_change_10d > 0:
                 patterns['chart_patterns'].append("Bull Flag Formation")
@@ -309,7 +320,10 @@ def analyze_volume_patterns(df):
     volume_breakouts = []
     for i in range(5, len(volume)):
         if volume.iloc[i] > volume.iloc[i-5:i].max() * 2:
-            price_change = ((prices.iloc[i] / prices.iloc[i-1]) - 1) * 100
+            _prev = prices.iloc[i-1]
+            if pd.isna(_prev) or _prev == 0:
+                continue
+            price_change = ((prices.iloc[i] / _prev) - 1) * 100
             volume_breakouts.append(f"Volume spike: {price_change:.1f}% price change")
     
     volume_analysis['recent_volume_breakouts'] = volume_breakouts[-3:] if volume_breakouts else []
@@ -366,7 +380,9 @@ def find_support_resistance_levels(df):
     
     # Key psychological levels (round numbers)
     price_range = [current_price * 0.9, current_price * 1.1]
-    for level in range(int(price_range[0]), int(price_range[1]) + 100, 50):
+    _pr_start = int(price_range[0]) if price_range[0] > 0 else 0
+    _pr_end = int(price_range[1]) + 100 if price_range[1] > 0 else 100
+    for level in range(_pr_start, _pr_end, 50):
         if price_range[0] <= level <= price_range[1]:
             levels['key_levels'].append(level)
     
@@ -387,7 +403,7 @@ def analyze_short_term_trends(df):
         if len(prices) >= period:
             start_price = prices.iloc[-period]
             end_price = prices.iloc[-1]
-            trend_strength = ((end_price / start_price) - 1) * 100
+            trend_strength = ((end_price / start_price) - 1) * 100 if start_price != 0 else 0
             trends[f'trend_{period}d'] = trend_strength
     
     trend_analysis.update(trends)
@@ -464,52 +480,54 @@ def detect_breakout_signals(df):
 def calculate_short_term_score(analysis):
     """Calculate overall short-term technical score (0-100)"""
     score = 50  # Start with neutral
-    
-    # Price momentum (30% weight)
-    momentum_score = 0
+
+    # Price momentum (max +-15 pts = 30% of the 50-pt half-range)
+    momentum_raw = 0
     if 'price_change_5d' in analysis:
-        momentum_score += min(max(analysis['price_change_5d'] * 2, -30), 30)
+        momentum_raw += min(max(analysis['price_change_5d'] * 2, -30), 30)
     if 'price_change_20d' in analysis:
-        momentum_score += min(max(analysis['price_change_20d'], -20), 20)
-    
-    score += momentum_score * 0.3
-    
-    # Technical indicators (25% weight)
+        momentum_raw += min(max(analysis['price_change_20d'], -20), 20)
+    score += max(-15, min(15, momentum_raw * 0.3))
+
+    # Technical indicators (max +-12.5 pts = 25% of 50-pt half-range)
+    tech_raw = 0
     if 'rsi_14' in analysis:
         rsi = analysis['rsi_14']
         if 30 <= rsi <= 70:
-            score += 5  # Neutral RSI is positive
+            tech_raw += 5
         elif rsi < 30:
-            score += 15  # Oversold - potential bounce
+            tech_raw += 15
         elif rsi > 70:
-            score -= 10  # Overbought
-    
+            tech_raw -= 10
     if 'macd_crossover' in analysis:
         if analysis['macd_crossover'] == 'bullish':
-            score += 10
+            tech_raw += 10
         elif analysis['macd_crossover'] == 'bearish':
-            score -= 10
-    
-    # Pattern strength (20% weight)
+            tech_raw -= 10
+    score += max(-12.5, min(12.5, tech_raw))
+
+    # Pattern strength (max +-10 pts = 20% of 50-pt half-range)
     if 'pattern_strength' in analysis:
-        score += analysis['pattern_strength'] * 0.2
-    
-    # Signal strength (15% weight)
+        score += max(-10, min(10, analysis['pattern_strength'] * 0.2))
+
+    # Signal strength (max +-7.5 pts = 15% of 50-pt half-range)
     if 'signal_strength' in analysis:
-        score += analysis['signal_strength'] * 0.15
-    
-    # Trend alignment (10% weight)
+        score += max(-7.5, min(7.5, analysis['signal_strength'] * 0.15))
+
+    # Trend alignment (max +-5 pts = 10% of 50-pt half-range)
     if 'ma_alignment' in analysis:
-        alignment = analysis['ma_alignment']
+        alignment = str(analysis['ma_alignment'] or '')
         if 'Strong Uptrend' in alignment:
-            score += 10
-        elif 'Strong Downtrend' in alignment:
-            score -= 10
-        elif 'Short-term Uptrend' in alignment:
             score += 5
-        elif 'Short-term Downtrend' in alignment:
+        elif 'Strong Downtrend' in alignment:
             score -= 5
-    
+        elif 'Short-term Uptrend' in alignment:
+            score += 2.5
+        elif 'Short-term Downtrend' in alignment:
+            score -= 2.5
+
+    if pd.isna(score) or (isinstance(score, (float, np.floating)) and np.isnan(score)):
+        score = 50
     return max(0, min(100, score))
 
 def get_short_term_signal(score):

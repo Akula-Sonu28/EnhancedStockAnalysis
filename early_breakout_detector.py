@@ -62,9 +62,12 @@ class EarlyBreakoutDetector:
                 return self._empty_result()
             
             current_price = df['Close'].iloc[-1]
+            if current_price <= 0:
+                return self._empty_result()
             
             # IMPROVEMENT 1: Quality Filter - Skip low-quality stocks
-            quality_score = stock_data.get('risk_adjusted_score', stock_data.get('overall_score_with_value', 0))
+            _qs = stock_data.get('risk_adjusted_score', stock_data.get('overall_score_with_value', 0))
+            quality_score = 0 if (_qs is None or (isinstance(_qs, float) and np.isnan(_qs))) else float(_qs)
             if quality_score < 55:
                 return self._empty_result()
             
@@ -77,7 +80,7 @@ class EarlyBreakoutDetector:
             confirmations_count = 0  # Track number of confirmations
             
             # Signal 1: Price Near Resistance (IMPROVED - stricter distance)
-            distance_to_resistance = ((resistance - current_price) / current_price) * 100
+            distance_to_resistance = ((resistance - current_price) / current_price) * 100 if current_price != 0 else 0
             if 2 <= distance_to_resistance <= 4:  # Tightened from 2-5%
                 signals.append(f"🎯 SETUP: {distance_to_resistance:.1f}% below resistance")
                 breakout_score += 30
@@ -99,7 +102,10 @@ class EarlyBreakoutDetector:
                 breakout_score -= 20  # Already broken out - too late
             
             # Signal 3: RSI Sweet Spot (IMPROVED - tighter range)
-            rsi = stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', 50))
+            _rsi = stock_data.get('real_rsi')
+            _ersi = stock_data.get('enhanced_rsi_14')
+            rsi = _rsi if _rsi is not None else (_ersi if _ersi is not None else 50)
+            rsi = 50 if (isinstance(rsi, float) and np.isnan(rsi)) else rsi
             if 50 <= rsi <= 60:  # Tightened from 45-60
                 signals.append(f"⚡ RSI optimal: {rsi:.0f} (momentum present)")
                 breakout_score += 30
@@ -155,15 +161,15 @@ class EarlyBreakoutDetector:
             
             # Determine breakout timing probability (IMPROVED - more conservative)
             if breakout_score >= 90 and confirmations_count >= 5:
-                expected_days = "1-2"
+                expected_days = 2
                 confidence = "VERY HIGH"
                 probability = min(90, breakout_score)
             elif breakout_score >= 75 and confirmations_count >= 4:
-                expected_days = "1-3"
+                expected_days = 2
                 confidence = "HIGH"
                 probability = min(80, breakout_score)
             elif breakout_score >= 60 and confirmations_count >= 3:
-                expected_days = "2-4"
+                expected_days = 3
                 confidence = "MEDIUM"
                 probability = min(70, breakout_score)
             else:
@@ -229,7 +235,10 @@ class EarlyBreakoutDetector:
             exhaustion_score = 0
             
             # Signal 1: RSI Overbought (>75 is extreme)
-            rsi = stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', 50))
+            _rsi = stock_data.get('real_rsi')
+            _ersi = stock_data.get('enhanced_rsi_14')
+            rsi = _rsi if _rsi is not None else (_ersi if _ersi is not None else 50)
+            rsi = 50 if (isinstance(rsi, float) and np.isnan(rsi)) else rsi
             if rsi > 80:
                 signals.append(f"🔴 RSI extreme: {rsi:.0f} (heavy exhaustion)")
                 exhaustion_score += 40
@@ -259,7 +268,8 @@ class EarlyBreakoutDetector:
                 exhaustion_score += 25
             
             # Signal 5: Parabolic Move
-            move_5d = ((current_price - df['Close'].iloc[-6]) / df['Close'].iloc[-6]) * 100
+            _price_5d_ago = df['Close'].iloc[-6] if (len(df) > 6 and df['Close'].iloc[-6] != 0) else None
+            move_5d = ((current_price - _price_5d_ago) / _price_5d_ago) * 100 if _price_5d_ago else 0.0
             if move_5d > 20:
                 signals.append(f"🚀 Parabolic: +{move_5d:.1f}% in 5 days")
                 exhaustion_score += 30
@@ -269,6 +279,7 @@ class EarlyBreakoutDetector:
             
             # Signal 6: Distance from moving averages
             ma_20 = df['Close'].tail(20).mean()
+            ma_20 = ma_20 if ma_20 != 0 else 1.0
             distance_from_ma = ((current_price - ma_20) / ma_20) * 100
             if distance_from_ma > 15:
                 signals.append(f"📏 Extended: {distance_from_ma:.1f}% above 20-MA")
@@ -353,7 +364,8 @@ class EarlyBreakoutDetector:
         if len(recent_prices) < 15:
             return {'is_consolidating': False, 'range': 0}
         
-        price_range = ((recent_prices.max() - recent_prices.min()) / recent_prices.mean()) * 100
+        _mean_p = recent_prices.mean()
+        price_range = ((recent_prices.max() - recent_prices.min()) / _mean_p) * 100 if _mean_p != 0 else 0
         
         # Consolidation: < 5% range (tight: < 4%)
         is_consolidating = price_range < 5

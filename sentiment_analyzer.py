@@ -41,10 +41,13 @@ class SentimentAnalyzer:
             Dict with sentiment scores and signals
         """
         try:
-            # Get historical data for sentiment analysis
             ticker = yf.Ticker(f"{symbol}.NS")
-            hist = ticker.history(period="3mo")
-            
+
+            # Reuse existing hist from stock_data bundle if available
+            hist = stock_data.get('_hist_3mo') if isinstance(stock_data.get('_hist_3mo'), pd.DataFrame) else None
+            if hist is None or hist.empty:
+                hist = ticker.history(period="3mo")
+
             if hist.empty:
                 return self._get_default_sentiment()
             
@@ -161,9 +164,12 @@ class SentimentAnalyzer:
                 recent_recs = recommendations.tail(10)
                 
                 # Count recommendations
-                buy_count = recent_recs['To Grade'].str.contains('Buy|Outperform', case=False, na=False).sum()
-                sell_count = recent_recs['To Grade'].str.contains('Sell|Underperform', case=False, na=False).sum()
-                hold_count = recent_recs['To Grade'].str.contains('Hold|Neutral', case=False, na=False).sum()
+                _grade_col = 'To Grade' if 'To Grade' in recent_recs.columns else ('ToGrade' if 'ToGrade' in recent_recs.columns else None)
+                if _grade_col is None:
+                    return {'score': 50, 'signal': 'NEUTRAL', 'count': 0, 'buy_pct': 0}
+                buy_count = recent_recs[_grade_col].str.contains('Buy|Outperform', case=False, na=False).sum()
+                sell_count = recent_recs[_grade_col].str.contains('Sell|Underperform', case=False, na=False).sum()
+                hold_count = recent_recs[_grade_col].str.contains('Hold|Neutral', case=False, na=False).sum()
                 
                 total = buy_count + sell_count + hold_count
                 
@@ -227,8 +233,17 @@ class SentimentAnalyzer:
         """
         Analyze overall market sentiment from technical indicators
         """
-        # RSI-based sentiment
-        rsi = stock_data.get('real_rsi', 50)
+        # RSI-based sentiment (NaN guard: np.nan is not None, would leak into market_score)
+        _rsi = stock_data.get('real_rsi')
+        _ersi = stock_data.get('enhanced_rsi_14')
+        rsi = 50.0
+        for v in (_rsi, _ersi):
+            if v is not None and not (isinstance(v, (int, float)) and np.isnan(v)):
+                try:
+                    rsi = float(v)
+                    break
+                except (TypeError, ValueError):
+                    pass
         
         # Volume trend
         recent_volume = hist['Volume'].tail(10).mean()
@@ -275,13 +290,16 @@ class SentimentAnalyzer:
             # Get earnings data
             earnings = ticker.earnings
             
+            _earn_col = None
             if earnings is not None and not earnings.empty:
+                _earn_col = 'Earnings' if 'Earnings' in earnings.columns else ('earnings' if 'earnings' in earnings.columns else (earnings.columns[0] if len(earnings.columns) > 0 else None))
+            if _earn_col is not None and len(earnings) >= 2:
                 # Check earnings growth
                 if len(earnings) >= 2:
-                    recent_earnings = earnings['Earnings'].iloc[-1]
-                    previous_earnings = earnings['Earnings'].iloc[-2]
+                    recent_earnings = earnings[_earn_col].iloc[-1]
+                    previous_earnings = earnings[_earn_col].iloc[-2]
                     
-                    if previous_earnings != 0:
+                    if previous_earnings != 0 and not (isinstance(previous_earnings, float) and np.isnan(previous_earnings)):
                         earnings_growth = (recent_earnings - previous_earnings) / abs(previous_earnings) * 100
                         
                         # Score based on earnings growth
@@ -310,7 +328,8 @@ class SentimentAnalyzer:
                         }
             
             # Fallback to profit margin proxy
-            _pm_raw = stock_data.get('profit_margin', 0) or 0
+            _pm_raw = stock_data.get('profit_margin', 0)
+            _pm_raw = 0 if (_pm_raw is None or (isinstance(_pm_raw, float) and np.isnan(_pm_raw))) else _pm_raw
             profit_margin = _pm_raw * 100 if abs(_pm_raw) < 1.0 else float(_pm_raw)
             
             if profit_margin > 15:
@@ -352,11 +371,13 @@ class SentimentAnalyzer:
         volume_ratio = recent_volume / avg_volume if avg_volume > 0 else 1.0
         
         # Volatility as buzz indicator
-        returns = hist['Close'].pct_change()
-        volatility = returns.std() * np.sqrt(252) * 100
+        returns = hist['Close'].pct_change().dropna()
+        _vol_raw = returns.std() * np.sqrt(252) * 100
+        volatility = 0.0 if (len(returns) == 0 or np.isnan(_vol_raw)) else _vol_raw
         
         # Price momentum as sentiment direction
-        momentum = returns.tail(5).mean() * 100
+        _mom_raw = returns.tail(5).mean() * 100
+        momentum = 0.0 if np.isnan(_mom_raw) else _mom_raw
         
         # Calculate buzz score
         volume_score = min(volume_ratio * 40, 60)  # Cap at 60
@@ -460,6 +481,10 @@ class SentimentAnalyzer:
         
         composite_score = sentiment_data.get('composite_score', 50)
         confidence = sentiment_data.get('confidence', 40)
+        if composite_score is None or (isinstance(composite_score, float) and np.isnan(composite_score)):
+            composite_score = 50
+        if confidence is None or (isinstance(confidence, float) and np.isnan(confidence)):
+            confidence = 40
         
         # Calculate sentiment adjustment (±15 points based on sentiment)
         if composite_score >= 75:
@@ -512,7 +537,7 @@ class SentimentAnalyzer:
             'adjusted_score': adjusted_score,
             'sentiment_adjustment': adjustment,
             'adjustment_reasons': reasons,
-            'sentiment_context': f"{sentiment_data['overall_sentiment']} ({composite_score:.1f}/100)"
+            'sentiment_context': f"{sentiment_data.get('overall_sentiment', 'NEUTRAL')} ({composite_score:.1f}/100)"
         }
 
 

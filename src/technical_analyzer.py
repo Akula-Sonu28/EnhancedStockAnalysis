@@ -16,13 +16,17 @@ def calculate_indicators(df):
     Calculate comprehensive technical indicators for a stock DataFrame (OHLCV).
     Returns: dict of indicators with detailed technical analysis
     """
+    if df is None or df.empty:
+        return {}
     try:
         indicators = {}
         
         # Current Price & Changes
         indicators['Close'] = df['Close'].iloc[-1]
-        indicators['Daily_Change'] = (df['Close'].iloc[-1] / df['Close'].iloc[-2] - 1) * 100
-        indicators['Weekly_Change'] = (df['Close'].iloc[-1] / df['Close'].iloc[-6] - 1) * 100
+        _d2 = df['Close'].iloc[-2] if len(df) >= 2 else df['Close'].iloc[-1]
+        indicators['Daily_Change'] = ((df['Close'].iloc[-1] / _d2 - 1) * 100) if _d2 != 0 else 0
+        _d6 = df['Close'].iloc[-6] if len(df) >= 6 else df['Close'].iloc[0]
+        indicators['Weekly_Change'] = ((df['Close'].iloc[-1] / _d6 - 1) * 100) if _d6 != 0 else 0
         
         # 52-Week High & Low, All-time High & Low
         indicators['52W_High'] = df['High'].rolling(window=252).max().iloc[-1]
@@ -46,9 +50,13 @@ def calculate_indicators(df):
         roll_down = down.rolling(14).mean()
         
         last_roll_down = safe_float(roll_down.iloc[-1])
-        if last_roll_down and last_roll_down != 0:
-            last_rs = safe_float(roll_up.iloc[-1]) / last_roll_down
-            indicators['rsi14'] = 100 - (100 / (1 + last_rs))
+        last_roll_up = safe_float(roll_up.iloc[-1])
+        if last_roll_down is not None and last_roll_up is not None and not np.isnan(last_roll_down) and not np.isnan(last_roll_up):
+            if last_roll_down == 0:
+                indicators['rsi14'] = 100.0 if last_roll_up > 0 else 50.0
+            else:
+                last_rs = last_roll_up / last_roll_down
+                indicators['rsi14'] = 100 - (100 / (1 + last_rs))
         else:
             indicators['rsi14'] = 50
         
@@ -70,7 +78,8 @@ def calculate_indicators(df):
         # Stochastic Oscillator (14,3,3)
         low_14 = df['Low'].rolling(window=14).min()
         high_14 = df['High'].rolling(window=14).max()
-        k = 100 * ((df['Close'] - low_14) / (high_14 - low_14))
+        _stoch_denom = (high_14 - low_14).replace(0, np.nan)
+        k = (100 * ((df['Close'] - low_14) / _stoch_denom)).fillna(50)
         indicators['stoch_k'] = safe_float(k.rolling(window=3).mean().iloc[-1])
         indicators['stoch_d'] = safe_float(k.rolling(window=3).mean().rolling(window=3).mean().iloc[-1])
         
@@ -78,7 +87,7 @@ def calculate_indicators(df):
         if current_price:
             bb_range = safe_float(upper_band.iloc[-1] - lower_band.iloc[-1])
             if bb_range:
-                indicators['volatility'] = bb_range / current_price
+                indicators['volatility'] = bb_range / current_price if current_price != 0 else 0
         
         # Support and Resistance Levels
         window = 20  # Look back period for S/R levels
@@ -87,15 +96,14 @@ def calculate_indicators(df):
         
         # Find recent support levels (last 3 significant lows)
         support_levels = []
-        for i in range(len(df)-window, len(df)):
+        for i in range(max(1, len(df)-window), len(df)):
             if i > 0 and i+1 < len(df) and lows.iloc[i] < lows.iloc[i-1] and lows.iloc[i] < lows.iloc[i+1]:
                 support_levels.append(float(lows.iloc[i]))
         
         # Safely handle empty or short support_levels
         if len(support_levels) > 0:
-            # Take up to last 3 elements, convert to set to remove duplicates, then take up to 3
             unique_supports = list(set([round(x, 2) for x in support_levels[-min(3, len(support_levels)):]]))
-            indicators['support_levels'] = sorted(unique_supports)[:min(3, len(unique_supports))]
+            indicators['support_levels'] = sorted(unique_supports)[-min(3, len(unique_supports)):]
         else:
             indicators['support_levels'] = []
         
@@ -164,26 +172,6 @@ def compute_technical_score(indicators):
         elif ma_score < 0.3:
             analysis_points.append("Strong bearish trend across multiple timeframes")
     
-    # RSI (rsi)
-    rsi = indicators.get('rsi14')
-    if rsi is not None:
-        if rsi < 30:  # Oversold
-            rsi_score = 0.8
-        elif rsi > 70:  # Overbought
-            rsi_score = 0.2
-        else:  # Neutral
-            rsi_score = 0.5
-        score += rsi_score * TECHNICAL_WEIGHTS['rsi']
-    
-    # MACD Trend
-    macd = indicators.get('macd')
-    if macd is not None:
-        if macd > 0:  # Bullish
-            macd_score = 0.8
-        else:  # Bearish
-            macd_score = 0.2
-        score += macd_score * TECHNICAL_WEIGHTS['macd']
-    
     # Price Trend
     ema_keys = ['ema12', 'ema26']
     if all(k in indicators for k in ema_keys):
@@ -193,8 +181,7 @@ def compute_technical_score(indicators):
             trend_score = 0.2
         score += trend_score * TECHNICAL_WEIGHTS['trend']
     
-    # Momentum Indicators
-    # RSI
+    # RSI Momentum
     rsi = indicators.get('rsi14')
     if rsi is not None:
         if rsi < 30:  # Oversold
@@ -246,72 +233,79 @@ def compute_technical_score(indicators):
     
     # Volatility (lower is better)
     vol = indicators.get('volatility')
-    if vol is not None:
-        vol_score = max(0, 1 - vol)  # Normalize between 0 and 1
+    if vol is not None and not np.isnan(vol):
+        vol_score = max(0, 1 - vol)
         score += vol_score * TECHNICAL_WEIGHTS['volatility']
         if vol > 0.03:
             analysis_points.append("High volatility detected")
     
     # Combine analysis points into summary
     if len(analysis_points) > 3:
-        analysis_points = analysis_points[:3]  # Keep top 3 most significant points
+        analysis_points = analysis_points[:3]
     analysis_summary = " ".join(analysis_points)
     
-    return round(score / total_weight * 100, 2), analysis_summary
+    final = round(score / total_weight * 100, 2) if total_weight != 0 else 50.0
+    if np.isnan(final):
+        final = 50.0
+    return final, analysis_summary
 
 def generate_technical_summary(indicators):
     """
     Generate a comprehensive technical analysis summary
     Returns: dict with detailed technical analysis
     """
+    if not indicators or not isinstance(indicators, dict):
+        return {}
+    _g = indicators.get
+    _close = _g('Close', 0)
     summary = {
         'price_action': {
-            'current_price': indicators['Close'],
-            'daily_change': indicators['Daily_Change'],
-            'weekly_change': indicators['Weekly_Change'],
-            '52w_high': indicators['52W_High'],
-            '52w_low': indicators['52W_Low'],
-            'all_time_high': indicators['All_Time_High'],
-            'all_time_low': indicators['All_Time_Low']
+            'current_price': _close,
+            'daily_change': _g('Daily_Change', 0),
+            'weekly_change': _g('Weekly_Change', 0),
+            '52w_high': _g('52W_High', 0),
+            '52w_low': _g('52W_Low', 0),
+            'all_time_high': _g('All_Time_High', 0),
+            'all_time_low': _g('All_Time_Low', 0)
         },
         'moving_averages': {
             'position': {
-                'vs_20d': 'Above' if indicators['Close'] > indicators['sma20'] else 'Below',
-                'vs_50d': 'Above' if indicators['Close'] > indicators['sma50'] else 'Below',
-                'vs_100d': 'Above' if indicators['Close'] > indicators['sma100'] else 'Below',
-                'vs_200d': 'Above' if indicators['Close'] > indicators['sma200'] else 'Below'
+                'vs_20d': 'Above' if _close > (_g('sma20') or 0) else 'Below',
+                'vs_50d': 'Above' if _close > (_g('sma50') or 0) else 'Below',
+                'vs_100d': 'Above' if _close > (_g('sma100') or 0) else 'Below',
+                'vs_200d': 'Above' if _close > (_g('sma200') or 0) else 'Below'
             },
             'values': {
-                'sma20': indicators['sma20'],
-                'sma50': indicators['sma50'],
-                'sma100': indicators['sma100'],
-                'sma200': indicators['sma200']
+                'sma20': _g('sma20', 0),
+                'sma50': _g('sma50', 0),
+                'sma100': _g('sma100', 0),
+                'sma200': _g('sma200', 0)
             }
         },
         'momentum_indicators': {
-            'rsi': indicators.get('rsi14'),
+            'rsi': _g('rsi14', 50),
             'macd': {
-                'value': indicators['macd'],
-                'signal': indicators['macd_signal'],
-                'histogram': indicators['macd_hist']
+                'value': _g('macd', 0),
+                'signal': _g('macd_signal', 0),
+                'histogram': _g('macd_hist', 0)
             },
             'stochastic': {
-                'k': indicators['stoch_k'],
-                'd': indicators['stoch_d']
+                'k': _g('stoch_k', 50),
+                'd': _g('stoch_d', 50)
             }
         },
         'support_resistance': {
-            'support': indicators.get('support_levels', []),
-            'resistance': indicators.get('resistance_levels', [])
+            'support': _g('support_levels', []),
+            'resistance': _g('resistance_levels', [])
         },
         'volume_analysis': {
-            'current_volume': indicators['current_volume'],
-            'volume_sma20': indicators['volume_sma20'],
-            'trend': indicators['volume_trend']
+            'current_volume': _g('current_volume', 0),
+            'volume_sma20': _g('volume_sma20', 0),
+            'trend': _g('volume_trend', 'NEUTRAL')
         },
         'trend_analysis': {
-            'primary_trend': indicators['trend'],
-            'volatility': indicators['volatility']
+            'primary_trend': _g('trend', 'NEUTRAL'),
+            'volatility': _g('volatility', 0)
         }
     }
     

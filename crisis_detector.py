@@ -293,7 +293,7 @@ class CrisisDetector:
         # Severity scale: 1 = 33%, 2 = 67%, 3 = 100%
         scale = severity / 3.0
 
-        symbol_upper = symbol.upper().replace('.NS', '').strip()
+        symbol_upper = (str(symbol) if symbol else '').upper().replace('.NS', '').strip()
         sector_upper = (sector or '').upper()
 
         # ── Symbol-level overrides (independent of yfinance sector tag) ─────

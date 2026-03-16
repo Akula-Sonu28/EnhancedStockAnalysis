@@ -17,10 +17,8 @@ PERFORMANCE TARGET: Match the 500-stock backtest results
 - Win rate: 90% for top-20 stocks
 """
 
-import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -32,19 +30,6 @@ class HybridOptimizedScoringEngine:
     def __init__(self):
         self.version = "4.0 - HYBRID OPTIMIZED"
         self.target_correlation = 0.401
-        
-        # OPTIMIZED WEIGHTS (based on correlation analysis)
-        self.component_weights = {
-            'fundamental_quality': 0.45,      # DOUBLED (was +0.429 correlation)
-            'momentum_technical': 0.25,       # NEW - proven momentum indicators
-            'volume_strength': 0.15,          # NEW - volume-based signals
-            'sector_momentum': 0.10,          # NEW - sector-relative performance  
-            'risk_adjustment': 0.05           # NEW - risk-adjusted scoring
-        }
-        
-        # REMOVED COMPONENTS (harmful to performance):
-        # - contrarian_technical (-0.541 correlation)
-        # - value_opportunity (-0.237 correlation)
         
         # Sector performance multipliers (from 500-stock backtest)
         self.sector_multipliers = {
@@ -152,12 +137,12 @@ class HybridOptimizedScoringEngine:
         Regime-aware: RSI > 70 is penalized in bear markets.
         """
         try:
-            rsi = self._safe_float(stock_data.get('rsi'), 50)
-            price_change_1m = self._safe_float(stock_data.get('price_change_1m'), 0)
+            rsi = self._safe_float(stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', stock_data.get('rsi'))), 50)
+            price_change_20d = self._safe_float(stock_data.get('enhanced_price_change_20d', stock_data.get('price_change_1m')), 0)
             current_price = self._safe_float(stock_data.get('current_price'), 100)
-            sma_50 = self._safe_float(stock_data.get('sma_50'), current_price)
+            sma_50 = self._safe_float(stock_data.get('sma_50', stock_data.get('ma_50')), current_price)
             
-            _regime = (market_regime or stock_data.get('market_regime', '')).upper()
+            _regime = str(market_regime or stock_data.get('market_regime') or '').upper()
             _is_bear = _regime in ('BEAR', 'BEARISH')
 
             momentum_components = []
@@ -188,15 +173,15 @@ class HybridOptimizedScoringEngine:
             momentum_components.append(rsi_score)
             
             # 2. Price Momentum 1M (35 points)
-            if price_change_1m > 15:
+            if price_change_20d > 15:
                 price_1m_score = 35
-            elif price_change_1m > 10:
+            elif price_change_20d > 10:
                 price_1m_score = 30
-            elif price_change_1m > 5:
+            elif price_change_20d > 5:
                 price_1m_score = 25
-            elif price_change_1m > 0:
+            elif price_change_20d > 0:
                 price_1m_score = 20
-            elif price_change_1m > -5:
+            elif price_change_20d > -5:
                 price_1m_score = 15
             else:
                 price_1m_score = 5
@@ -228,7 +213,7 @@ class HybridOptimizedScoringEngine:
         try:
             volume = stock_data.get('volume', 1000000)
             volume_sma_20 = stock_data.get('volume_sma_20', volume)
-            volume_ratio = stock_data.get('volume_ratio', 1.0)
+            volume_ratio = self._safe_float(stock_data.get('enhanced_volume_ratio', stock_data.get('volume_ratio')), 1.0)
             
             # Volume surge indicates institutional interest
             if volume_ratio > 3.0:
@@ -250,7 +235,7 @@ class HybridOptimizedScoringEngine:
     def calculate_sector_momentum_score(self, symbol, stock_data=None):
         """Sector-relative performance scoring using yfinance sector field"""
         try:
-            sector = (stock_data.get('sector', '') if stock_data else '').lower()
+            sector = str((stock_data.get('sector') or '') if stock_data else '').lower()
 
             sector_scores = {
                 'financial services': 85,
@@ -277,7 +262,7 @@ class HybridOptimizedScoringEngine:
         Risk-adjusted scoring: volatility penalty + max-drawdown penalty.
         """
         try:
-            volatility = self._safe_float(stock_data.get('volatility'), 25)
+            volatility = self._safe_float(stock_data.get('volatility', stock_data.get('volatility_20d')), 25)
 
             if volatility < 15:
                 risk_score = 100
@@ -316,7 +301,10 @@ class HybridOptimizedScoringEngine:
             hist = nifty.history(period="1mo")
             
             if len(hist) > 5:
-                recent_change = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-5]) / hist['Close'].iloc[-5]) * 100
+                _denom = hist['Close'].iloc[-5]
+                if _denom == 0 or np.isnan(_denom):
+                    return 'neutral'
+                recent_change = ((hist['Close'].iloc[-1] - _denom) / _denom) * 100
                 
                 if recent_change > 5:
                     return 'bullish'
@@ -365,25 +353,11 @@ class HybridOptimizedScoringEngine:
         it overrides the internal _REGIME_WEIGHTS lookup.
         """
         try:
-            # Calculate all component scores
-            fundamental_score = self.calculate_fundamental_quality_score(stock_data)
-            momentum_score = self.calculate_momentum_technical_score(stock_data)
-            volume_score = self.calculate_volume_strength_score(stock_data)
-            # GAP-2 FIX: Use live sector performance adj if pre-computed by main analyzer
-            # (stored in stock_data['sector_performance_adj'] via _compute_sector_adjustment).
-            # Maps ±7 pts → 0-100: (−7→0, 0→50, +7→100) so neutral sectors score 50.
-            # Falls back to historical hardcoded lookup when running standalone / backtest.
-            _live_sector = stock_data.get('sector_performance_adj')
-            if _live_sector is not None:
-                sector_score = max(0.0, min(100.0, (float(_live_sector) + 7.0) / 14.0 * 100.0))
-            else:
-                sector_score = self.calculate_sector_momentum_score(symbol, stock_data)
-            risk_score = self.calculate_risk_adjustment_score(stock_data)
+            if stock_data is None:
+                return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': 'stock_data is None'}
 
-            # GAP-C2 FIX: Prefer the regime already detected by MarketRegimeDetector
-            # (stored in stock_data['market_regime'] = 'BULL'/'BEAR'/'SIDEWAYS').
-            # Fall back to internal quick-detect only when running standalone/backtest.
-            _raw_regime = stock_data.get('market_regime', '').upper()
+            # Resolve regime FIRST so momentum can use it for bear-RSI penalty
+            _raw_regime = str(stock_data.get('market_regime') or '').upper()
             if _raw_regime in ('BULL', 'BULLISH'):
                 market_regime = 'bullish'
             elif _raw_regime in ('BEAR', 'BEARISH'):
@@ -391,15 +365,26 @@ class HybridOptimizedScoringEngine:
             elif _raw_regime in ('SIDEWAYS', 'NEUTRAL', 'RANGE'):
                 market_regime = 'neutral'
             else:
-                # Fallback: run internal quick detection (standalone / backtest use)
                 market_regime = self.detect_market_regime()
+
+            # Calculate all component scores (momentum receives regime)
+            fundamental_score = self.calculate_fundamental_quality_score(stock_data)
+            momentum_score = self.calculate_momentum_technical_score(stock_data, market_regime=market_regime)
+            volume_score = self.calculate_volume_strength_score(stock_data)
+            _live_sector = self._safe_float(stock_data.get('sector_performance_adj'), None)
+            if _live_sector is not None:
+                sector_score = max(0.0, min(100.0, (_live_sector + 7.0) / 14.0 * 100.0))
+            else:
+                sector_score = self.calculate_sector_momentum_score(symbol, stock_data)
+            risk_score = self.calculate_risk_adjustment_score(stock_data)
 
             # Select regime-adaptive component weights
             # Prefer externally supplied adaptive weights (from AdaptiveMarketRegimeStrategy)
+            _regime_defaults = self._REGIME_WEIGHTS.get(market_regime, self._REGIME_WEIGHTS['neutral'])
             if adaptive_weights and isinstance(adaptive_weights, dict):
-                weights = adaptive_weights
+                weights = {k: adaptive_weights.get(k, _regime_defaults[k]) for k in _regime_defaults}
             else:
-                weights = self._REGIME_WEIGHTS.get(market_regime, self._REGIME_WEIGHTS['neutral'])
+                weights = _regime_defaults
 
             # Apply regime-adaptive component weights
             weighted_score = (
@@ -411,7 +396,6 @@ class HybridOptimizedScoringEngine:
             )
 
             # Apply sector multiplier
-            base_symbol = symbol.replace('.NS', '')
             sector_multiplier = self._get_sector_multiplier(stock_data)
             adjusted_score = weighted_score * sector_multiplier
 
@@ -421,6 +405,8 @@ class HybridOptimizedScoringEngine:
 
             # Ensure score stays within 0-100 range
             final_score = max(0, min(100, final_score))
+            if np.isnan(final_score):
+                final_score = 50.0
 
             return {
                 'hybrid_score': round(final_score, 1),
@@ -446,7 +432,7 @@ class HybridOptimizedScoringEngine:
     
     def _get_sector_multiplier(self, stock_data):
         """Get sector-specific multiplier using yfinance sector field"""
-        sector = stock_data.get('sector', '').lower()
+        sector = str(stock_data.get('sector', '') or '').lower()
 
         sector_map = {
             'financial services': 'Banking',
@@ -472,7 +458,10 @@ class HybridOptimizedScoringEngine:
         """
         Generate investment recommendation based on hybrid score
         """
-        score = hybrid_scores['hybrid_score']
+        if not hybrid_scores or not isinstance(hybrid_scores, dict):
+            return {'recommendation': '🔴 AVOID', 'confidence': 'LOW', 'target_return': 'N/A',
+                    'reason': 'Invalid score data', 'score': 0, 'quintile': 'N/A'}
+        score = self._safe_float(hybrid_scores.get('hybrid_score'), 0)
         
         # Recommendation thresholds (based on quintile analysis)
         if score >= 85:  # Top quintile (Q5)
@@ -544,7 +533,7 @@ if __name__ == "__main__":
         'debt_to_equity': 45,
         'market_cap': 50000000000,
         'rsi': 65,
-        'price_change_1m': 8.5,
+        'price_change_20d': 8.5,
         'current_price': 150,
         'sma_50': 140,
         'volume': 2000000,

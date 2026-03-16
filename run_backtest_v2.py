@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import glob
+import logging
 
 # Add current directory to path
 sys.path.append('.')
@@ -89,11 +90,18 @@ class BacktestValidator:
             return self._fund_cache[symbol]
         try:
             info = yf.Ticker(f"{symbol}.NS").info
+            def _sf_bt(v, d):
+                if v is None: return d
+                try:
+                    f = float(v)
+                    return d if (np.isnan(f) or np.isinf(f)) else f
+                except (TypeError, ValueError):
+                    return d
             data = {
-                'pe_ratio':       float(info.get('trailingPE')         or 20),
-                'roe':            float((info.get('returnOnEquity') or 0.15) * 100),
-                'debt_to_equity': float(info.get('debtToEquity')       or 0.5),
-                'market_cap':     float(info.get('marketCap')          or 1e12),
+                'pe_ratio':       _sf_bt(info.get('trailingPE'), 20),
+                'roe':            _sf_bt(info.get('returnOnEquity'), 0.15) * 100,
+                'debt_to_equity': _sf_bt(info.get('debtToEquity'), 0.5),
+                'market_cap':     _sf_bt(info.get('marketCap'), 1e12),
             }
         except Exception:
             data = {'pe_ratio': 20, 'roe': 15, 'debt_to_equity': 0.5, 'market_cap': 1e12}
@@ -130,7 +138,7 @@ class BacktestValidator:
                 # Ensure both are naive or both are aware
                 # yfinance returns tz-aware (usually local market time). cutoff_date is currently naive (datetime.now())
                 # Let's make hist index naive
-                hist_index_naive = hist.index.tz_localize(None)
+                hist_index_naive = hist.index.tz_localize(None) if hist.index.tz is not None else hist.index
                 
                 if hist_index_naive[-1] < cutoff_date:
                     # Stock might be delisted or data missing
@@ -144,6 +152,8 @@ class BacktestValidator:
                 # Slice data for RETURN (cutoff to now)
                 # Actually we just need price at cutoff and price at end
                 start_price = scoring_hist['Close'].iloc[-1]
+                if start_price == 0 or np.isnan(start_price):
+                    continue
                 
                 # Get max price in the future window (or price at end)
                 # Let's check Return at end of period
@@ -153,7 +163,7 @@ class BacktestValidator:
                     if future_slice.empty: continue
                     
                     end_price = future_slice['Close'].iloc[-1]
-                    actual_return = (end_price - start_price) / start_price * 100
+                    actual_return = (end_price - start_price) / start_price * 100 if start_price != 0 else 0
                     
                     # PREPARE DATA FOR SCORING ENGINE
                     fundamentals = self.fetch_fundamentals(symbol)  # GAP-5: real PE/ROE/Debt
@@ -179,7 +189,7 @@ class BacktestValidator:
                                 'return': actual_return
                             })
                         except Exception as e:
-                            pass
+                            logging.warning(f"Engine {name} failed for {symbol}: {e}")
                             
                 except Exception as e:
                     print(f"Error processing {symbol}: {e}")
@@ -204,17 +214,22 @@ class BacktestValidator:
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        loss = loss.replace(0, np.nan)
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
+        rsi = (100 - (100 / (1 + rs))).fillna(50.0)
         rsi_val = rsi.iloc[-1]
+        if np.isnan(rsi_val):
+            rsi_val = 50.0
         
         # Returns
-        price_change_1m = (current_price / close.iloc[-22] - 1) * 100 if len(close) > 22 else 0
-        price_change_1w = (current_price / close.iloc[-6] - 1) * 100 if len(close) > 6 else 0
+        _denom_22 = close.iloc[-22] if len(close) > 22 else 0
+        price_change_1m = ((current_price / _denom_22 - 1) * 100) if (len(close) > 22 and _denom_22 != 0 and not np.isnan(_denom_22)) else 0
+        _denom_6 = close.iloc[-6] if len(close) > 6 else 0
+        price_change_1w = ((current_price / _denom_6 - 1) * 100) if (len(close) > 6 and _denom_6 != 0 and not np.isnan(_denom_6)) else 0
         
         # Volume
         vol_sma_20 = volume.rolling(20).mean().iloc[-1]
-        vol_ratio = volume.iloc[-1] / vol_sma_20 if vol_sma_20 else 1.0
+        vol_ratio = volume.iloc[-1] / vol_sma_20 if (vol_sma_20 and not np.isnan(vol_sma_20)) else 1.0
         
         # Volatility (20d)
         volatility = close.pct_change().rolling(20).std().iloc[-1] * 100
@@ -226,6 +241,7 @@ class BacktestValidator:
             'real_rsi': rsi_val, # for hybrid
             'enhanced_rsi_14': rsi_val, # for improved
             'price_change_1m': price_change_1m,
+            'enhanced_price_change_20d': price_change_1m,
             'price_change_1w': price_change_1w,
             'volume': volume.iloc[-1],
             'volume_sma_20': vol_sma_20,
@@ -276,7 +292,7 @@ class WalkForwardBacktest:
                     if hist.empty or len(hist) < 60:
                         continue
 
-                    idx = hist.index.tz_localize(None)
+                    idx = hist.index.tz_localize(None) if hist.index.tz is not None else hist.index
                     scoring_hist = hist[idx <= score_date]
                     if len(scoring_hist) < 50:
                         continue
@@ -286,6 +302,8 @@ class WalkForwardBacktest:
                         continue
 
                     start_price = scoring_hist['Close'].iloc[-1]
+                    if start_price == 0 or np.isnan(start_price):
+                        continue
                     end_price = future_hist['Close'].iloc[-1]
                     actual_return = (end_price - start_price) / start_price * 100
 
@@ -312,8 +330,8 @@ class WalkForwardBacktest:
                                 'start_price': start_price,
                                 'end_price': end_price,
                             })
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logging.warning(f"Walk-forward engine failed for {symbol}: {e}")
                 except Exception as e:
                     print(f"  Skip {symbol}: {e}")
 

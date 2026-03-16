@@ -140,7 +140,9 @@ class VolumeAnalyzer:
             # Calculate VWAP
             data = data.copy()
             data['typical_price'] = (data['High'] + data['Low'] + data['Close']) / 3
-            data['vwap'] = (data['typical_price'] * data['Volume']).cumsum() / data['Volume'].cumsum()
+            vol_cumsum = data['Volume'].cumsum()
+            vol_cumsum = vol_cumsum.replace(0, np.nan)
+            data['vwap'] = ((data['typical_price'] * data['Volume']).cumsum() / vol_cumsum).ffill().fillna(data['typical_price'])
             
             current_price = data['Close'].iloc[-1]
             current_vwap = data['vwap'].iloc[-1]
@@ -150,6 +152,8 @@ class VolumeAnalyzer:
             vwap_std = data['vwap_diff'].std()
             
             # Determine position relative to VWAP
+            if current_vwap == 0:
+                current_vwap = current_price if current_price != 0 else 1.0
             distance_pct = ((current_price - current_vwap) / current_vwap) * 100
             
             if abs(distance_pct) < 0.5:
@@ -160,7 +164,10 @@ class VolumeAnalyzer:
                 position = 'BELOW_VWAP'
             
             # Calculate VWAP trend (is VWAP rising or falling?)
-            vwap_slope = (data['vwap'].iloc[-1] - data['vwap'].iloc[-10]) / data['vwap'].iloc[-10]
+            _vwap_b = data['vwap'].iloc[-10] if len(data) >= 10 else data['vwap'].iloc[0]
+            _vwap_base = _vwap_b if (not pd.isna(_vwap_b) and _vwap_b != 0) else 1.0
+            _vwap_top = data['vwap'].iloc[-1]
+            vwap_slope = ((_vwap_top - _vwap_base) / _vwap_base) if not pd.isna(_vwap_top) else 0.0
             if vwap_slope > 0.01:
                 trend = 'BULLISH'
             elif vwap_slope < -0.01:
@@ -196,8 +203,10 @@ class VolumeAnalyzer:
             # Estimate buy/sell volume based on price action
             # Up days = buying pressure, down days = selling pressure
             data['price_change'] = data['Close'].diff()
-            data['buy_volume'] = np.where(data['price_change'] > 0, data['Volume'], 0)
-            data['sell_volume'] = np.where(data['price_change'] < 0, data['Volume'], 0)
+            data['buy_volume'] = np.where(data['price_change'] > 0, data['Volume'],
+                                          np.where(data['price_change'] == 0, data['Volume'] * 0.5, 0))
+            data['sell_volume'] = np.where(data['price_change'] < 0, data['Volume'],
+                                           np.where(data['price_change'] == 0, data['Volume'] * 0.5, 0))
             
             # Calculate recent buy/sell ratio (last 20 days)
             recent_buy_vol = data['buy_volume'].tail(20).sum()
@@ -319,8 +328,12 @@ class VolumeAnalyzer:
             bins = np.linspace(price_min, price_max, 21)
             
             # Assign volume to price bins
-            data['price_bin'] = pd.cut(data['Close'], bins=bins)
+            data['price_bin'] = pd.cut(data['Close'], bins=bins, include_lowest=True)
             volume_profile = data.groupby('price_bin')['Volume'].sum().sort_values(ascending=False)
+            volume_profile = volume_profile[volume_profile > 0]
+            
+            if volume_profile.empty:
+                return self._empty_volume_profile(data)
             
             # Point of Control (POC) - price level with highest volume
             poc_bin = volume_profile.index[0]
@@ -353,7 +366,7 @@ class VolumeAnalyzer:
                 shape = 'NORMAL'
             elif profile_std / profile_mean < 0.5:
                 shape = 'NORMAL'  # Balanced distribution
-            elif volume_profile.iloc[0] > volume_profile.iloc[1] * 2:
+            elif len(volume_profile) >= 2 and volume_profile.iloc[0] > volume_profile.iloc[1] * 2:
                 shape = 'SKEWED'  # Heavily concentrated
             else:
                 shape = 'BIMODAL'  # Multiple peaks
@@ -413,7 +426,7 @@ class VolumeAnalyzer:
             all_levels = support_levels + resistance_levels
             if all_levels:
                 nearest_zone = min(all_levels, key=lambda x: abs(x - current_price))
-                zone_distance_pct = ((current_price - nearest_zone) / nearest_zone) * 100
+                zone_distance_pct = ((current_price - nearest_zone) / nearest_zone) * 100 if nearest_zone != 0 else 0
             else:
                 nearest_zone = current_price
                 zone_distance_pct = 0
@@ -493,6 +506,8 @@ class VolumeAnalyzer:
                 signals.append(('PROFILE', 'BALANCED'))
             
             # Clamp score to 0-100
+            if isinstance(score, float) and np.isnan(score):
+                score = 50
             score = max(0, min(100, score))
             
             # Generate signal
@@ -554,9 +569,11 @@ class VolumeAnalyzer:
         """
         try:
             # Calculate adjustment based on volume composite score
-            volume_score = volume_data.get('volume_composite_score', 50)
+            _vs = volume_data.get('volume_composite_score', 50)
+            volume_score = 50 if (_vs is None or (isinstance(_vs, float) and np.isnan(_vs))) else float(_vs)
             volume_signal = volume_data.get('volume_signal', 'HOLD')
-            volume_confidence = volume_data.get('volume_confidence', 50)
+            _vc = volume_data.get('volume_confidence', 50)
+            volume_confidence = 50 if (_vc is None or (isinstance(_vc, float) and np.isnan(_vc))) else float(_vc)
             
             # Adjustment calculation (max ±10 points)
             # Formula: (volume_score - 50) * 0.2 * (confidence / 100)

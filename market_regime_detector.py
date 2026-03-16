@@ -75,6 +75,7 @@ class MarketRegimeDetector:
                 volatility_signal * weights['volatility'] +
                 breadth_signal * weights['breadth']
             )
+            regime_score = max(-1.0, min(1.0, regime_score))
             
             # P4-01: Multi-index consensus — adjust confidence
             secondary_scores = self._get_secondary_index_scores(period_days)
@@ -196,6 +197,8 @@ class MarketRegimeDetector:
         
         current_vol = volatility.iloc[-1]
         avg_vol = volatility.mean()
+        if np.isnan(current_vol) or np.isnan(avg_vol) or avg_vol == 0:
+            return 0.0
         
         # Normalize: below average = positive, above average = negative
         if current_vol < avg_vol * 0.8:
@@ -224,7 +227,9 @@ class MarketRegimeDetector:
         current_rsi = rsi.iloc[-1]
         
         # Calculate 20-day rate of change
-        roc_20 = ((close.iloc[-1] - close.iloc[-20]) / close.iloc[-20]) * 100
+        _close_20_raw = close.iloc[-20] if len(close) >= 20 else close.iloc[0]
+        _close_20 = 1.0 if (_close_20_raw == 0 or pd.isna(_close_20_raw)) else _close_20_raw
+        roc_20 = ((close.iloc[-1] - _close_20) / _close_20) * 100
         
         # Combine RSI and ROC
         rsi_score = (current_rsi - 50) / 50  # Normalize to -1 to +1
@@ -289,7 +294,10 @@ class MarketRegimeDetector:
         try:
             vix_data = self._get_index_data(self.india_vix_symbol, 5)
             if vix_data is not None and not vix_data.empty:
-                return vix_data['Close'].iloc[-1]
+                _vix_val = vix_data['Close'].iloc[-1]
+                if pd.isna(_vix_val) or np.isinf(_vix_val):
+                    return 15.0
+                return float(_vix_val)
         except:
             pass
         
@@ -315,6 +323,8 @@ class MarketRegimeDetector:
             if abs(idx) < len(close):
                 price = close.iloc[idx]
                 ma = ma_50.iloc[idx]
+                if pd.isna(price) or pd.isna(ma):
+                    continue
                 recent_trend.append('UP' if price > ma else 'DOWN')
         
         # All same direction = STABLE
@@ -377,7 +387,8 @@ class MarketRegimeDetector:
         
         current = df['Close'].iloc[-1]
         past = df['Close'].iloc[-days]
-        
+        if past == 0 or pd.isna(past):
+            return 0.0
         return ((current - past) / past) * 100
     
     def _get_default_regime(self) -> Dict:
@@ -414,9 +425,9 @@ class MarketRegimeDetector:
         Returns:
             Dict with adjusted score and explanations
         """
-        regime = regime_data['regime']
-        regime_score = regime_data['regime_score']
-        vix = regime_data['vix_level']
+        regime = regime_data.get('regime', 'UNKNOWN')
+        regime_score = regime_data.get('regime_score', 50)
+        vix = regime_data.get('vix_level', 15.0)
         
         if regime == 'UNKNOWN':
             return {
@@ -509,7 +520,7 @@ class MarketRegimeDetector:
             'adjusted_score': adjusted_score,
             'regime_adjustment': adjustment,
             'adjustment_reasons': adjustments,
-            'regime_context': f"{regime} market ({regime_data['regime_strength']})"
+            'regime_context': f"{regime} market ({regime_data.get('regime_strength', 'MODERATE')})"
         }
 
 

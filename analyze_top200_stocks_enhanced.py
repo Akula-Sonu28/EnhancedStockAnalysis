@@ -45,12 +45,22 @@ import sqlite3
 import hashlib
 warnings.filterwarnings('ignore')
 
+
+def _nv(val, default=0):
+    """NaN-safe value: returns default if val is None, NaN, or inf."""
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        return default if (np.isnan(f) or np.isinf(f)) else f
+    except (TypeError, ValueError):
+        return default
+
+
 # Use the proper import paths for each module
 from src.enhanced_fundamental_analyzer import get_comprehensive_stock_data
 from enhanced_technical_analyzer import get_short_term_technical_analysis
 from src.technical_analyzer import get_ohlcv, calculate_indicators, compute_technical_score
-from src.excel_exporter import ExcelExporter, ExcelReportGenerator
-from portfolio.allocation_analyzer import PortfolioAllocationAnalyzer
 from corrected_scoring_engine import CorrectedScoringEngine
 from improved_scoring_engine import ImprovedScoringEngine  # IMPROVED: Backtest validated +46% correlation
 from hybrid_optimized_scoring import HybridOptimizedScoringEngine  # 🚀 LATEST: V4.0 - Multi-market validated
@@ -116,8 +126,11 @@ class StockDataBundle:
                     break
 
         # Compute date-range slices — no additional HTTP calls
-        _tz = self.hist_5y.index.tz if not self.hist_5y.empty else None
-        _now = pd.Timestamp.now(tz=_tz)
+        if not self.hist_5y.empty and self.hist_5y.index.tz is not None:
+            _tz = self.hist_5y.index.tz
+        else:
+            _tz = None
+        _now = pd.Timestamp.now(tz=_tz) if _tz else pd.Timestamp.now(tz='UTC')
 
         def _tail(months: int) -> pd.DataFrame:
             if self.hist_5y.empty:
@@ -676,6 +689,8 @@ class EnhancedTop200StockAnalyzer:
             quality_score -= 5
         
         # Ensure score is between 0 and 100
+        if isinstance(quality_score, float) and np.isnan(quality_score):
+            quality_score = 50.0
         return max(0, min(100, quality_score))
     
     def _calculate_optimized_score(self, stock_data: dict) -> float:
@@ -713,7 +728,8 @@ class EnhancedTop200StockAnalyzer:
             try:
                 if value is None or value == '':
                     return float(default)
-                return float(value)
+                f = float(value)
+                return float(default) if (np.isnan(f) or np.isinf(f)) else f
             except (ValueError, TypeError):
                 return float(default)
         
@@ -810,6 +826,7 @@ class EnhancedTop200StockAnalyzer:
         if quarterly_revenue_growth > revenue_growth:
             growth_score += 5  # Accelerating!
         
+        growth_score = min(25, growth_score)
         growth_final = growth_score * 0.25  # 25% of total score
         
         # ========================================================================
@@ -922,8 +939,8 @@ class EnhancedTop200StockAnalyzer:
         # Based on backtest: Banking/NBFC win, IT loses consistently
         # ========================================================================
         
-        sector = stock_data.get('sector', '').upper()
-        symbol = stock_data.get('symbol', '').upper()
+        sector = str(stock_data.get('sector') or '').upper()
+        symbol = str(stock_data.get('symbol') or '').upper()
         
         # Banking/NBFC Boost (+10 points) - Proven winners: CANBK +6.6%, UNIONBANK +5.6%
         banking_sectors = ['BANK', 'FINANCIAL SERVICES', 'FINANCE', 'NBFC']
@@ -978,7 +995,8 @@ class EnhancedTop200StockAnalyzer:
             total_score = min(100, total_score)
         
         # Cap at 0-100
-        return max(0, min(100, total_score))
+        total_score = max(0, min(100, total_score))
+        return total_score if not np.isnan(total_score) else 50.0
     
     def apply_confidence_bands(self, score: float, stock_data: dict) -> dict:
         """
@@ -1107,6 +1125,7 @@ class EnhancedTop200StockAnalyzer:
                              if h.get('sector') == stock_sector]
             sector_count = len(sector_holdings)
             total_holdings = len(current_holdings)
+            sector_concentration = 0.0
             
             if total_holdings > 0:
                 sector_concentration = sector_count / total_holdings
@@ -1180,7 +1199,7 @@ class EnhancedTop200StockAnalyzer:
                 sector_concentration_level = 'low'
             
             return {
-                'portfolio_context_score': max(0, min(100, context_score)),
+                'portfolio_context_score': max(0, min(100, _nv(context_score, 50))),
                 'diversification_benefit': diversification_benefit,
                 'sector_concentration': sector_concentration_level,
                 'portfolio_fit': portfolio_fit,
@@ -1411,7 +1430,7 @@ class EnhancedTop200StockAnalyzer:
             ratio_validations = {
                 'pe_ratio': (0, 200),      # P/E ratio bounds
                 'pb_ratio': (0, 20),       # P/B ratio bounds  
-                'debt_to_equity': (0, 10), # Debt-to-equity bounds
+                'debt_to_equity': (0, 500), # Debt-to-equity bounds (yfinance returns percentage)
                 'current_ratio': (0, 10),  # Current ratio bounds
                 'roe': (-50, 100),         # ROE percentage bounds
                 'operating_margin': (-50, 100), # Operating margin bounds
@@ -1485,7 +1504,7 @@ class EnhancedTop200StockAnalyzer:
                 logging.warning(f"Skipping {symbol}: data validation failed — {bundle.quality_warnings}")
                 return {
                     'symbol': symbol,
-                    'company_name': self.company_names.get(symbol, symbol),
+                    'company_name': self.company_names.get(symbol) or symbol,
                     'status': 'data_invalid',
                     'quality_warnings': bundle.quality_warnings,
                     'overall_score': 0,
@@ -1501,7 +1520,7 @@ class EnhancedTop200StockAnalyzer:
 
             stock_data = {
                 'symbol': symbol,
-                'company_name': self.company_names.get(symbol, symbol),
+                'company_name': self.company_names.get(symbol) or symbol,
                 'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'status': 'processing',
                 'quality_warnings': bundle.quality_warnings
@@ -1763,18 +1782,24 @@ class EnhancedTop200StockAnalyzer:
                                 self.current_market_regime = 'SIDEWAYS'
                                 logging.warning(f"[REGIME] Fallback detection failed: {_re} — using SIDEWAYS")
                 
-                regime_data = self.market_regime if self.market_regime else {'regime': 'SIDEWAYS', 'regime_strength': 'MODERATE'}
+                regime_data = self.market_regime if self.market_regime else {
+                    'regime': 'SIDEWAYS', 'regime_strength': 'MODERATE',
+                    'regime_score': 0.0, 'regime_confidence': 0.0,
+                    'market_sentiment': 'NEUTRAL', 'risk_level': 'MEDIUM',
+                    'trading_recommendation': 'SELECTIVE', 'vix_level': 15.0,
+                    'current_nifty': 0.0
+                }
                 
                 stock_data.update({
-                    'market_regime': regime_data['regime'],
-                    'regime_strength': regime_data['regime_strength'],
-                    'regime_score': regime_data['regime_score'],
-                    'regime_confidence': regime_data['regime_confidence'],
-                    'market_sentiment': regime_data['market_sentiment'],
-                    'market_risk_level': regime_data['risk_level'],
-                    'trading_recommendation': regime_data['trading_recommendation'],
-                    'vix_level': regime_data['vix_level'],
-                    'nifty_level': regime_data['current_nifty']
+                    'market_regime': regime_data.get('regime', 'UNKNOWN'),
+                    'regime_strength': regime_data.get('regime_strength', 'MODERATE'),
+                    'regime_score': regime_data.get('regime_score', 50),
+                    'regime_confidence': regime_data.get('regime_confidence', 'MEDIUM'),
+                    'market_sentiment': regime_data.get('market_sentiment', 'NEUTRAL'),
+                    'market_risk_level': regime_data.get('risk_level', 'MODERATE'),
+                    'trading_recommendation': regime_data.get('trading_recommendation', 'HOLD'),
+                    'vix_level': regime_data.get('vix_level', 15.0),
+                    'nifty_level': regime_data.get('current_nifty', 0)
                 })
                 
                 stock_data['regime_detection_status'] = 'success'
@@ -1916,10 +1941,11 @@ class EnhancedTop200StockAnalyzer:
             mtf_score = stock_data.get('mtf_composite_score', 50)  # Multi-timeframe score
             institutional_score = stock_data.get('institutional_score', 50)  # NEW: Institutional flow score
             ml_confidence = stock_data.get('ml_confidence', 0)  # PHASE 2: ML confidence score
-            pattern_confidence = stock_data.get('pattern_confidence', 0.0)  # PHASE 2: Pattern recognition confidence
+            _pconf_raw = stock_data.get('pattern_confidence', 0.0)
+            pattern_confidence = float(_pconf_raw) if _pconf_raw is not None and not (isinstance(_pconf_raw, float) and np.isnan(_pconf_raw)) else 0.0
             
             # Convert pattern signal to score (0-100 scale)
-            pattern_signal = stock_data.get('pattern_dominant_signal', 'neutral')
+            pattern_signal = str(stock_data.get('pattern_dominant_signal', 'neutral') or 'neutral').lower()
             pattern_bullish = stock_data.get('pattern_bullish_score', 0.0)
             pattern_bearish = stock_data.get('pattern_bearish_score', 0.0)
             
@@ -2022,11 +2048,11 @@ class EnhancedTop200StockAnalyzer:
             context_weight = 0.15  # 15% weight to portfolio context
             
             # Calculate Phase 1 adjusted score
-            base_score = stock_data.get('overall_score_with_value', 50)
-            quality_adjustment = (data_quality_score - 50) * quality_weight
-            context_adjustment = (stock_data.get('portfolio_context_score', 100) - 100) * context_weight
+            base_score = _nv(stock_data.get('overall_score_with_value'), 50)
+            quality_adjustment = (_nv(data_quality_score, 50) - 50) * quality_weight
+            context_adjustment = (_nv(stock_data.get('portfolio_context_score'), 100) - 100) * context_weight
             
-            phase1_adjusted_score = base_score + quality_adjustment + context_adjustment
+            phase1_adjusted_score = _nv(base_score + quality_adjustment + context_adjustment, 50)
             stock_data['phase1_adjusted_score'] = max(0, min(100, phase1_adjusted_score))
             stock_data['phase1_quality_adjustment'] = quality_adjustment
             stock_data['phase1_context_adjustment'] = context_adjustment
@@ -2088,7 +2114,7 @@ class EnhancedTop200StockAnalyzer:
                                               'AVERAGE': 1.0, 'BELOW_AVERAGE': 0.7, 'LOW': 0.5, 'VERY_LOW': 0.3}
                                              .get(str(stock_data.get('volume_trend', 'AVERAGE')).upper(), 1.0)
                                              if isinstance(stock_data.get('volume_trend'), str)
-                                             else float(stock_data.get('volume_trend', 1.0) or 1.0))
+                                             else _nv(stock_data.get('volume_trend'), 1.0))
                         },
                         'analyst_sentiment': {
                             'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
@@ -2127,9 +2153,8 @@ class EnhancedTop200StockAnalyzer:
                     stock_data['sentiment_context'] = 'Error'
             
             # PHASE 2 - TASK 5: Apply Volume Profile & Order Flow Adjustments
+            base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
             try:
-                # Use sentiment-adjusted score as base for volume adjustment
-                base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
                 
                 # Prepare volume data for adjustment
                 volume_data = {
@@ -2162,30 +2187,45 @@ class EnhancedTop200StockAnalyzer:
             
             except Exception as e:
                 logging.warning(f"Volume adjustment failed for {symbol}: {e}")
-                stock_data['volume_adjusted_score'] = base_score_for_volume if 'base_score_for_volume' in locals() else stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
+                stock_data['volume_adjusted_score'] = base_score_for_volume
                 stock_data['volume_adjustment_amount'] = 0.0
                 stock_data['volume_adjustment_reasons'] = f'Error: {str(e)}'
                 stock_data['volume_signal_used'] = 'HOLD'
                 stock_data['volume_confidence_used'] = 0
             
             # 🔧 OLD: Apply corrected scoring algorithm based on backtest analysis (kept for comparison)
-            corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
-            
-            # Add corrected scores to stock data
-            stock_data.update({
-                'corrected_overall_score': corrected_results['corrected_overall_score'],
-                'contrarian_technical_score': corrected_results['contrarian_technical'],
-                'contrarian_momentum_score': corrected_results['contrarian_momentum'],
-                'fundamental_quality_score': corrected_results['fundamental_quality'],
-                'value_opportunity_score': corrected_results['value_opportunity'],
-                'sector_classification': corrected_results['sector'],
-                'timing_factor': corrected_results['timing_factor']
-            })
+            try:
+                corrected_results = self.corrected_scoring_engine.calculate_corrected_overall_score(symbol, stock_data)
+                stock_data.update({
+                    'corrected_overall_score': corrected_results['corrected_overall_score'],
+                    'contrarian_technical_score': corrected_results['contrarian_technical'],
+                    'contrarian_momentum_score': corrected_results['contrarian_momentum'],
+                    'fundamental_quality_score': corrected_results['fundamental_quality'],
+                    'value_opportunity_score': corrected_results['value_opportunity'],
+                    'sector_classification': corrected_results['sector'],
+                    'timing_factor': corrected_results['timing_factor']
+                })
+            except Exception as e:
+                logging.warning(f"Corrected scoring engine failed for {symbol}: {e}")
+                corrected_results = {
+                    'corrected_overall_score': stock_data.get('overall_score', 50),
+                    'contrarian_technical': 50, 'contrarian_momentum': 50,
+                    'fundamental_quality': 50, 'value_opportunity': 50,
+                    'sector': stock_data.get('sector', 'Others'), 'timing_factor': 1.0
+                }
+                stock_data['corrected_overall_score'] = corrected_results['corrected_overall_score']
             
             # ✅ NEW: Apply IMPROVED scoring algorithm (Validated: +46% correlation, 12% spread)
-            improved_results = self.improved_scoring_engine.calculate_improved_overall_score(symbol, stock_data)
+            try:
+                improved_results = self.improved_scoring_engine.calculate_improved_overall_score(symbol, stock_data)
+            except Exception as e:
+                logging.warning(f"Improved scoring engine failed for {symbol}: {e}")
+                improved_results = {
+                    'improved_overall_score': stock_data.get('overall_score', 50),
+                    'fundamental_quality': 50, 'momentum_technical': 50,
+                    'contrarian_momentum': 50, 'quality_multiplier': 1.0,
+                }
             
-            # Add improved scores to stock data
             stock_data.update({
                 'improved_overall_score': improved_results['improved_overall_score'],
                 'improved_fundamental_quality': improved_results['fundamental_quality'],
@@ -2218,7 +2258,7 @@ class EnhancedTop200StockAnalyzer:
                                 if self.market_regime else 0.5
                             )
                 
-                regime_key = self.current_market_regime.upper() if self.current_market_regime else 'SIDEWAYS'
+                regime_key = str(self.current_market_regime or '').upper() or 'SIDEWAYS'
                 _adaptive_wts = self.adaptive_strategy.get_adaptive_scoring_weights(regime_key)
                 hybrid_results = self.hybrid_scoring_engine.calculate_hybrid_score(
                     symbol, stock_data, adaptive_weights=_adaptive_wts
@@ -2226,14 +2266,19 @@ class EnhancedTop200StockAnalyzer:
                 
                 # Create adaptive recommendation based on market regime
                 position_size = self.adaptive_strategy.get_position_sizing_strategy(regime_key)
+                _mapped_regime = self.adaptive_strategy._map_regime(regime_key)
+                _default_perf = {'best_quintile': 'Q3', 'strategy': 'BALANCED_APPROACH'}
                 regime_performance = self.adaptive_strategy.market_performance.get(
-                    regime_key, 
-                    self.adaptive_strategy.market_performance['SIDEWAYS']  # fallback
-                )
+                    _mapped_regime,
+                    self.adaptive_strategy.market_performance.get('CALM', _default_perf)
+                ) or _default_perf
                 best_quintile = regime_performance.get('best_quintile', 'Q3')
                 
+                _max_pos = position_size.get('max_position', 0.10) if isinstance(position_size, dict) else 0.10
+                _pos_label = 'LARGE' if _max_pos >= 0.12 else ('MEDIUM' if _max_pos >= 0.08 else 'SMALL')
                 adaptive_recommendation = {
-                    'position_size': position_size,
+                    'position_size': _pos_label,
+                    'position_sizing_detail': position_size,
                     'quintile_preference': best_quintile,
                     'strategy': regime_performance.get('strategy', 'BALANCED_APPROACH'),
                     'regime_confidence': self.current_regime_confidence
@@ -2286,14 +2331,18 @@ class EnhancedTop200StockAnalyzer:
                         # Volatility (annualized percentage)
                         if len(hist) > 20:
                             returns = hist['Close'].pct_change().dropna()
-                            stock_data['volatility'] = float(returns.std() * (252 ** 0.5) * 100)
+                            _vol = returns.std() * (252 ** 0.5) * 100
+                            stock_data['volatility'] = 0.0 if (len(returns) == 0 or np.isnan(_vol)) else float(_vol)
                         else:
                             stock_data['volatility'] = 0.0
                         
                         # 20-day price change
                         if len(hist) >= 20:
                             price_20d_ago = hist['Close'].iloc[-20]
-                            stock_data['enhanced_price_change_20d'] = float((current_price - price_20d_ago) / price_20d_ago * 100)
+                            if price_20d_ago and price_20d_ago != 0 and not np.isnan(price_20d_ago):
+                                stock_data['enhanced_price_change_20d'] = float((current_price - price_20d_ago) / price_20d_ago * 100)
+                            else:
+                                stock_data['enhanced_price_change_20d'] = 0.0
                         else:
                             stock_data['enhanced_price_change_20d'] = 0.0
                         
@@ -2322,9 +2371,9 @@ class EnhancedTop200StockAnalyzer:
             )
             
             # Enhanced recommendation with Phase 1 improvements
-            best_score = stock_data['overall_score_with_value']
+            best_score = stock_data.get('overall_score_with_value', 50)
             corrected_score = corrected_results['corrected_overall_score']
-            phase1_score = stock_data['phase1_adjusted_score']
+            phase1_score = stock_data.get('phase1_adjusted_score', 50)
             is_undervalued = undervaluation_score >= _config.UNDERVALUED_THRESHOLD  # A-009
             
             # PHASE 2 ENHANCEMENT: Integrate ML Prediction into Scoring
@@ -2359,12 +2408,12 @@ class EnhancedTop200StockAnalyzer:
             # Falls back to V2 (improved_score) only if hybrid engine returned 0.
             # A-019: ML adjustment is NOW applied here (was computed but never added before).
             # GAP-1 FIX: Sentiment + Volume adjustments were computed but never applied — now wired in.
-            _sent_adj_raw = float(stock_data.get('sentiment_adjustment_amount', 0) or 0)
-            _vol_adj_raw  = float(stock_data.get('volume_adjustment_amount', 0) or 0)
+            _sent_adj_raw = _nv(stock_data.get('sentiment_adjustment_amount'), 0)
+            _vol_adj_raw  = _nv(stock_data.get('volume_adjustment_amount'), 0)
             _sent_adj_raw = max(-3.0, min(3.0, _sent_adj_raw))   # reduced cap ±3 (proxy signal)
             _vol_adj_raw  = max(-3.0, min(3.0, _vol_adj_raw))    # reduced cap ±3 (OHLCV proxy)
-            _sent_conf = float(stock_data.get('sentiment_confidence', 50) or 50)
-            _vol_conf  = float(stock_data.get('volume_confidence', 50) or 50)
+            _sent_conf = _nv(stock_data.get('sentiment_confidence'), 50)
+            _vol_conf  = _nv(stock_data.get('volume_confidence'), 50)
             _sent_adj = _sent_adj_raw * min(1.0, _sent_conf / 70.0)
             _vol_adj  = _vol_adj_raw  * min(1.0, _vol_conf / 70.0)
             stock_data['sentiment_score_contribution'] = round(_sent_adj, 1)
@@ -2375,8 +2424,8 @@ class EnhancedTop200StockAnalyzer:
             # (advanced_tech_score → overall_score_with_value) which is never the base for
             # final_blended_score.  Wire the pattern signal directly as a ±4-pt adjustment,
             # consistent with the ±5-pt caps used for sentiment and volume.
-            _patt_signal = stock_data.get('pattern_dominant_signal', 'neutral')
-            _patt_conf   = float(stock_data.get('pattern_confidence', 0.0) or 0.0)
+            _patt_signal = str(stock_data.get('pattern_dominant_signal', 'neutral') or 'neutral').lower()
+            _patt_conf   = _nv(stock_data.get('pattern_confidence'), 0.0)
             if _patt_signal == 'bullish':
                 _pattern_adj = round(min(2.0, _patt_conf * 2.0), 1)    # reduced cap +2 pts
             elif _patt_signal == 'bearish':
@@ -2389,7 +2438,11 @@ class EnhancedTop200StockAnalyzer:
             # crisis_data pre-detected in analyze_batch() — read-only here (thread-safe)
             _cd = self.crisis_data if self.crisis_data else {'crisis_detected': False, 'crisis_type': 'NONE', 'severity': 0}
             _stock_sector = stock_data.get('sector', '')
-            _crisis_adj = self.crisis_detector.get_stock_crisis_adjustment(symbol, _stock_sector, _cd)
+            try:
+                _crisis_adj = self.crisis_detector.get_stock_crisis_adjustment(symbol, _stock_sector, _cd)
+            except Exception as _ce:
+                logging.warning(f"Crisis adjustment failed for {symbol}: {_ce}")
+                _crisis_adj = 0.0
             stock_data['crisis_type_detected']   = _cd.get('crisis_type', 'NONE')
             stock_data['crisis_severity']         = _cd.get('severity_label', 'NONE')
             stock_data['crisis_score_adjustment'] = _crisis_adj
@@ -2421,7 +2474,7 @@ class EnhancedTop200StockAnalyzer:
             stock_data['pre_adj_blended_score'] = final_blended_score  # Pre-adjustment snapshot
 
             # Adjust recommendation based on data quality and portfolio fit
-            data_quality = stock_data.get('data_quality_score', 100)
+            data_quality = stock_data.get('data_quality_score') or 100
             portfolio_fit = stock_data.get('portfolio_fit', 'unknown')
 
             # Graduated quality penalty: linear scale, max 15 at quality 0
@@ -2446,7 +2499,8 @@ class EnhancedTop200StockAnalyzer:
             # Fix: only apply the direct add when falling back to improved_score (hybrid_score=0)
             # because improved_scoring_engine has no internal sector component.
             # For the primary hybrid path, sector is already properly weighted inside the hybrid.
-            _sector_adj = stock_data.get('sector_performance_adj', 0.0)
+            _sector_adj_raw = stock_data.get('sector_performance_adj', 0.0)
+            _sector_adj = 0.0 if (_sector_adj_raw is None or (isinstance(_sector_adj_raw, float) and np.isnan(_sector_adj_raw))) else float(_sector_adj_raw)
             if hybrid_score <= 0:
                 # Fallback path (improved_score): no sector component internally — apply directly
                 final_blended_score += _sector_adj
@@ -2454,9 +2508,10 @@ class EnhancedTop200StockAnalyzer:
             else:
                 # Primary hybrid path: sector already in hybrid's sector_momentum — skip direct add
                 stock_data['sector_adj_double_count_avoided'] = True
-            stock_data['sector_adj_recorded'] = round(float(_sector_adj), 2)  # always recorded for reporting
+            stock_data['sector_adj_recorded'] = round(float(_sector_adj or 0), 2)
 
             # Cap final score at 0-100
+            final_blended_score = _nv(final_blended_score, 50)
             final_blended_score = max(0, min(100, final_blended_score))
 
             # GAP-Q1 FIX: Store final_blended_score AFTER all adjustments (quality penalty,
@@ -2465,6 +2520,7 @@ class EnhancedTop200StockAnalyzer:
             # score that excluded up to 22 pts of adjustments.
             stock_data['final_blended_score'] = final_blended_score  # Complete score — ALL adjustments applied
             stock_data['final_score_with_phase1'] = final_blended_score  # Alias kept for backward compat
+            stock_data['overall_score'] = final_blended_score
 
             # Original recommendation logic (for comparison)
             if best_score >= _config.STRONG_BUY_THRESHOLD and is_undervalued:
@@ -2490,7 +2546,7 @@ class EnhancedTop200StockAnalyzer:
             _resolved_regime = (stock_data.get('market_regime_detected') or stock_data.get('market_regime', 'SIDEWAYS'))
             _resolved_regime = str(_resolved_regime).upper()
             if _resolved_regime in ('UNKNOWN', ''):
-                _resolved_regime = stock_data.get('market_regime', 'SIDEWAYS').upper()
+                _resolved_regime = (stock_data.get('market_regime') or 'SIDEWAYS').upper()
             _curr_regime = _resolved_regime
             _is_bear = _curr_regime in ('BEAR', 'BEARISH')
             _is_bull = _curr_regime in ('BULL', 'BULLISH')
@@ -2708,7 +2764,7 @@ class EnhancedTop200StockAnalyzer:
         relative performance vs Nifty50.  Result is cached per sector per run
         (self._sector_adj_cache) so the HTTP call fires at most once per sector.
         """
-        sector_lower = sector.lower()
+        sector_lower = str(sector or '').lower()
 
         # Fast path — already cached this run
         with self._state_lock:
@@ -2727,9 +2783,11 @@ class EnhancedTop200StockAnalyzer:
             try:
                 nifty_h   = yf.Ticker('^NSEI').history(period='3mo', interval='1d')
                 sector_h  = yf.Ticker(sector_ticker).history(period='3mo', interval='1d')
-                if not nifty_h.empty and not sector_h.empty:
-                    nifty_ret  = (nifty_h['Close'].iloc[-1]  / nifty_h['Close'].iloc[0]  - 1) * 100
-                    sector_ret = (sector_h['Close'].iloc[-1] / sector_h['Close'].iloc[0] - 1) * 100
+                _nifty_d0 = nifty_h['Close'].iloc[0] if not nifty_h.empty else 0
+                _sector_d0 = sector_h['Close'].iloc[0] if not sector_h.empty else 0
+                if not nifty_h.empty and not sector_h.empty and _nifty_d0 != 0 and _sector_d0 != 0 and not np.isnan(_nifty_d0) and not np.isnan(_sector_d0):
+                    nifty_ret  = (nifty_h['Close'].iloc[-1]  / _nifty_d0  - 1) * 100
+                    sector_ret = (sector_h['Close'].iloc[-1] / _sector_d0 - 1) * 100
                     relative   = sector_ret - nifty_ret
                     # Scale: 1% outperformance ≈ 0.7 pts; cap at ±7
                     adj = float(max(-7.0, min(7.0, relative * 0.7)))
@@ -2991,9 +3049,10 @@ class EnhancedTop200StockAnalyzer:
         relative_scores = {}
         
         # P/E Relative Score
-        pe_ratio = stock_data.get('pe_ratio')
-        if pe_ratio and benchmarks['avg_pe_ratio']:
-            pe_relative = benchmarks['avg_pe_ratio'] / pe_ratio if pe_ratio > 0 else 0
+        pe_ratio = _nv(stock_data.get('pe_ratio'), None)
+        _bench_pe = _nv(benchmarks.get('avg_pe_ratio'), None)
+        if pe_ratio is not None and _bench_pe is not None:
+            pe_relative = _bench_pe / pe_ratio if pe_ratio > 0 else 0
             if pe_relative >= 1.5:  # 50% below industry average
                 relative_scores['pe_relative_score'] = 100
             elif pe_relative >= 1.2:  # 20% below industry average
@@ -3006,9 +3065,10 @@ class EnhancedTop200StockAnalyzer:
                 relative_scores['pe_relative_score'] = 20
         
         # P/B Relative Score
-        pb_ratio = stock_data.get('pb_ratio')
-        if pb_ratio and benchmarks['avg_pb_ratio']:
-            pb_relative = benchmarks['avg_pb_ratio'] / pb_ratio if pb_ratio > 0 else 0
+        pb_ratio = _nv(stock_data.get('pb_ratio'), None)
+        _bench_pb = _nv(benchmarks.get('avg_pb_ratio'), None)
+        if pb_ratio is not None and _bench_pb is not None:
+            pb_relative = _bench_pb / pb_ratio if pb_ratio > 0 else 0
             if pb_relative >= 1.3:
                 relative_scores['pb_relative_score'] = 100
             elif pb_relative >= 1.1:
@@ -3021,9 +3081,10 @@ class EnhancedTop200StockAnalyzer:
                 relative_scores['pb_relative_score'] = 20
         
         # ROE Relative Score
-        roe = stock_data.get('roe')
-        if roe and benchmarks['avg_roe']:
-            roe_relative = roe / benchmarks['avg_roe'] if benchmarks['avg_roe'] > 0 else 0
+        roe = _nv(stock_data.get('roe'), None)
+        _bench_roe = _nv(benchmarks.get('avg_roe'), None)
+        if roe is not None and _bench_roe is not None:
+            roe_relative = roe / _bench_roe if _bench_roe > 0 else 0
             if roe_relative >= 1.5:  # 50% above industry average
                 relative_scores['roe_relative_score'] = 100
             elif roe_relative >= 1.2:  # 20% above industry average
@@ -3124,8 +3185,10 @@ class EnhancedTop200StockAnalyzer:
             gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
             
+            all_gains = (loss == 0) & (gain > 0)
+            loss = loss.replace(0, np.nan)
             rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
+            rsi = (100 - (100 / (1 + rs))).where(~all_gains, 100.0).fillna(50.0)
             
             return round(rsi.iloc[-1], 1) if not pd.isna(rsi.iloc[-1]) else 50.0
         except Exception:
@@ -3189,7 +3252,7 @@ class EnhancedTop200StockAnalyzer:
                 bb_position = "MIDDLE"
             
             # Calculate BB squeeze (volatility indicator)
-            bb_width = (current_upper - current_lower) / current_middle
+            bb_width = (current_upper - current_lower) / current_middle if current_middle != 0 else 0
             
             return {
                 'bb_upper': round(current_upper, 2),
@@ -3231,7 +3294,7 @@ class EnhancedTop200StockAnalyzer:
             obv_trend = "RISING" if obv.iloc[-1] > obv.iloc[-10] else "FALLING"
             
             return {
-                'volume_ratio': round(current_volume / avg_volume, 2),
+                'volume_ratio': round(current_volume / avg_volume, 2) if avg_volume and avg_volume != 0 and not np.isnan(avg_volume) else 1.0,
                 'volume_trend': volume_trend,
                 'obv_trend': obv_trend
             }
@@ -3246,7 +3309,8 @@ class EnhancedTop200StockAnalyzer:
         """Calculate dynamic support and resistance levels"""
         try:
             # Ensure current_price is float
-            current_price = float(close.iloc[-1])
+            _cp_raw = float(close.iloc[-1])
+            current_price = _cp_raw if not (np.isnan(_cp_raw) or _cp_raw == 0) else 100.0
             
             # Recent highs and lows for support/resistance
             recent_data = close.tail(60)  # Last 60 days
@@ -3256,16 +3320,20 @@ class EnhancedTop200StockAnalyzer:
             # Resistance: Recent significant highs
             resistance_candidates = recent_highs[recent_highs > current_price * 1.02]
             resistance = resistance_candidates.quantile(0.2) if not resistance_candidates.empty else current_price * 1.05
+            if np.isnan(resistance):
+                resistance = current_price * 1.05
             
             # Support: Recent significant lows
             support_candidates = recent_lows[recent_lows < current_price * 0.98]
             support = support_candidates.quantile(0.8) if not support_candidates.empty else current_price * 0.95
+            if np.isnan(support):
+                support = current_price * 0.95
             
             return {
                 'support_level': round(support, 2),
                 'resistance_level': round(resistance, 2),
-                'distance_to_support': round((current_price - support) / current_price * 100, 2),
-                'distance_to_resistance': round((resistance - current_price) / current_price * 100, 2)
+                'distance_to_support': round((current_price - support) / current_price * 100, 2) if current_price != 0 else 0.0,
+                'distance_to_resistance': round((resistance - current_price) / current_price * 100, 2) if current_price != 0 else 0.0
             }
         except Exception as e:
             # Ensure fallback current_price is also float
@@ -3281,7 +3349,13 @@ class EnhancedTop200StockAnalyzer:
         """Calculate momentum-based indicators"""
         try:
             # Rate of Change (ROC) - 10 day
-            roc = ((prices.iloc[-1] - prices.iloc[-11]) / prices.iloc[-11]) * 100
+            _denom_11 = prices.iloc[-11] if len(prices) > 11 else prices.iloc[0]
+            if pd.isna(_denom_11) or _denom_11 == 0:
+                roc = 0.0
+            else:
+                roc = ((prices.iloc[-1] - _denom_11) / _denom_11) * 100
+                if np.isnan(roc):
+                    roc = 0.0
             
             # Price momentum score
             if roc > 5:
@@ -3298,6 +3372,10 @@ class EnhancedTop200StockAnalyzer:
             # Moving average crossover signal
             ma10 = prices.rolling(window=10).mean().iloc[-1]
             ma50 = prices.rolling(window=50).mean().iloc[-1] if len(prices) >= 50 else ma10
+            if np.isnan(ma10):
+                ma10 = 0.0
+            if np.isnan(ma50):
+                ma50 = 0.0
             
             if ma10 > ma50 * 1.02:
                 ma_signal = "BUY"
@@ -3507,16 +3585,16 @@ class EnhancedTop200StockAnalyzer:
             # Trend analysis
             if current_ma_short > current_ma_long * 1.02:
                 trend_signal = 'BULLISH'
-                trend_strength = min(((current_ma_short / current_ma_long - 1) * 100) * 10, 100)
+                trend_strength = min(((current_ma_short / current_ma_long - 1) * 100) * 10, 100) if current_ma_long != 0 else 50
             elif current_ma_short < current_ma_long * 0.98:
                 trend_signal = 'BEARISH'  
-                trend_strength = min(((1 - current_ma_short / current_ma_long) * 100) * 10, 100)
+                trend_strength = min(((1 - current_ma_short / current_ma_long) * 100) * 10, 100) if current_ma_long != 0 else 50
             else:
                 trend_signal = 'NEUTRAL'
                 trend_strength = 50
             
             # Momentum analysis (price vs MA)
-            price_vs_ma = (current_price / current_ma_short - 1) * 100
+            price_vs_ma = ((current_price / current_ma_short - 1) * 100) if current_ma_short != 0 else 0
             if price_vs_ma > 3:
                 momentum_signal = 'STRONG_BULLISH'
                 momentum_strength = min(85 + price_vs_ma, 100)
@@ -3788,7 +3866,8 @@ class EnhancedTop200StockAnalyzer:
             # Calculate volume-weighted returns for institutional pattern detection
             hist['returns'] = hist['Close'].pct_change()
             hist['volume_ma'] = hist['Volume'].rolling(window=20).mean()
-            hist['volume_ratio'] = hist['Volume'] / hist['volume_ma']
+            hist['volume_ratio'] = hist['Volume'] / hist['volume_ma'].replace(0, np.nan)
+            hist['volume_ratio'] = hist['volume_ratio'].fillna(1.0)
             
             # Detect institutional accumulation/distribution patterns
             recent_data = hist.tail(30)  # Last 30 days
@@ -3846,7 +3925,8 @@ class EnhancedTop200StockAnalyzer:
             # Calculate volume statistics
             avg_volume = hist['Volume'].rolling(window=20).mean()
             volume_std = hist['Volume'].rolling(window=20).std()
-            hist['volume_zscore'] = (hist['Volume'] - avg_volume) / volume_std
+            hist['volume_zscore'] = (hist['Volume'] - avg_volume) / volume_std.replace(0, np.nan)
+            hist['volume_zscore'] = hist['volume_zscore'].fillna(0)
             
             # Detect unusual volume spikes (potential bulk deals)
             recent_data = hist.tail(10)  # Last 10 days
@@ -4237,7 +4317,7 @@ class EnhancedTop200StockAnalyzer:
                 base_weights['debt_to_equity'] *= 0.8
         
         # Normalize weights to sum to 1
-        total_weight = sum(base_weights.values())
+        total_weight = sum(base_weights.values()) or 1.0
         return {k: v/total_weight for k, v in base_weights.items()}
 
     def calculate_undervaluation_score(self, stock_data):
@@ -4302,7 +4382,9 @@ class EnhancedTop200StockAnalyzer:
             
             # 4. ROE vs P/B Analysis (15% weight)
             roe = stock_data.get('roe', None)
-            if roe and pb_ratio and pb_ratio > 0:
+            _roe_valid = roe is not None and not (isinstance(roe, float) and np.isnan(roe))
+            _pb_valid = pb_ratio is not None and not (isinstance(pb_ratio, float) and np.isnan(pb_ratio)) and pb_ratio > 0
+            if _roe_valid and _pb_valid:
                 # Graham's formula: Intrinsic Value = EPS × (8.5 + 2g)
                 # Simplified: High ROE with Low P/B is attractive
                 roe_pb_ratio = roe / pb_ratio
@@ -4635,7 +4717,7 @@ class EnhancedTop200StockAnalyzer:
                 strength_score = (
                     stats['avg_overall_score'] * 0.4 +
                     stats['avg_undervaluation_score'] * 0.3 +
-                    (stats['strong_buy_count'] / stats['count'] * 100) * 0.3
+                    (stats['strong_buy_count'] / max(stats['count'], 1) * 100) * 0.3
                 )
                 
                 if strength_score >= 70:
@@ -5121,7 +5203,7 @@ class EnhancedTop200StockAnalyzer:
                 
                 if 'Sector' in current_holdings.columns:
                     sector_values = current_holdings.groupby('Sector')['Cur. val'].sum()
-                    current_sectors = {sector: float(value)/current_portfolio_value for sector, value in sector_values.items()}
+                    current_sectors = {sector: float(value)/current_portfolio_value if current_portfolio_value > 0 else 0 for sector, value in sector_values.items()}
                 
                 print(f"   📊 Current Portfolio: ₹{current_portfolio_value:,.0f} across {len(current_holdings)} stocks")
                 print(f"   💰 Available Funds: ₹{target_amount:,.0f}")
@@ -6316,7 +6398,7 @@ class EnhancedTop200StockAnalyzer:
                         # 🚀 UPDATED: Include ALL holdings for analysis (even mediocre ones for potential SWAP)
                         # We used to filter by rank, but now we let the Unified Allocation logic decide.
                         # [RT-08 FIX] Only allow INCREASE opportunity if not at meaningful loss (unless ML=STRONG_BUY)
-                        _profit_for_increase = float(row.get('current_profit_pct', 0) or 0)
+                        _profit_for_increase = _nv(row.get('current_profit_pct'), 0)
                         _ml_for_increase = str(row.get('ml_signal', ''))
                         is_top_performer = (_profit_for_increase >= -0.02) or (_ml_for_increase == 'STRONG_BUY')
                         
@@ -6346,7 +6428,7 @@ class EnhancedTop200StockAnalyzer:
                                 # Use overall_score (the capped 100-pt score written to allocation_df) as the
                                 # primary sort key so high-conviction holdings like J&KBANK (score=100) rank
                                 # above weaker stocks and are funded first.
-                                _opp_score = float(row.get('overall_score') or row.get('improved_overall_score') or row.get('final_blended_score') or 0)
+                                _opp_score = _nv(row.get('overall_score'), _nv(row.get('improved_overall_score'), _nv(row.get('final_blended_score'), 0)))
                                 all_opportunities.append({
                                     'type': 'INCREASE',
                                     'index': idx,
@@ -6665,7 +6747,7 @@ class EnhancedTop200StockAnalyzer:
                         
                         if optimal_investment >= 3000:
                             current_price = float(opportunity['current_price'])
-                            shares_to_buy = int(optimal_investment / current_price)
+                            shares_to_buy = int(optimal_investment / current_price) if current_price > 0 else 0
                             actual_investment = shares_to_buy * current_price
                             
                             if actual_investment >= 3000:
@@ -6745,7 +6827,7 @@ class EnhancedTop200StockAnalyzer:
                     
                     # Calculate whole shares only
                     current_price = float(opportunity['current_price'])
-                    shares_to_buy = int(optimal_investment / current_price)
+                    shares_to_buy = int(optimal_investment / current_price) if current_price > 0 else 0
                     actual_investment = shares_to_buy * current_price
                     
                     if opportunity['symbol'] == 'NMDC':
@@ -6856,208 +6938,6 @@ class EnhancedTop200StockAnalyzer:
                     print(f"\n   📊 Sector Diversification:")
                     for sector, count in sorted(sector_allocation.items(), key=lambda x: x[1], reverse=True):
                         print(f"      • {sector}: {count} stocks")
-            
-            # 🔧 DISABLED: Old enhanced allocation logic (was overriding unified allocation)
-            # The unified allocation above already handles everything correctly
-            if False:  # Skip this entire section
-                new_positions = allocation_df[
-                    (allocation_df['action_type'] == 'NEW POSITION') & 
-                    (allocation_df['keep_stock'] == True)
-                ].copy()
-            
-            if False and not new_positions.empty and target_amount > 0:  # DISABLED
-                try:
-                    # Create a mock portfolio analyzer for the allocation analyzer
-                    class MockPortfolioAnalyzer:
-                        def __init__(self, holdings_df):
-                            self.holdings_df = holdings_df
-                    
-                    # Convert current holdings to the format expected by allocation analyzer
-                    if current_holdings is not None and not current_holdings.empty:
-                        holdings_for_analyzer = current_holdings.copy()
-                        if 'Sector' not in holdings_for_analyzer.columns:
-                            holdings_for_analyzer['Sector'] = 'Financial Services'  # Default sector
-                    else:
-                        holdings_for_analyzer = pd.DataFrame()
-                    
-                    mock_analyzer = MockPortfolioAnalyzer(holdings_for_analyzer)
-                    
-                    # Create enhanced allocation analyzer with new rules
-                    enhanced_allocator = PortfolioAllocationAnalyzer(mock_analyzer, target_amount)
-                    
-                    print(f"   🔧 Applying Enhanced Allocation Rules:")
-                    print(f"      • Max single stock weight: {enhanced_allocator.max_single_stock_weight*100:.1f}%")
-                    print(f"      • Defence allocation target: {enhanced_allocator.min_defence_allocation*100:.1f}%-{enhanced_allocator.max_defence_allocation*100:.1f}%")
-                    
-                    # Convert new positions to format for allocation analysis
-                    buy_recommendations = []
-                    for _, row in new_positions.iterrows():
-                        buy_recommendations.append({
-                            'Symbol': row['symbol'],
-                            'Company': row['company_name'],
-                            'Sector': row['sector'],
-                            'Score': row['risk_adjusted_score'],
-                            'Current_Price': row['current_price'],
-                            'Recommendation': row['recommendation']
-                        })
-                    
-                    # Apply enhanced allocation with all rules
-                    total_target_portfolio = current_portfolio_value + target_amount
-                    max_stock_value = total_target_portfolio * enhanced_allocator.max_single_stock_weight
-                    
-                    # Apply enhanced allocation rules with proper Indian market constraints
-                    enhanced_positions = []
-                    defence_allocation = 0
-                    growth_allocation = 0
-                    value_allocation = 0
-                    
-                    # Limit to maximum 30 new positions for proper diversification
-                    max_new_positions = min(30, len(new_positions))
-                    
-                    # Fix data type issue: ensure risk_adjusted_score is numeric
-                    new_positions['risk_adjusted_score'] = pd.to_numeric(new_positions['risk_adjusted_score'], errors='coerce')
-                    new_positions = new_positions.dropna(subset=['risk_adjusted_score'])
-                    
-                    top_new_positions = new_positions.nlargest(max_new_positions, 'risk_adjusted_score')
-                    
-                    print(f"      📊 Processing top {len(top_new_positions)} new positions for allocation")
-                    
-                    # Calculate minimum viable allocation (₹5,000 per stock minimum for meaningful investment)
-                    min_allocation_per_stock = 5000
-                    available_positions = min(max_new_positions, target_amount // min_allocation_per_stock)
-                    
-                    if available_positions < len(top_new_positions):
-                        top_new_positions = top_new_positions.head(available_positions)
-                        print(f"      ⚠️  Limited to {available_positions} positions due to ₹{target_amount:,} budget (min ₹5,000 per stock)")
-                    
-                    for _, row in top_new_positions.iterrows():
-                        # Classify stock type
-                        stock_type = enhanced_allocator.classify_stock_type(
-                            row['symbol'], row['sector']
-                        )
-                        
-                        # Calculate proportional allocation based on score
-                        score_weight = row['risk_adjusted_score'] / top_new_positions['risk_adjusted_score'].sum()
-                        base_allocation = score_weight * target_amount
-                        
-                        # Apply 7% weight limit (of total portfolio including existing holdings)
-                        max_allocation = total_target_portfolio * 0.07  # 7% max weight
-                        
-                        # Use budget-based allocation (distributed from available funds)
-                        allocation_amount = min(base_allocation, max_allocation)
-                        
-                        # Ensure minimum ₹5,000 allocation for meaningful investment
-                        if allocation_amount < min_allocation_per_stock:
-                            allocation_amount = min_allocation_per_stock
-                        
-                        # Calculate whole shares only (Indian market constraint)
-                        share_price = max(row['current_price'], 1)
-                        suggested_quantity = int(allocation_amount / share_price)  # Whole shares only
-                        actual_investment = suggested_quantity * share_price
-                        
-                        # Skip if less than 1 share can be bought
-                        if suggested_quantity < 1:
-                            print(f"      ⚠️  Skipped {row['symbol']}: Price ₹{share_price:,.0f} too high for allocation ₹{allocation_amount:,.0f}")
-                            continue
-                        
-                        weight_percentage = (actual_investment / total_target_portfolio) * 100
-                        weight_capped = allocation_amount < base_allocation
-                        
-                        if weight_capped:
-                            print(f"      🔒 Capped {row['symbol']} at 7% weight limit: ₹{allocation_amount:,.0f}")
-                        
-                        enhanced_positions.append({
-                            'symbol': row['symbol'],
-                            'allocation_percentage': (actual_investment / target_amount) * 100,  # % of new funds
-                            'portfolio_weight': weight_percentage,  # % of total portfolio
-                            'investment_amount': actual_investment,
-                            'suggested_quantity': suggested_quantity,
-                            'stock_type': stock_type,
-                            'weight_capped': weight_capped,
-                            'current_price': share_price
-                        })
-                        
-                        # Track allocation by type
-                        if stock_type == 'DEFENCE':
-                            defence_allocation += allocation_amount
-                        elif stock_type == 'GROWTH':
-                            growth_allocation += allocation_amount
-                        else:  # VALUE
-                            value_allocation += allocation_amount
-                    
-                    # 🔧 DISABLED: Defence allocation boost (use available funds only)
-                    # min_defence_needed = total_target_portfolio * enhanced_allocator.min_defence_allocation
-                    # if defence_allocation < min_defence_needed:
-                    #     defence_gap = min_defence_needed - defence_allocation
-                    #     print(f"      ℹ️  Defence allocation below 10%: ₹{defence_gap:,.0f} shortfall")
-                    #     NOTE: Not forcing allocation beyond available budget from BOOK_PROFIT/SELL
-                    
-                    # Report defence allocation without forcing
-                    min_defence_needed = total_target_portfolio * enhanced_allocator.min_defence_allocation
-                    if defence_allocation < min_defence_needed:
-                        defence_gap = min_defence_needed - defence_allocation
-                        print(f"      ℹ️  Defence allocation: ₹{defence_allocation:,.0f} (target: ₹{min_defence_needed:,.0f}, shortfall: ₹{defence_gap:,.0f})")
-                        print(f"      💡 Using available budget strategy - no forced allocation")
-                    
-                    # Update the allocation dataframe with enhanced rules
-                    for pos in enhanced_positions:
-                        mask = allocation_df['symbol'] == pos['symbol']
-                        allocation_df.loc[mask, 'allocation_percentage'] = pos['allocation_percentage']
-                        allocation_df.loc[mask, 'portfolio_weight'] = pos['portfolio_weight']
-                        allocation_df.loc[mask, 'investment_amount'] = pos['investment_amount']
-                        allocation_df.loc[mask, 'suggested_quantity'] = pos['suggested_quantity']
-                        allocation_df.loc[mask, 'stock_type'] = pos['stock_type']
-                        allocation_df.loc[mask, 'weight_capped'] = pos['weight_capped']
-                    
-                    # Print allocation summary
-                    print(f"   📊 Enhanced Allocation Summary:")
-                    print(f"      Defence: ₹{defence_allocation:,.0f} ({(defence_allocation/total_target_portfolio)*100:.1f}%)")
-                    print(f"      Growth:  ₹{growth_allocation:,.0f} ({(growth_allocation/total_target_portfolio)*100:.1f}%)")
-                    print(f"      Value:   ₹{value_allocation:,.0f} ({(value_allocation/total_target_portfolio)*100:.1f}%)")
-                    
-                except Exception as e:
-                    print(f"   ⚠️  Enhanced allocation failed, using fallback: {str(e)}")
-                    # Fallback to enhanced logic with Indian market constraints
-                    print(f"   ⚠️  Using fallback allocation with Indian market constraints")
-                    
-                    # Limit to 30 stocks maximum
-                    max_positions = min(30, len(new_positions))
-                    
-                    # Fix data type issue: ensure risk_adjusted_score is numeric
-                    new_positions['risk_adjusted_score'] = pd.to_numeric(new_positions['risk_adjusted_score'], errors='coerce')
-                    new_positions = new_positions.dropna(subset=['risk_adjusted_score'])
-                    
-                    top_positions = new_positions.nlargest(max_positions, 'risk_adjusted_score')
-                    
-                    # Minimum ₹5,000 per stock for meaningful investment
-                    min_allocation = 5000
-                    viable_positions = min(max_positions, target_amount // min_allocation)
-                    
-                    if viable_positions > 0:
-                        top_positions = top_positions.head(viable_positions)
-                        
-                        # Calculate proportional weights
-                        total_score = top_positions['risk_adjusted_score'].sum()
-                        
-                        for idx, row in top_positions.iterrows():
-                            weight = row['risk_adjusted_score'] / total_score
-                            investment = max(min_allocation, weight * target_amount)
-                            
-                            # Budget-based allocation from available funds
-                            # (No artificial cap - uses proportional distribution)
-                            
-                            # Calculate whole shares only
-                            price = max(row['current_price'], 1)
-                            quantity = int(investment / price)
-                            actual_investment = quantity * price
-                            
-                            if quantity >= 1:  # Only if at least 1 share can be bought
-                                symbol = row['symbol']
-                                mask = allocation_df['symbol'] == symbol
-                                allocation_df.loc[mask, 'allocation_percentage'] = (actual_investment / target_amount) * 100
-                                allocation_df.loc[mask, 'portfolio_weight'] = (actual_investment / total_target_portfolio) * 100
-                                allocation_df.loc[mask, 'investment_amount'] = actual_investment
-                                allocation_df.loc[mask, 'suggested_quantity'] = quantity
             
             # 🔧 REBALANCING LOGIC: Check 70/20/10 allocation
             print(f"\n   ⚖️  REBALANCING CHECK (70/20/10 Rule):")
@@ -7585,7 +7465,7 @@ class EnhancedTop200StockAnalyzer:
                 self.results[_r['symbol']] = _r
             
             batch_duration = time.time() - batch_start_time
-            progress = (self.processed_stocks / total_stocks) * 100
+            progress = (self.processed_stocks / total_stocks) * 100 if total_stocks > 0 else 0
             
             print(f"\n   📊 Batch Summary:")
             print(f"      Processed: {len(batch_results)}/{len(current_batch)} stocks")
@@ -7783,11 +7663,11 @@ class EnhancedTop200StockAnalyzer:
                 strategy_type = "BALANCED"
             
             # Calculate percentages for display
-            target_1_pct = ((target_1 - current_price) / current_price) * 100
-            target_2_pct = ((target_2 - current_price) / current_price) * 100
-            target_3_pct = ((target_3 - current_price) / current_price) * 100
-            stop_loss_pct = ((stop_loss - current_price) / current_price) * 100
-            stop_loss_tight_pct = ((stop_loss_tight - current_price) / current_price) * 100
+            target_1_pct = ((target_1 - current_price) / current_price) * 100 if current_price > 0 else 0
+            target_2_pct = ((target_2 - current_price) / current_price) * 100 if current_price > 0 else 0
+            target_3_pct = ((target_3 - current_price) / current_price) * 100 if current_price > 0 else 0
+            stop_loss_pct = ((stop_loss - current_price) / current_price) * 100 if current_price > 0 else 0
+            stop_loss_tight_pct = ((stop_loss_tight - current_price) / current_price) * 100 if current_price > 0 else 0
             
             # Calculate volatility for risk assessment
             daily_returns = hist['Close'].pct_change().dropna()
@@ -8350,10 +8230,10 @@ Trading Plan ({risk_tolerance} RISK):
                         for _idxl, _rowl in alloc_df_simple.iterrows():
                             _act_l = str(_rowl.get('action_recommendation', ''))
                             _own_l = bool(_rowl.get(_own_cp, False))
-                            _pnl_l = float(_rowl.get(_pnl_cp, 0) or 0)
+                            _pnl_l = _nv(_rowl.get(_pnl_cp), 0)
                             _ml_l  = str(_rowl.get(_ml_cp, ''))
                             # Only block pure SELL (not SWAP → which is rotation)
-                            _is_pure_sell = _act_l.upper() == 'SELL'
+                            _is_pure_sell = str(_act_l or '').upper() == 'SELL'
                             if _own_l and _pnl_l < 0 and _ml_l in ('HOLD', 'STRONG_BUY') and _is_pure_sell:
                                 alloc_df_simple.at[_idxl, 'action_recommendation'] = 'HOLD'
                                 if 'exit_reason' in alloc_df_simple.columns:
@@ -8374,9 +8254,9 @@ Trading Plan ({risk_tolerance} RISK):
                         for _idxdq, _rowdq in alloc_df_simple.iterrows():
                             _act_dq     = str(_rowdq.get('action_recommendation', ''))
                             _own_dq     = bool(_rowdq.get(_own_cp, False))
-                            _pnl_dq     = float(_rowdq.get(_pnl_cp, 0) or 0)
+                            _pnl_dq     = _nv(_rowdq.get(_pnl_cp), 0)
                             _ml_dq      = str(_rowdq.get(_ml_cp, ''))
-                            _rsi_dq_val = float(_rowdq.get(_rsi_dq, 50) or 50)
+                            _rsi_dq_val = _nv(_rowdq.get(_rsi_dq), 50)
                             # (a) PRE-BREAKOUT on owned losing position → HOLD [RT-08C POST]
                             if 'PRE-BREAKOUT' in _act_dq and _own_dq and _pnl_dq < -0.02:
                                 alloc_df_simple.at[_idxdq, 'action_recommendation'] = 'HOLD'
@@ -8385,14 +8265,14 @@ Trading Plan ({risk_tolerance} RISK):
                                 _dq_count += 1
                                 continue
                             # (b) INCREASE on ML=SELL (profit <10%) → HOLD [DQ-ML-INC]
-                            if _act_dq.upper() == 'INCREASE' and _ml_dq == 'SELL' and _pnl_dq < 0.10:
+                            if str(_act_dq or '').upper() == 'INCREASE' and _ml_dq == 'SELL' and _pnl_dq < 0.10:
                                 alloc_df_simple.at[_idxdq, 'action_recommendation'] = 'HOLD'
                                 if 'exit_reason' in alloc_df_simple.columns:
                                     alloc_df_simple.at[_idxdq, 'exit_reason'] = f"[DQ-ML-INC] ML=SELL contradicts INCREASE — Hold (profit={_pnl_dq:.1%})"
                                 _dq_count += 1
                                 continue
                             # (c) INCREASE on RSI>72 when at loss or ML=SELL → HOLD [DQ-RSI-INC]
-                            if _act_dq.upper() == 'INCREASE' and _rsi_dq_val > 72 and (_pnl_dq < 0 or _ml_dq == 'SELL'):
+                            if str(_act_dq or '').upper() == 'INCREASE' and _rsi_dq_val > 72 and (_pnl_dq < 0 or _ml_dq == 'SELL'):
                                 alloc_df_simple.at[_idxdq, 'action_recommendation'] = 'HOLD'
                                 if 'exit_reason' in alloc_df_simple.columns:
                                     alloc_df_simple.at[_idxdq, 'exit_reason'] = f"[DQ-RSI-INC] RSI={_rsi_dq_val:.0f} overbought + INCREASE risky — Hold"
@@ -8445,10 +8325,10 @@ Trading Plan ({risk_tolerance} RISK):
                     for _idx14, _row14 in alloc_df_simple.iterrows():
                         if pd.notna(_row14.get('profit_booking_pct')): continue  # already set, don't overwrite
                         if _own_c14 and not bool(_row14.get(_own_c14, False)): continue  # only owned holdings
-                        _pnl14 = float(_row14.get('current_profit_pct', 0) or 0)
-                        _rsi14 = float(_row14.get(_rsi_c14, 50) or 50)
-                        _res14 = float(_row14.get(_res_c14, 0) or 0)
-                        _price14 = float(_row14.get('current_price', 0) or 0)
+                        _pnl14 = _nv(_row14.get('current_profit_pct'), 0)
+                        _rsi14 = _nv(_row14.get(_rsi_c14), 50)
+                        _res14 = _nv(_row14.get(_res_c14), 0)
+                        _price14 = _nv(_row14.get('current_price'), 0)
                         _near_res14 = (_price14 / _res14 > 0.95) if (_res14 > 0 and _price14 > 0) else False
                         _ml14 = str(_row14.get('ml_signal', ''))
                         _ml_sell_profitable = (_ml14 == 'SELL') and (_pnl14 > 0.02)  # ML=SELL and in profit
@@ -8479,8 +8359,8 @@ Trading Plan ({risk_tolerance} RISK):
                         _existing_timing = _row10.get('profit_booking_timing')
                         _has_timing = pd.notna(_existing_timing) and str(_existing_timing).strip() != ''
                         if not _is_urgent10 and _has_timing: continue  # already set
-                        _rsi10 = float(_row10.get(_rsi_c10, 50) or 50)
-                        _exit10 = float(_row10.get(_exit_c10, 0) or 0)
+                        _rsi10 = _nv(_row10.get(_rsi_c10), 50)
+                        _exit10 = _nv(_row10.get(_exit_c10), 0)
                         if _rsi10 > 70 or _exit10 > 30:
                             alloc_df_simple.at[_idx10, 'profit_booking_timing'] = 'Within 2 days'
                         elif _rsi10 > 65 or _exit10 > 15:
@@ -8544,14 +8424,14 @@ Trading Plan ({risk_tolerance} RISK):
                         _safe_any_rsi    = pd.DataFrame()
                     for _idx79, _row79 in alloc_df_simple.iterrows():
                         _act79 = str(_row79.get('action_recommendation', ''))
-                        _pnl79 = float(_row79.get('current_profit_pct', 0) or 0)
-                        _sup79 = float(_row79.get(_sup_col, 0) or 0) if _sup_col in alloc_df_simple.columns else 0
+                        _pnl79 = _nv(_row79.get('current_profit_pct'), 0)
+                        _sup79 = _nv(_row79.get(_sup_col), 0) if _sup_col in alloc_df_simple.columns else 0
                         _own79 = bool(_row79.get(_own_col, False)) if _own_col else False
                         # rotation_trigger_price: 3% below support for loser HOLD positions
                         if _pnl79 < -0.02 and 'HOLD' in _act79 and _sup79 > 0:
                             alloc_df_simple.at[_idx79, 'rotation_trigger_price'] = round(_sup79 * 0.97, 2)
                         # [MI-C01 FIX] stop_loss_price: 3% below support for ALL stocks; fallback to 8% below price
-                        _price79 = float(_row79.get('current_price', 0) or _row79.get('PRICE', 0) or 0)
+                        _price79 = _nv(_row79.get('current_price'), _nv(_row79.get('PRICE'), 0))
                         if _sup79 > 0:
                             alloc_df_simple.at[_idx79, 'stop_loss_price'] = round(_sup79 * 0.97, 2)
                         elif _price79 > 0:
@@ -9716,13 +9596,13 @@ Trading Plan ({risk_tolerance} RISK):
             benchmarks = self._get_dynamic_industry_benchmarks(sector, industry)
             
             # Industry-relative metrics (ensure benchmarks are not None or 0)
-            avg_pe = benchmarks.get('avg_pe_ratio', 0) or 20.0
-            avg_pb = benchmarks.get('avg_pb_ratio', 0) or 3.0
-            avg_roe = benchmarks.get('avg_roe', 0) or 15.0
+            avg_pe = _nv(benchmarks.get('avg_pe_ratio'), 20.0)
+            avg_pb = _nv(benchmarks.get('avg_pb_ratio'), 3.0)
+            avg_roe = _nv(benchmarks.get('avg_roe'), 15.0)
             
-            pe_vs_industry = f"{pe/avg_pe:.2f}x" if pe and avg_pe > 0 else 'N/A'
-            pb_vs_industry = f"{pb/avg_pb:.2f}x" if pb and avg_pb > 0 else 'N/A'
-            roe_vs_industry = f"{roe/avg_roe:.2f}x" if roe and avg_roe > 0 else 'N/A'
+            pe_vs_industry = f"{pe/avg_pe:.2f}x" if (pe and not (isinstance(pe, float) and np.isnan(pe)) and avg_pe > 0) else 'N/A'
+            pb_vs_industry = f"{pb/avg_pb:.2f}x" if (pb and not (isinstance(pb, float) and np.isnan(pb)) and avg_pb > 0) else 'N/A'
+            roe_vs_industry = f"{roe/avg_roe:.2f}x" if (roe and not (isinstance(roe, float) and np.isnan(roe)) and avg_roe > 0) else 'N/A'
             
             # Industry-adjusted fair value estimation
             industry_avg_pe = avg_pe
@@ -9919,7 +9799,7 @@ Trading Plan ({risk_tolerance} RISK):
         
         for _, stock in risk_stocks.iterrows():
             position_size = 100000  # Default position size for calculation
-            volatility = stock.get('volatility_6m', 0.1) or 0.1  # Ensure not None
+            volatility = _nv(stock.get('volatility_6m'), 0.1)
             risk_contrib = position_size * volatility  # Simplified risk contribution
             
             worksheet.write(row, 0, stock['symbol'], data_format)
@@ -10042,9 +9922,9 @@ Trading Plan ({risk_tolerance} RISK):
         
         # Generate predictions (Monte Carlo simulation based)
         for row, (_, stock) in enumerate(top_stocks.iterrows(), 1):
-            current_price = stock.get('current_price', 0) or 0  # Ensure not None
-            score = stock.get('overall_score_with_value', 0) or 0  # Ensure not None
-            volatility = stock.get('volatility_6m', 0.2) or 0.2  # Ensure not None
+            current_price = _nv(stock.get('current_price'), 0)
+            score = _nv(stock.get('overall_score_with_value'), 0)
+            volatility = _nv(stock.get('volatility_6m'), 0.2)
             
             # Simple prediction model based on score and volatility
             if current_price > 0:
@@ -10118,7 +9998,7 @@ Trading Plan ({risk_tolerance} RISK):
         avg_score = df['overall_score_with_value'].mean()
         
         # Market sentiment calculation
-        bullish_percentage = buy_count / total_stocks
+        bullish_percentage = buy_count / total_stocks if total_stocks > 0 else 0
         
         if bullish_percentage > 0.7 and avg_score > 70:
             market_sentiment = 'VERY BULLISH'
@@ -10582,7 +10462,7 @@ Trading Plan ({risk_tolerance} RISK):
             print(f"\n📋 RECOMMENDATION DISTRIBUTION:")
             print("-" * 35)
             for rec, count in rec_counts.items():
-                percentage = (count / total_stocks) * 100
+                percentage = (count / total_stocks) * 100 if total_stocks > 0 else 0
                 print(f"   {rec:<25}: {count:3d} ({percentage:4.1f}%)")
         
         # Failed stocks
@@ -11241,61 +11121,6 @@ def main():
                 
             except Exception as dashboard_error:
                 print(f"\n   [WARN] Dashboard generation failed: {dashboard_error}")
-                print(f"   [TIP] You can manually run: python create_portfolio_dashboard.py")
-            
-            # Auto-run report comparison if multiple reports exist
-            try:
-                import glob
-                from pathlib import Path
-                
-                # Check if we have multiple Enhanced Stock Reports for comparison
-                reports_pattern = "reports/Enhanced_Stock_Report_*.xlsx"
-                available_reports = glob.glob(reports_pattern)
-                comparison_score = len(available_reports)  # number of existing reports
-
-                if comparison_score and comparison_score > 0:
-                    print(f"\n[AUTO] Auto-running report comparison analysis...")
-                    
-                    # Import and run comparison
-                    sys.path.insert(0, str(Path(__file__).parent))
-                    
-                    try:
-                        from report_comparison.analyzer import ReportComparator
-                        from report_comparison.reporter import ComparisonReportGenerator
-                        
-                        # Run comparison with error handling for Unicode issues
-                        comparator = ReportComparator()
-                        
-                        try:
-                            comparison_results = comparator.compare_reports()
-                            
-                            # Display console insights
-                            comparator.display_console_insights(comparison_results)
-                            
-                            # Generate Excel comparison report
-                            generator = ComparisonReportGenerator()
-                            comparison_report = generator.generate_comparison_report(comparison_results)
-                            
-                            print(f"\n[DONE] Comparison analysis completed!")
-                            print(f"[FILE] Comparison Report: {os.path.basename(comparison_report)}")
-                            
-                        except UnicodeEncodeError as e:
-                            print(f"\n[WARN] Report comparison completed with Unicode encoding warnings (non-critical)")
-                        except Exception as e:
-                            print(f"\n[WARN] Report comparison encountered an issue: {str(e)[:100]}... (non-critical)")
-                        
-                    except ImportError as ie:
-                        print(f"\n[INFO] Report comparison module not available: {ie}")
-                        print("   Run 'python compare_reports.py' manually for detailed comparison")
-                    except Exception as ce:
-                        print(f"\n[WARN] Report comparison failed: {ce}")
-                        print("   You can run 'python compare_reports.py' manually")
-                else:
-                    print(f"\n[TIP] Generate another report to enable automatic comparison analysis")
-                    
-            except Exception as e:
-                # Don't fail the main analysis if comparison fails
-                pass
             
             # Auto-run Profit Booking Advisor
             try:
@@ -11315,44 +11140,6 @@ def main():
             except Exception as pbe:
                 print(f"\n[WARNING] Smart Profit Booking Advisor encountered an issue: {str(pbe)[:100]}")
                 print(f"   You can run 'python smart_profit_booking_advisor.py' manually")
-            
-            # Track User's Actual Portfolio
-            try:
-                print(f"\n{'='*90}")
-                print(f"[TRACK] AUTO-TRACKING YOUR PORTFOLIO")
-                print(f"   [LEARN] Intelligence System - Learning from YOUR decisions")
-                print(f"{'='*90}")
-                
-                from src.intelligence.user_portfolio_tracker import UserPortfolioTracker
-                
-                tracker = UserPortfolioTracker("data/intelligence.db")
-                stats = tracker.import_portfolio_from_report(report_file)
-                
-                print(f"\n✅ Portfolio Tracked:")
-                print(f"   • You Own: {stats.get('owned_positions', 0)}/{stats.get('total_positions', 0)} positions")
-                print(f"   • Recommendations Followed: {stats.get('total_positions', 0) - stats.get('ignored_recs', 0)}/{stats.get('total_positions', 0)}")
-                
-                # Show quick performance (guard: method may not exist in all tracker versions)
-                if hasattr(tracker, 'get_user_performance_stats'):
-                    perf = tracker.get_user_performance_stats(period_days=30)
-                    if perf.get('total_portfolio_value', 0) > 0:
-                        print(f"   • Portfolio Value: ₹{perf.get('total_portfolio_value', 0):,.0f}")
-                        print(f"   • Average Profit: {perf.get('avg_profit', 0):.2f}%")
-                        print(f"   • Follow Rate: {perf.get('follow_rate', 0):.1f}%")
-
-                # Show insights (guard: method may not exist in all tracker versions)
-                if hasattr(tracker, 'compare_user_vs_system'):
-                    comparison = tracker.compare_user_vs_system(period_days=30)
-                    insights = comparison.get('insights', [])
-                    if insights:
-                        print(f"\n💡 Quick Insights:")
-                        for insight in insights[:3]:  # Show top 3
-                            print(f"   {insight}")
-                
-            except ImportError:
-                print(f"\n[INFO] Portfolio tracking not available (Intelligence system not installed)")
-            except Exception as pte:
-                print(f"\n[INFO] Portfolio tracking skipped: {str(pte)[:100]}")
             
             # Auto-generate Action Plan Summary
             try:
@@ -11501,28 +11288,6 @@ def main():
             except Exception as ap_error:
                 print(f"\n[INFO] Action plan generation skipped: {ap_error}")
                 print(f"   Run 'python generate_action_plan.py' manually for detailed action plan")
-
-            # ── AUTO-GENERATE USER-FRIENDLY PORTFOLIO GUIDE ──────────────────
-            try:
-                import subprocess, sys as _sys, os as _os
-                _dash_script = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "portfolio_dashboard.py")
-                if _os.path.exists(_dash_script):
-                    print(f"\n{'='*70}")
-                    print(f"[GUIDE] Generating user-friendly Portfolio Guide HTML...")
-                    print(f"{'='*70}")
-                    _result = subprocess.run(
-                        [_sys.executable, _dash_script],
-                        capture_output=True, text=True, timeout=120
-                    )
-                    if _result.returncode == 0:
-                        print(f"[GUIDE] ✅ portfolio_guide.html generated and opened in browser!")
-                    else:
-                        _err_msg = (_result.stderr or _result.stdout or "unknown error").strip()
-                        print(f"[GUIDE] ⚠️  Guide generation skipped (non-critical): {_err_msg[:300]}")
-                else:
-                    print(f"[GUIDE] portfolio_dashboard.py not found — skipping guide generation")
-            except Exception as _dash_err:
-                print(f"[GUIDE] Guide generation skipped (non-critical): {_dash_err}")
 
         else:
             print(f"\n[WARN] Analysis completed but report generation failed")

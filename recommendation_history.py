@@ -6,8 +6,13 @@ Implements cooldown periods and change detection.
 """
 
 import pandas as pd
+import numpy as np
 import os
-import fcntl
+import sys
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -61,11 +66,18 @@ class RecommendationHistory:
     def _save_history(self):
         """Save recommendation history to CSV with file locking for concurrency safety."""
         try:
-            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            _dir = os.path.dirname(self.history_file)
+            if _dir:
+                os.makedirs(_dir, exist_ok=True)
             tmp_path = self.history_file + '.tmp'
-            self.history_df.to_csv(tmp_path, index=False)
-            with open(tmp_path, 'r') as lock_fh:
-                fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            if fcntl is not None:
+                lock_path = self.history_file + '.lock'
+                with open(lock_path, 'w') as lock_fh:
+                    fcntl.flock(lock_fh, fcntl.LOCK_EX)
+                    self.history_df.to_csv(tmp_path, index=False)
+                    os.replace(tmp_path, self.history_file)
+            else:
+                self.history_df.to_csv(tmp_path, index=False)
                 os.replace(tmp_path, self.history_file)
             logging.info(f"Saved recommendation history: {len(self.history_df)} records")
         except Exception as e:
@@ -81,7 +93,11 @@ class RecommendationHistory:
         horizons = {'7d': 7, '30d': 30, '90d': 90}
 
         for idx, row in self.history_df.iterrows():
-            rec_date = pd.to_datetime(row['date'])
+            rec_date = pd.to_datetime(row['date'], errors='coerce')
+            if pd.isna(rec_date):
+                continue
+            if hasattr(rec_date, 'tzinfo') and rec_date.tzinfo is not None:
+                rec_date = rec_date.tz_localize(None)
             rec_price = row.get('price')
             if pd.isna(rec_price) or rec_price in (None, 0):
                 continue
@@ -105,6 +121,8 @@ class RecommendationHistory:
                 hist = ticker.history(start=start, end=end)
                 if hist.empty:
                     continue
+                if hist.index.tz is not None:
+                    hist.index = hist.index.tz_localize(None)
 
                 for label, days in horizons.items():
                     col_price = f'price_{label}'
@@ -161,7 +179,11 @@ class RecommendationHistory:
             return True, ""  # No history, allow action
         
         last_action = last_rec.get('action', '')
-        last_date = pd.to_datetime(last_rec.get('date'))
+        last_date = pd.to_datetime(last_rec.get('date'), errors='coerce')
+        if pd.isna(last_date):
+            return True, ""
+        if last_date.tzinfo is not None:
+            last_date = last_date.tz_localize(None)
         days_since = (datetime.now() - last_date).days
         
         # Check for flip-flops
@@ -243,7 +265,9 @@ class RecommendationHistory:
         # Check PE Ratio change
         last_pe = last_rec.get('pe_ratio', 0)
         current_pe = current_fundamentals.get('pe_ratio', 0)
-        if last_pe and current_pe:
+        _lp_valid = last_pe is not None and not (isinstance(last_pe, float) and np.isnan(last_pe)) and last_pe != 0
+        _cp_valid = current_pe is not None and not (isinstance(current_pe, float) and np.isnan(current_pe))
+        if _lp_valid and _cp_valid:
             pe_change_pct = abs(current_pe - last_pe) / last_pe
             if pe_change_pct > self.FUNDAMENTAL_CHANGE_THRESHOLD:
                 changes.append(f"PE Ratio: {last_pe:.1f} → {current_pe:.1f} ({pe_change_pct*100:+.1f}%)")
@@ -252,7 +276,9 @@ class RecommendationHistory:
         # Check ROE change
         last_roe = last_rec.get('roe', 0)
         current_roe = current_fundamentals.get('roe', 0)
-        if last_roe and current_roe:
+        _lr_valid = last_roe is not None and not (isinstance(last_roe, float) and np.isnan(last_roe))
+        _cr_valid = current_roe is not None and not (isinstance(current_roe, float) and np.isnan(current_roe))
+        if _lr_valid and _cr_valid:
             roe_change = current_roe - last_roe
             if abs(roe_change) > 5:  # 5% absolute change
                 changes.append(f"ROE: {last_roe:.1f}% → {current_roe:.1f}% ({roe_change:+.1f}%)")
@@ -261,7 +287,9 @@ class RecommendationHistory:
         # Check Debt/Equity change
         last_debt = last_rec.get('debt_to_equity', 0)
         current_debt = current_fundamentals.get('debt_to_equity', 0)
-        if last_debt and current_debt:
+        _ld_valid = last_debt is not None and not (isinstance(last_debt, float) and np.isnan(last_debt))
+        _cd_valid = current_debt is not None and not (isinstance(current_debt, float) and np.isnan(current_debt))
+        if _ld_valid and _cd_valid:
             debt_change_pct = abs(current_debt - last_debt) / (last_debt if last_debt != 0 else 1)
             if debt_change_pct > self.FUNDAMENTAL_CHANGE_THRESHOLD:
                 changes.append(f"Debt/Equity: {last_debt:.2f} → {current_debt:.2f} ({debt_change_pct*100:+.1f}%)")
@@ -335,8 +363,13 @@ class RecommendationHistory:
         if last_rec:
             last_action = last_rec.get('action')
             if last_action != result['final_action']:
-                last_date = pd.to_datetime(last_rec.get('date'))
-                days_since = (datetime.now() - last_date).days
+                last_date = pd.to_datetime(last_rec.get('date'), errors='coerce')
+                if pd.isna(last_date):
+                    days_since = 0
+                else:
+                    if hasattr(last_date, 'tzinfo') and last_date.tzinfo is not None:
+                        last_date = last_date.tz_localize(None)
+                    days_since = (datetime.now() - last_date).days
                 result['warnings'].append(
                     f"📊 RECOMMENDATION CHANGED: {last_action} → {result['final_action']} "
                     f"(after {days_since} days)"
@@ -438,7 +471,11 @@ class RecommendationHistory:
             for i in range(len(actions) - 1):
                 if (actions[i] in ['BUY', 'INCREASE'] and actions[i+1] == 'SELL') or \
                    (actions[i] == 'SELL' and actions[i+1] in ['BUY', 'INCREASE']):
-                    days_between = (dates[i+1] - dates[i]).days
+                    _d0 = pd.to_datetime(dates[i], errors='coerce')
+                    _d1 = pd.to_datetime(dates[i+1], errors='coerce')
+                    if pd.isna(_d0) or pd.isna(_d1):
+                        continue
+                    days_between = (_d1 - _d0).days
                     flip_flops.append({
                         'symbol': symbol,
                         'first_action': actions[i],
@@ -476,8 +513,11 @@ class RecommendationHistory:
             symbol_recs = self.history_df[self.history_df['symbol'] == symbol].sort_values('date')
             if len(symbol_recs) >= 2:
                 for i in range(len(symbol_recs) - 1):
-                    days = (symbol_recs.iloc[i+1]['date'] - symbol_recs.iloc[i]['date']).days
-                    hold_days.append(days)
+                    _d0 = pd.to_datetime(symbol_recs.iloc[i]['date'], errors='coerce')
+                    _d1 = pd.to_datetime(symbol_recs.iloc[i+1]['date'], errors='coerce')
+                    if pd.isna(_d0) or pd.isna(_d1):
+                        continue
+                    hold_days.append((_d1 - _d0).days)
         
         return {
             'total_recommendations': len(self.history_df),
