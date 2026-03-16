@@ -1934,13 +1934,13 @@ class EnhancedTop200StockAnalyzer:
                 })
             
             # 4. Calculate Comprehensive Scores with All Accuracy Improvements
-            fund_score = stock_data.get('fundamental_score', 50)
-            enhanced_score = enhanced_tech_data.get('short_term_score', 50) if enhanced_tech_data else 50
-            legacy_score = stock_data.get('legacy_technical_score', 50)
-            real_tech_score = stock_data.get('real_technical_score', 50)
-            mtf_score = stock_data.get('mtf_composite_score', 50)  # Multi-timeframe score
-            institutional_score = stock_data.get('institutional_score', 50)  # NEW: Institutional flow score
-            ml_confidence = stock_data.get('ml_confidence', 0)  # PHASE 2: ML confidence score
+            fund_score = _nv(stock_data.get('fundamental_score'), 50)
+            enhanced_score = _nv(enhanced_tech_data.get('short_term_score'), 50) if enhanced_tech_data else 50
+            legacy_score = _nv(stock_data.get('legacy_technical_score'), 50)
+            real_tech_score = _nv(stock_data.get('real_technical_score'), 50)
+            mtf_score = _nv(stock_data.get('mtf_composite_score'), 50)
+            institutional_score = _nv(stock_data.get('institutional_score'), 50)
+            ml_confidence = _nv(stock_data.get('ml_confidence'), 0)
             _pconf_raw = stock_data.get('pattern_confidence', 0.0)
             pattern_confidence = float(_pconf_raw) if _pconf_raw is not None and not (isinstance(_pconf_raw, float) and np.isnan(_pconf_raw)) else 0.0
             
@@ -2646,15 +2646,14 @@ class EnhancedTop200StockAnalyzer:
             stock_data['recommendation_changed'] = original_recommendation != phase2_recommendation
             
             # Convert complex objects to strings for Excel compatibility
-            for key, value in stock_data.items():
+            for key, value in list(stock_data.items()):
                 if isinstance(value, (list, dict)):
                     try:
                         stock_data[key] = str(value)
                     except Exception:
-                        # Handle conversion errors
                         stock_data[key] = f"[Error converting {key}]"
-                elif pd.isna(value):
-                    stock_data[key] = ''
+                elif isinstance(value, (float, int, np.floating, np.integer)) and pd.isna(value):
+                    stock_data[key] = 0
                 elif value is None:
                     stock_data[key] = ''
             
@@ -3578,23 +3577,23 @@ class EnhancedTop200StockAnalyzer:
             ma_long = close.rolling(window=min(long_ma, len(close))).mean()
             
             # Current values
-            current_price = close.iloc[-1]
-            current_ma_short = ma_short.iloc[-1]
-            current_ma_long = ma_long.iloc[-1] if len(close) >= long_ma else current_ma_short
+            current_price = _nv(close.iloc[-1], 0)
+            current_ma_short = _nv(ma_short.iloc[-1], 0)
+            current_ma_long = _nv(ma_long.iloc[-1] if len(close) >= long_ma else current_ma_short, 0)
             
             # Trend analysis
-            if current_ma_short > current_ma_long * 1.02:
+            if current_ma_long != 0 and current_ma_short != 0 and current_ma_short > current_ma_long * 1.02:
                 trend_signal = 'BULLISH'
-                trend_strength = min(((current_ma_short / current_ma_long - 1) * 100) * 10, 100) if current_ma_long != 0 else 50
-            elif current_ma_short < current_ma_long * 0.98:
+                trend_strength = min(((current_ma_short / current_ma_long - 1) * 100) * 10, 100)
+            elif current_ma_long != 0 and current_ma_short != 0 and current_ma_short < current_ma_long * 0.98:
                 trend_signal = 'BEARISH'  
-                trend_strength = min(((1 - current_ma_short / current_ma_long) * 100) * 10, 100) if current_ma_long != 0 else 50
+                trend_strength = min(((1 - current_ma_short / current_ma_long) * 100) * 10, 100)
             else:
                 trend_signal = 'NEUTRAL'
                 trend_strength = 50
             
             # Momentum analysis (price vs MA)
-            price_vs_ma = ((current_price / current_ma_short - 1) * 100) if current_ma_short != 0 else 0
+            price_vs_ma = _nv(((current_price / current_ma_short - 1) * 100) if (current_ma_short != 0 and not np.isnan(current_ma_short)) else 0, 0)
             if price_vs_ma > 3:
                 momentum_signal = 'STRONG_BULLISH'
                 momentum_strength = min(85 + price_vs_ma, 100)
@@ -3609,7 +3608,7 @@ class EnhancedTop200StockAnalyzer:
                 momentum_strength = 30 - abs(price_vs_ma) * 5
             else:
                 momentum_signal = 'NEUTRAL'
-                momentum_strength = 50 + price_vs_ma * 2
+                momentum_strength = 50 + _nv(price_vs_ma, 0) * 2
             
             # Volume analysis (if available)
             volume_signal = 'NEUTRAL'
@@ -3738,7 +3737,7 @@ class EnhancedTop200StockAnalyzer:
             
             # Trend consensus bonus/penalty (30 points max)
             trend = mtf_results.get('consensus_trend', 'NEUTRAL')
-            trend_strength = mtf_results.get('trend_strength', 50)
+            trend_strength = _nv(mtf_results.get('trend_strength'), 50)
             
             if trend == 'BULLISH':
                 trend_score = 15 + (trend_strength - 50) * 0.3
@@ -3749,7 +3748,7 @@ class EnhancedTop200StockAnalyzer:
             
             # Momentum consensus bonus/penalty (25 points max)
             momentum = mtf_results.get('consensus_momentum', 'NEUTRAL')
-            momentum_strength = mtf_results.get('momentum_strength', 50)
+            momentum_strength = _nv(mtf_results.get('momentum_strength'), 50)
             
             if momentum in ['STRONG_BULLISH', 'BULLISH']:
                 momentum_score = 20 if momentum == 'STRONG_BULLISH' else 12
@@ -3761,7 +3760,7 @@ class EnhancedTop200StockAnalyzer:
                 momentum_score = 0
             
             # Timeframe agreement bonus (15 points max)
-            agreement = mtf_results.get('timeframe_agreement', 0)
+            agreement = _nv(mtf_results.get('timeframe_agreement'), 0)
             agreement_score = (agreement / 100) * 15
             
             # Signal quality bonus (10 points max)
@@ -3774,7 +3773,7 @@ class EnhancedTop200StockAnalyzer:
             
             final_score = base_score + trend_score + momentum_score + agreement_score + quality_score + volume_score
             
-            return max(min(final_score, 100), 0)  # Clamp between 0-100
+            return max(min(_nv(final_score, 50), 100), 0)  # Clamp between 0-100
             
         except Exception as e:
             logging.warning(f"Multi-timeframe score calculation failed: {e}")
@@ -7433,14 +7432,16 @@ class EnhancedTop200StockAnalyzer:
                 # Collect results as they complete
                 for future in as_completed(future_to_stock):
                     stock = future_to_stock[future]
+                    _counted = False
                     try:
                         result = future.result(timeout=120)  # 2 minute timeout per stock
                         if result:
                             batch_results.append(result)
                             self.processed_stocks += 1
+                            _counted = True
                             
                             status = result.get('status', 'unknown')
-                            score = result.get('overall_score_triple', 0)
+                            score = _nv(result.get('overall_score_triple'), 0)
                             recommendation = result.get('final_recommendation', 'N/A')
                             
                             print(f"   [DONE] {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
@@ -7448,16 +7449,17 @@ class EnhancedTop200StockAnalyzer:
                             if status == 'error':
                                 self.failed_stocks.append(stock)
                         else:
-                            # Handle case where result is None
                             print(f"   [WARN] {stock:<12}: no data returned")
                             self.failed_stocks.append(stock)
                             logging.warning(f"No data returned for {stock}")
                             self.processed_stocks += 1
+                            _counted = True
                             
                     except Exception as e:
                         print(f"   [FAIL] {stock:<12}: timeout/error - {str(e)[:50]}")
                         self.failed_stocks.append(stock)
-                        self.processed_stocks += 1
+                        if not _counted:
+                            self.processed_stocks += 1
                         logging.error(f"Batch processing error for {stock}: {e}")
             
             # A-014: dict keyed by symbol — O(1) retry lookup, deduplication on re-run
@@ -10452,7 +10454,7 @@ Trading Plan ({risk_tolerance} RISK):
             print("-" * 40)
             for idx, (_, row) in enumerate(top_10.iterrows(), 1):
                 symbol = row['symbol']
-                score = row['overall_score_triple']
+                score = _nv(row['overall_score_triple'], 0)
                 rec = row['final_recommendation']
                 print(f"   {idx:2d}. {symbol:<12}: {score:5.1f} - {rec}")
         
