@@ -2,10 +2,8 @@
 import pandas as pd, glob, warnings, numpy as np
 warnings.filterwarnings('ignore')
 
-f = sorted([x for x in glob.glob("reports/*.xlsx") if "~" not in x])[-1]
-df = pd.read_excel(f, sheet_name="Portfolio Allocation")
-# Handle both UTF-8 ₹ and Windows-1252 Γé╣ encoding of the rupee symbol
-df.rename(columns={c: c.replace("₹", "Rs").replace("Γé╣", "Rs") for c in df.columns}, inplace=True)
+f = sorted([x for x in glob.glob("reports/*.xlsx") if "~" not in x and "Enhanced_Stock_Report" in x])[-1]
+df = pd.read_excel(f, sheet_name="Portfolio Allocation", header=1)
 
 print("=" * 60)
 print("DATA QUALITY AUDIT")
@@ -30,20 +28,20 @@ def bad_col(subset, col, label):
 df["_price"] = pd.to_numeric(df["PRICE"],     errors="coerce")
 df["_score"] = pd.to_numeric(df["SCORE"],     errors="coerce")
 df["_sup"]   = pd.to_numeric(df["SUPPORT"],   errors="coerce").fillna(0)
-df["_res"]   = pd.to_numeric(df["RESISTANCE"],errors="coerce").fillna(0)
-df["_sl"]    = pd.to_numeric(df["STOP_LOSS"], errors="coerce").fillna(0)
+df["_res"]   = pd.to_numeric(df["RESIST"],errors="coerce").fillna(0)
+df["_sl"]    = pd.to_numeric(df.get("STOP LOSS", df.get("STOP_LOSS", pd.Series(0, index=df.index))), errors="coerce").fillna(0)
 df["_rsi"]   = pd.to_numeric(df["RSI"],       errors="coerce")
-df["_pnl"]   = pd.to_numeric(df["MY_PROFIT_%"], errors="coerce")
-df["_sh"]    = pd.to_numeric(df["MY_SHARES"], errors="coerce").fillna(0)
-# Use INVEST_Rs after rename; fallback to zero Series if column missing
-_inv_col = "INVEST_Rs" if "INVEST_Rs" in df.columns else None
+df["_pnl"]   = pd.to_numeric(df["P&L %"], errors="coerce")
+df["_sh"]    = pd.to_numeric(df["MY QTY"], errors="coerce").fillna(0)
+# Use INVEST ₹ (or INVEST Rs after rename); fallback to zero Series if column missing
+_inv_col = "INVEST Rs" if "INVEST Rs" in df.columns else ("INVEST ₹" if "INVEST ₹" in df.columns else ("INVEST_Rs" if "INVEST_Rs" in df.columns else None))
 df["_inv"]   = pd.to_numeric(df[_inv_col] if _inv_col else pd.Series(0, index=df.index), errors="coerce").fillna(0)
-df["_bsh"]   = pd.to_numeric(df["BUY_SHARES"],errors="coerce").fillna(0)
-df["_fs"]    = pd.to_numeric(df["FUND_SCORE"],errors="coerce").fillna(0)
-df["_ms"]    = pd.to_numeric(df["MOM_SCORE"], errors="coerce").fillna(0)
-df["_vs"]    = pd.to_numeric(df["VALUE_SCORE"],errors="coerce").fillna(0)
-df["_52h"]   = pd.to_numeric(df.get("52W_HIGH",  pd.Series(0, index=df.index)), errors="coerce").fillna(0)
-df["_52l"]   = pd.to_numeric(df.get("52W_LOW",   pd.Series(0, index=df.index)), errors="coerce").fillna(0)
+df["_bsh"]   = pd.to_numeric(df["BUY QTY"],errors="coerce").fillna(0)
+df["_fs"]    = pd.to_numeric(df["FUND"],errors="coerce").fillna(0)
+df["_ms"]    = pd.to_numeric(df["MOM"], errors="coerce").fillna(0)
+df["_vs"]    = pd.to_numeric(df.get("VALUE", df.get("VALUE_SCORE", pd.Series(0, index=df.index))), errors="coerce").fillna(0)
+df["_52h"]   = pd.to_numeric(df.get("52W HIGH",  pd.Series(0, index=df.index)), errors="coerce").fillna(0)
+df["_52l"]   = pd.to_numeric(df.get("52W LOW",   pd.Series(0, index=df.index)), errors="coerce").fillna(0)
 
 owned     = df[df["_sh"] > 0]
 buy_mask  = df["ACTION"].str.contains("PRE-BREAKOUT|NEW POSITION|INCREASE|BUY", na=False, case=False) & ~df["ACTION"].str.contains("SMALL ENTRY", na=False, case=False)
@@ -72,20 +70,20 @@ if len(bad): issues.append(("[4] OWNED: RSI missing/zero", bad["symbol"].tolist(
 bad = owned[owned["_sup"] == 0]
 if len(bad): issues.append(("[5] OWNED: SUPPORT = 0", bad["symbol"].tolist()))
 
-# 6. Owned stocks missing RESISTANCE
+# 6. Owned stocks missing RESIST
 bad = owned[owned["_res"] == 0]
-if len(bad): issues.append(("[6] OWNED: RESISTANCE = 0", bad["symbol"].tolist()))
+if len(bad): issues.append(("[6] OWNED: RESIST = 0", bad["symbol"].tolist()))
 
-# 7. BUY stocks where BUY_SHARES > 0 but INVEST is 0 (calc error, not budget-constrained unfunded)
+# 7. BUY stocks where BUY QTY > 0 but INVEST is 0 (calc error, not budget-constrained unfunded)
 bad = buy_df[(buy_df["_bsh"] > 0) & (buy_df["_inv"] == 0)]
-if len(bad): issues.append(("[7] BUY: BUY_SHARES>0 but INVEST_Rs=0 (calc error)", bad["symbol"].tolist()))
+if len(bad): issues.append(("[7] BUY: BUY QTY>0 but INVEST=0 (calc error)", bad["symbol"].tolist()))
 # 7b. Unfunded buys: recommended but budget ran out (informational, not an error)
 unfunded = buy_df[(buy_df["_bsh"] == 0) & (buy_df["_inv"] == 0)]
 if len(unfunded): issues.append(("[7b] INFO: Unfunded BUY recs (budget ran out - not an error)", unfunded["symbol"].tolist()))
 
-# 8. BUY stocks FUNDED (INVEST > 0) but BUY_SHARES still 0 (price-calc bug)
+# 8. BUY stocks FUNDED (INVEST > 0) but BUY QTY still 0 (price-calc bug)
 bad = buy_df[(buy_df["_inv"] > 0) & (buy_df["_bsh"] == 0)]
-if len(bad): issues.append(("[8] BUY: INVEST>0 but BUY_SHARES=0 (share-calc bug)", bad["symbol"].tolist()))
+if len(bad): issues.append(("[8] BUY: INVEST>0 but BUY QTY=0 (share-calc bug)", bad["symbol"].tolist()))
 
 # 9. BUY stocks missing STOP_LOSS
 bad = buy_df[buy_df["_sl"] == 0]
@@ -95,9 +93,9 @@ if len(bad): issues.append(("[9] BUY: STOP_LOSS missing", bad["symbol"].tolist()
 bad = df[(df["_sup"] > 0) & (df["_price"] > 0) & (df["_sup"] > df["_price"])]
 if len(bad): issues.append(("[10] SUPPORT > PRICE", bad[["symbol","_sup","_price"]].values.tolist()))
 
-# 11. RESISTANCE < PRICE (impossible)
+# 11. RESIST < PRICE (impossible)
 bad = df[(df["_res"] > 0) & (df["_price"] > 0) & (df["_res"] < df["_price"])]
-if len(bad): issues.append(("[11] RESISTANCE < PRICE", bad[["symbol","_res","_price"]].values.tolist()))
+if len(bad): issues.append(("[11] RESIST < PRICE", bad[["symbol","_res","_price"]].values.tolist()))
 
 # 12. STOP_LOSS >= PRICE (useless — should always be below price)
 bad = df[(df["_sl"] > 0) & (df["_price"] > 0) & (df["_sl"] >= df["_price"])]
@@ -124,10 +122,10 @@ if len(bad): issues.append(("[16] Zero FUND/MOM/VALUE scores but SCORE > 0", bad
 bad = df[df["_pnl"].notna() & ((df["_pnl"] > 5) | (df["_pnl"] < -1))]
 if len(bad): issues.append(("[17] PNL out of range", [[r["symbol"], round(r["_pnl"]*100,1)] for _,r in bad.iterrows()]))
 
-# 18. WHEN_TO_ACT missing for actionable stocks
-if "WHEN_TO_ACT" in df.columns:
-    bad = df[act_mask & (df["WHEN_TO_ACT"].isna() | (df["WHEN_TO_ACT"].astype(str).str.strip().isin(["", "nan"])))]
-    if len(bad): issues.append(("[18] Actionable stocks missing WHEN_TO_ACT", bad["symbol"].tolist()))
+# 18. WHEN missing for actionable stocks
+if "WHEN" in df.columns:
+    bad = df[act_mask & (df["WHEN"].isna() | (df["WHEN"].astype(str).str.strip().isin(["", "nan"])))]
+    if len(bad): issues.append(("[18] Actionable stocks missing WHEN", bad["symbol"].tolist()))
 
 # 19. PRE_BREAKOUT? flag=0 but ACTION says PRE-BREAKOUT
 if "PRE_BREAKOUT?" in df.columns:
@@ -141,15 +139,16 @@ if "ROTATION_TARGET" in df.columns:
     bad = swap_df[swap_df.apply(lambda r: str(r.get("ROTATION_TARGET","")).strip() == str(r["symbol"]).strip(), axis=1)]
     if len(bad): issues.append(("[20] SWAP: rotation target is same stock", bad["symbol"].tolist()))
 
-# 21. MY_VALUE_Rs inconsistency: MY_SHARES > 0 but MY_VALUE = 0
-if "MY_VALUE_Rs" in df.columns:
-    df["_mv"] = pd.to_numeric(df["MY_VALUE_Rs"], errors="coerce").fillna(0)
+# 21. MY VALUE ₹ inconsistency: MY QTY > 0 but MY VALUE = 0
+_mv_col = "MY VALUE Rs" if "MY VALUE Rs" in df.columns else ("MY VALUE ₹" if "MY VALUE ₹" in df.columns else ("MY_VALUE_Rs" if "MY_VALUE_Rs" in df.columns else None))
+if _mv_col:
+    df["_mv"] = pd.to_numeric(df[_mv_col], errors="coerce").fillna(0)
     bad = df[(df["_sh"] > 0) & (df["_mv"] == 0)]
-    if len(bad): issues.append(("[21] OWNED: MY_VALUE = 0 but MY_SHARES > 0", bad["symbol"].tolist()))
+    if len(bad): issues.append(("[21] OWNED: MY VALUE = 0 but MY QTY > 0", bad["symbol"].tolist()))
 
-# 22. Non-owned stocks with non-zero MY_PROFIT
+# 22. Non-owned stocks with non-zero P&L
 bad = df[(df["_sh"] == 0) & (df["_pnl"].notna()) & (df["_pnl"] != 0)]
-if len(bad): issues.append(("[22] Not owned but MY_PROFIT != 0", bad["symbol"].tolist()))
+if len(bad): issues.append(("[22] Not owned but P&L != 0", bad["symbol"].tolist()))
 
 # ── Print results ─────────────────────────────────────────────────
 # ── Extended checks (added after initial 22) ─────────────────────
@@ -157,22 +156,22 @@ if len(bad): issues.append(("[22] Not owned but MY_PROFIT != 0", bad["symbol"].t
 # C. INCREASE action but INVEST=0 (stale-index bug — now fixed in engine)
 inc_df = df[df["ACTION"].str.upper() == "INCREASE"]
 bad = inc_df[inc_df["_inv"] == 0]
-if len(bad): issues.append(("[C] INCREASE action but INVEST_Rs=0 (should be funded)", bad["symbol"].tolist()))
+if len(bad): issues.append(("[C] INCREASE action but INVEST=0 (should be funded)", bad["symbol"].tolist()))
 
-# D. INCREASE action but BUY_SHARES=0
+# D. INCREASE action but BUY QTY=0
 bad = inc_df[inc_df["_bsh"] == 0]
-if len(bad): issues.append(("[D] INCREASE action but BUY_SHARES=0", bad["symbol"].tolist()))
+if len(bad): issues.append(("[D] INCREASE action but BUY QTY=0", bad["symbol"].tolist()))
 
-# E. PRE-BREAKOUT with BUY_SHARES=0 (recommended but budget not assigned)
+# E. PRE-BREAKOUT with BUY QTY=0 (recommended but budget not assigned)
 pb_df = df[df["ACTION"].str.contains("PRE-BREAKOUT", na=False)]
 bad = pb_df[pb_df["_bsh"] == 0]
-if len(bad): issues.append(("[E] PRE-BREAKOUT but BUY_SHARES=0 (unfunded breakout rec)", bad["symbol"].tolist()))
+if len(bad): issues.append(("[E] PRE-BREAKOUT but BUY QTY=0 (unfunded breakout rec)", bad["symbol"].tolist()))
 
 # F. PRICE outside 52-week range (data integrity)
 bad = df[(df["_price"] > 0) & (df["_52h"] > 0) & (df["_price"] > df["_52h"] * 1.02)]
-if len(bad): issues.append(("[F] PRICE > 52W_HIGH + 2%%", bad[["symbol", "_price", "_52h"]].values.tolist()))
+if len(bad): issues.append(("[F] PRICE > 52W HIGH + 2%%", bad[["symbol", "_price", "_52h"]].values.tolist()))
 bad = df[(df["_price"] > 0) & (df["_52l"] > 0) & (df["_price"] < df["_52l"] * 0.98)]
-if len(bad): issues.append(("[G] PRICE < 52W_LOW - 2%%", bad[["symbol", "_price", "_52l"]].values.tolist()))
+if len(bad): issues.append(("[G] PRICE < 52W LOW - 2%%", bad[["symbol", "_price", "_52l"]].values.tolist()))
 
 # H. Duplicate symbols
 dups = df[df.duplicated("symbol", keep=False)]
@@ -188,10 +187,10 @@ bad = act_non_owned[act_non_owned["_sup"] == 0]
 if len(bad): issues.append(("[J] Actionable non-owned stocks: SUPPORT=0", bad["symbol"].tolist()))
 
 # K. ML=SELL but ACTION is BUY/INCREASE (signal contradiction)
-if "ML_SIGNAL" in df.columns:
+if "ML" in df.columns:
     buy_acts = df["ACTION"].str.contains("INCREASE|PRE-BREAKOUT|NEW POSITION", na=False, case=False)
-    bad = df[buy_acts & (df["ML_SIGNAL"] == "SELL")]
-    if len(bad): issues.append(("[K] ML=SELL but ACTION=BUY/INCREASE", bad[["symbol", "ML_SIGNAL", "ACTION"]].values.tolist()))
+    bad = df[buy_acts & (df["ML"] == "SELL")]
+    if len(bad): issues.append(("[K] ML=SELL but ACTION=BUY/INCREASE", bad[["symbol", "ML", "ACTION"]].values.tolist()))
 
 # L. ROTATION_TARGET is already an owned stock (would re-buy what you own)
 if "ROTATION_TARGET" in df.columns:

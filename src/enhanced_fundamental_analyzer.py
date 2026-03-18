@@ -9,6 +9,142 @@ import logging
 from datetime import datetime
 import time
 
+
+def _nv(val, default=0):
+    """Return val if it is not None and not NaN, else default."""
+    if val is None:
+        return default
+    try:
+        if val != val:
+            return default
+    except (TypeError, ValueError):
+        pass
+    return val
+
+
+def _safe_pe(info: dict) -> float:
+    """Return PE ratio. For loss-making stocks (negative EPS, no PE from yfinance),
+    return -1 as a sentinel so downstream scoring can distinguish 'no data' (0) from 'loss-making' (-1)."""
+    pe = info.get('trailingPE')
+    if pe and pe > 0:
+        return pe
+    fwd = info.get('forwardPE')
+    if fwd and fwd > 0:
+        return fwd
+    eps = info.get('trailingEps', 0)
+    if eps is not None and eps < 0:
+        return -1.0
+    return 0.0
+
+
+def _safe_dividend_yield(info: dict) -> float:
+    """Return dividend yield as a percentage, with sanity checks.
+    yfinance returns dividendYield as a ratio (e.g. 0.02 = 2%).
+    Some NSE stocks return anomalous values that would exceed 20% — treat those
+    as suspect and fall back to computing from dividendRate / currentPrice."""
+    raw = info.get('dividendYield')
+    if not raw:
+        return 0.0
+    pct = raw * 100
+    if pct <= 20:
+        return round(pct, 4)
+    div_rate = info.get('dividendRate') or info.get('trailingAnnualDividendRate')
+    price = _nv(info.get('currentPrice'), _nv(info.get('regularMarketPrice'), 0))
+    if div_rate and price and price > 0:
+        computed = (div_rate / price) * 100
+        if 0 < computed <= 20:
+            return round(computed, 4)
+    return 0.0
+
+
+def _safe_roe(info: dict, bundle=None) -> float:
+    """Return ROE as a percentage. Falls back to computing from financials
+    (netIncomeToCommon / totalStockholderEquity) when returnOnEquity is missing."""
+    raw = info.get('returnOnEquity')
+    if raw:
+        return round(raw * 100, 4)
+    try:
+        if bundle is not None:
+            ticker_obj = bundle._ticker if hasattr(bundle, '_ticker') else None
+        else:
+            ticker_obj = None
+        if ticker_obj is None:
+            sym = info.get('symbol', '')
+            if not sym:
+                return 0.0
+            if not sym.endswith('.NS'):
+                sym = sym + '.NS'
+            ticker_obj = yf.Ticker(sym)
+        bs = ticker_obj.balance_sheet
+        inc = ticker_obj.income_stmt
+        if bs is not None and not bs.empty and inc is not None and not inc.empty:
+            equity = None
+            for label in ['Total Stockholder Equity', 'Stockholders Equity',
+                          'Total Equity Gross Minority Interest', 'Common Stock Equity']:
+                if label in bs.index:
+                    equity = bs.loc[label].iloc[0]
+                    break
+            net_income = None
+            for label in ['Net Income', 'Net Income Common Stockholders',
+                          'Net Income From Continuing Operations']:
+                if label in inc.index:
+                    net_income = inc.loc[label].iloc[0]
+                    break
+            if equity and net_income and not pd.isna(equity) and not pd.isna(net_income) and equity != 0:
+                return round((net_income / equity) * 100, 4)
+    except Exception as e:
+        logging.debug(f"ROE fallback calculation failed: {e}")
+    return 0.0
+
+
+def _calculate_piotroski(data: dict, info: dict, bundle=None) -> int:
+    """Piotroski F-Score (0-9): 9 binary signals for value investing.
+    Uses yfinance info + financial statements when available."""
+    score = 0
+    try:
+        roa = data.get('roa', 0) / 100 if data.get('roa') else 0
+        ocf = data.get('operating_cashflow', 0)
+        net_margin = data.get('net_margin', 0) / 100 if data.get('net_margin') else 0
+        fcf = data.get('free_cashflow', 0)
+        d2e = data.get('debt_to_equity', 0)
+        cr = data.get('current_ratio', 0)
+        shares = data.get('shares_outstanding', 0)
+        gross_margin = data.get('gross_margin', 0) / 100 if data.get('gross_margin') else 0
+        revenue_growth = data.get('revenue_growth', 0) / 100 if data.get('revenue_growth') else 0
+
+        # 1. Net income positive (ROA > 0)
+        if roa > 0:
+            score += 1
+        # 2. Operating cash flow positive
+        if ocf and ocf > 0:
+            score += 1
+        # 3. ROA improving (use earnings_growth as proxy)
+        if data.get('earnings_growth', 0) > 0:
+            score += 1
+        # 4. Cash flow > Net income (accruals quality)
+        net_income = info.get('netIncomeToCommon', 0) or 0
+        if ocf and ocf > net_income:
+            score += 1
+        # 5. Long-term debt decreasing (use D/E as proxy — lower is better)
+        if d2e < 50:
+            score += 1
+        # 6. Current ratio improving (> 1 is healthy)
+        if cr > 1:
+            score += 1
+        # 7. No share dilution (shares_outstanding not increasing — assume OK if available)
+        if shares > 0:
+            score += 1
+        # 8. Gross margin improving
+        if gross_margin > 0 and revenue_growth > 0:
+            score += 1
+        # 9. Asset turnover improving (revenue growth > 0)
+        if revenue_growth > 0:
+            score += 1
+    except Exception as e:
+        logging.debug(f"Piotroski F-Score calculation error: {e}")
+    return score
+
+
 def get_comprehensive_stock_data(symbol, bundle=None):
     """Get comprehensive stock data. If *bundle* (StockDataBundle) is supplied,
     reuse its pre-fetched info & hist to avoid duplicate API calls."""
@@ -57,19 +193,19 @@ def get_comprehensive_stock_data(symbol, bundle=None):
         
         # Valuation ratios
         data.update({
-            'pe_ratio': info.get('trailingPE', 0) or info.get('forwardPE', 0),
+            'pe_ratio': _safe_pe(info),
             'forward_pe': info.get('forwardPE', 0),
             'pb_ratio': info.get('priceToBook', 0),
             'ps_ratio': info.get('priceToSalesTrailing12Months', 0),
-            'peg_ratio': info.get('pegRatio', 0),
+            'peg_ratio': _nv(info.get('pegRatio'), _nv(info.get('trailingPegRatio'), 0)),
             'ev_ebitda': info.get('enterpriseToEbitda', 0),
             'ev_revenue': info.get('enterpriseToRevenue', 0),
-            'dividend_yield': info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0
+            'dividend_yield': _safe_dividend_yield(info)
         })
         
         # Profitability metrics
         data.update({
-            'roe': info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0,
+            'roe': _safe_roe(info, bundle),
             'roa': info.get('returnOnAssets', 0) * 100 if info.get('returnOnAssets') else 0,
             'gross_margin': info.get('grossMargins', 0) * 100 if info.get('grossMargins') else 0,
             'operating_margin': info.get('operatingMargins', 0) * 100 if info.get('operatingMargins') else 0,
@@ -77,24 +213,83 @@ def get_comprehensive_stock_data(symbol, bundle=None):
             'ebitda_margin': info.get('ebitdaMargins', 0) * 100 if info.get('ebitdaMargins') else 0
         })
         
-        # Growth metrics
+        # Growth metrics — with fallback from ticker.financials for Indian stocks
+        _eg = _nv(info.get('earningsGrowth'), 0) * 100 if _nv(info.get('earningsGrowth'), 0) else 0
+        _qeg = _nv(info.get('earningsQuarterlyGrowth'), 0) * 100 if _nv(info.get('earningsQuarterlyGrowth'), 0) else 0
+        if _eg == 0:
+            try:
+                _ticker = bundle._ticker if (bundle is not None and hasattr(bundle, '_ticker')) else yf.Ticker(symbol + '.NS')
+                _fin = _ticker.financials
+                if _fin is not None and not _fin.empty:
+                    _ni_row = None
+                    for _ni_key in ['Net Income', 'Net Income From Continuing Operations', 'Net Income Common Stockholders']:
+                        if _ni_key in _fin.index:
+                            _ni_row = _fin.loc[_ni_key].dropna()
+                            break
+                    if _ni_row is not None and len(_ni_row) >= 2:
+                        _ni_latest = float(_ni_row.iloc[0])
+                        _ni_prev = float(_ni_row.iloc[1])
+                        if _ni_prev != 0 and _ni_latest != 0:
+                            _eg = round((_ni_latest - _ni_prev) / abs(_ni_prev) * 100, 2)
+            except Exception:
+                pass
         data.update({
             'revenue_growth': info.get('revenueGrowth', 0) * 100 if info.get('revenueGrowth') else 0,
-            'earnings_growth': info.get('earningsGrowth', 0) * 100 if info.get('earningsGrowth') else 0,
+            'earnings_growth': _eg,
             'quarterly_revenue_growth': info.get('revenueQuarterlyGrowth', 0) * 100 if info.get('revenueQuarterlyGrowth') else 0,
-            'quarterly_earnings_growth': info.get('earningsQuarterlyGrowth', 0) * 100 if info.get('earningsQuarterlyGrowth') else 0
+            'quarterly_earnings_growth': _qeg
         })
+
+        if data['peg_ratio'] == 0 and _eg > 0 and data.get('pe_ratio', 0) > 0:
+            data['peg_ratio'] = round(data['pe_ratio'] / _eg, 2)
         
-        # Financial strength
+        # Financial strength — with fallback from financial statements
+        _ocf = info.get('operatingCashflow') or 0
+        _fcf = info.get('freeCashflow') or 0
+        _cr = _nv(info.get('currentRatio'), 0)
+        _qr = _nv(info.get('quickRatio'), 0)
+        if not _ocf or not _fcf or not _cr:
+            try:
+                _ticker = (bundle._ticker if (bundle is not None and hasattr(bundle, '_ticker'))
+                           else yf.Ticker(symbol + '.NS'))
+                if not _ocf or not _fcf:
+                    _cf = _ticker.cashflow
+                    if _cf is not None and not _cf.empty:
+                        for _ocf_key in ['Operating Cash Flow', 'Cash Flow From Continuing Operating Activities', 'Total Cash From Operating Activities']:
+                            if _ocf_key in _cf.index and not _ocf:
+                                _vals = _cf.loc[_ocf_key].dropna()
+                                if len(_vals) > 0:
+                                    _ocf = int(_vals.iloc[0])
+                                    break
+                        for _fcf_key in ['Free Cash Flow']:
+                            if _fcf_key in _cf.index and not _fcf:
+                                _vals = _cf.loc[_fcf_key].dropna()
+                                if len(_vals) > 0:
+                                    _fcf = int(_vals.iloc[0])
+                                    break
+                if not _cr or not _qr:
+                    _bs = _ticker.balance_sheet
+                    if _bs is not None and not _bs.empty:
+                        _ca = _bs.loc['Current Assets'].dropna().iloc[0] if 'Current Assets' in _bs.index else 0
+                        _cl = _bs.loc['Current Liabilities'].dropna().iloc[0] if 'Current Liabilities' in _bs.index else 0
+                        if _cl and _cl > 0:
+                            _cr = _cr or round(float(_ca / _cl), 3)
+                            _inv = _bs.loc['Inventory'].dropna().iloc[0] if 'Inventory' in _bs.index else 0
+                            _qr = _qr or round(float((_ca - _inv) / _cl), 3)
+            except Exception:
+                pass
+
         data.update({
             'debt_to_equity': info.get('debtToEquity', 0),
-            'current_ratio': info.get('currentRatio', 0),
-            'quick_ratio': info.get('quickRatio', 0),
+            'current_ratio': _cr,
+            'quick_ratio': _qr,
             'total_cash': info.get('totalCash', 0),
             'total_debt': info.get('totalDebt', 0),
-            'operating_cashflow': info.get('operatingCashflow', 0),
-            'free_cashflow': info.get('freeCashflow', 0)
+            'operating_cashflow': _ocf,
+            'free_cashflow': _fcf
         })
+
+        data['analyst_count'] = info.get('numberOfAnalystOpinions', 0) or 0
         
         # Per share metrics
         data.update({
@@ -131,6 +326,12 @@ def get_comprehensive_stock_data(symbol, bundle=None):
                 'max_drawdown_6m': 0 if pd.isna(_max_dd) else round(_max_dd, 2)
             })
         
+        # Piotroski F-Score and FCF yield
+        data['piotroski_f_score'] = _calculate_piotroski(data, info, bundle)
+        mcap = data.get('market_cap', 0)
+        fcf = data.get('free_cashflow', 0)
+        data['fcf_yield'] = round((fcf / mcap) * 100, 2) if mcap and mcap > 0 and fcf else 0.0
+
         # Calculate fundamental score
         fund_score = calculate_comprehensive_fundamental_score(data)
         data['fundamental_score'] = fund_score['score']
@@ -161,9 +362,12 @@ def get_default_stock_data(symbol):
         'revenue_growth': 0,
         'earnings_growth': 0,
         'dividend_yield': 0,
+        'piotroski_f_score': 0,
+        'fcf_yield': 0,
         'fundamental_score': 50,
         'fundamental_rating': 'Neutral',
-        'fundamental_analysis': 'Insufficient data for analysis'
+        'fundamental_analysis': 'Insufficient data for analysis',
+        'fundamental_data_failed': True
     }
 
 def calculate_comprehensive_fundamental_score(data):
@@ -266,6 +470,33 @@ def calculate_comprehensive_fundamental_score(data):
             score -= 10
             analysis_points.append("Liquidity concerns")
         
+        # Piotroski F-Score bonus (up to 8 points)
+        f_score = data.get('piotroski_f_score', 0)
+        if f_score >= 7:
+            score += 8
+            analysis_points.append(f"Strong Piotroski F-Score ({f_score}/9)")
+        elif f_score >= 5:
+            score += 4
+        elif f_score <= 2:
+            score -= 5
+            analysis_points.append(f"Weak Piotroski F-Score ({f_score}/9)")
+
+        # FCF Yield bonus (up to 5 points)
+        fcf_yield = data.get('fcf_yield', 0)
+        if fcf_yield > 8:
+            score += 5
+            analysis_points.append(f"High FCF yield ({fcf_yield:.1f}%)")
+        elif fcf_yield > 4:
+            score += 3
+        elif fcf_yield < 0:
+            score -= 3
+            analysis_points.append("Negative FCF yield")
+        
+        # PE = -1 means loss-making
+        if pe_ratio == -1:
+            score -= 5
+            analysis_points.append("Loss-making (negative EPS)")
+
         # Ensure score is within bounds
         if isinstance(score, float) and np.isnan(score):
             score = 50.0

@@ -65,7 +65,16 @@ def get_short_term_technical_analysis(symbol, period_days=90, bundle=None):
         # 8. BREAKOUT AND BREAKDOWN SIGNALS
         analysis.update(detect_breakout_signals(recent_data))
         
-        # 9. OVERALL SHORT-TERM SCORE
+        # 9. ICHIMOKU CLOUD
+        analysis.update(calculate_ichimoku(recent_data))
+        
+        # 10. FIBONACCI RETRACEMENT LEVELS
+        analysis.update(calculate_fibonacci_levels(recent_data))
+        
+        # 11. BOLLINGER BANDS
+        analysis.update(calculate_bollinger_bands(recent_data))
+        
+        # 12. OVERALL SHORT-TERM SCORE
         analysis['short_term_score'] = calculate_short_term_score(analysis)
         analysis['short_term_signal'] = get_short_term_signal(analysis['short_term_score'])
         
@@ -96,11 +105,14 @@ def analyze_price_action(df):
     
     # Volatility measures
     returns = df['Close'].pct_change().dropna()
+    def _vol(r, n):
+        v = r.tail(n).std() * 100 * (n**0.5) if len(r) >= n else 0.0
+        return v if not (isinstance(v, float) and np.isnan(v)) else 0.0
     price_analysis.update({
-        'volatility_5d': returns.tail(5).std() * 100 * (5**0.5),
-        'volatility_10d': returns.tail(10).std() * 100 * (10**0.5),
-        'volatility_20d': returns.tail(20).std() * 100 * (20**0.5),
-        'avg_daily_range': ((df['High'] - df['Low']) / df['Close'].replace(0, np.nan) * 100).tail(20).mean() or 0,
+        'volatility_5d': _vol(returns, 5),
+        'volatility_10d': _vol(returns, 10),
+        'volatility_20d': _vol(returns, 20),
+        'avg_daily_range': (lambda _v: 0.0 if pd.isna(_v) else float(_v))(((df['High'] - df['Low']) / df['Close'].replace(0, np.nan) * 100).tail(20).mean()),
     })
     
     # Price position relative to recent ranges
@@ -108,7 +120,18 @@ def analyze_price_action(df):
     recent_low = df['Low'].tail(20).min()
     _denom = recent_high - recent_low
     price_analysis['price_position_20d'] = ((current_price - recent_low) / _denom * 100) if _denom > 0 else 50.0
-    
+
+    # Corporate action detection: flag extreme single-day moves (possible split/bonus)
+    _daily_rets = df['Close'].pct_change().tail(5)
+    _max_drop = float(_daily_rets.min()) if not _daily_rets.empty else 0.0
+    _max_jump = float(_daily_rets.max()) if not _daily_rets.empty else 0.0
+    if pd.isna(_max_drop): _max_drop = 0.0
+    if pd.isna(_max_jump): _max_jump = 0.0
+    price_analysis['corporate_action_warning'] = (_max_drop < -0.40 or _max_jump > 0.60)
+    if price_analysis['corporate_action_warning']:
+        price_analysis['corporate_action_detail'] = f"Extreme move: {_max_drop*100:.1f}% to {_max_jump*100:.1f}%"
+        logging.warning(f"Possible corporate action: extreme daily move ({_max_drop*100:.1f}% to {_max_jump*100:.1f}%)")
+
     return price_analysis
 
 def calculate_short_term_indicators(df):
@@ -127,9 +150,9 @@ def calculate_short_term_indicators(df):
         return rsi
     
     _rsi14 = calculate_rsi(df['Close'], 14).iloc[-1]
-    indicators['rsi_14'] = 50.0 if np.isnan(_rsi14) else _rsi14
+    indicators['rsi_14'] = 50.0 if (np.isnan(_rsi14) or _rsi14 == 0.0) else _rsi14
     _rsi7 = calculate_rsi(df['Close'], 7).iloc[-1]
-    indicators['rsi_7'] = 50.0 if np.isnan(_rsi7) else _rsi7
+    indicators['rsi_7'] = 50.0 if (np.isnan(_rsi7) or _rsi7 == 0.0) else _rsi7
     
     # MACD for short-term signals
     ema_12 = df['Close'].ewm(span=12).mean()
@@ -138,22 +161,34 @@ def calculate_short_term_indicators(df):
     signal = macd.ewm(span=9).mean()
     histogram = macd - signal
     
+    _macd_val = macd.iloc[-1] if not pd.isna(macd.iloc[-1]) else 0.0
+    _sig_val = signal.iloc[-1] if not pd.isna(signal.iloc[-1]) else 0.0
+    _hist_val = histogram.iloc[-1] if not pd.isna(histogram.iloc[-1]) else 0.0
+    _macd_cross = 'none'
+    if len(macd) >= 2 and not any(pd.isna(v) for v in [macd.iloc[-1], macd.iloc[-2], signal.iloc[-1], signal.iloc[-2]]):
+        if macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]:
+            _macd_cross = 'bullish'
+        elif macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]:
+            _macd_cross = 'bearish'
     indicators.update({
-        'macd': macd.iloc[-1],
-        'macd_signal': signal.iloc[-1],
-        'macd_histogram': histogram.iloc[-1],
-        'macd_crossover': ('bullish' if (len(macd) >= 2 and macd.iloc[-1] > signal.iloc[-1] and macd.iloc[-2] <= signal.iloc[-2]) else 
-                         'bearish' if (len(macd) >= 2 and macd.iloc[-1] < signal.iloc[-1] and macd.iloc[-2] >= signal.iloc[-2]) else 'none')
+        'macd': _macd_val,
+        'macd_signal': _sig_val,
+        'macd_histogram': _hist_val,
+        'macd_crossover': _macd_cross,
     })
     
-    # Moving averages for short-term trend
+    # Moving averages for short-term trend (NaN-safe: fall back to current price)
+    _cur = float(df['Close'].iloc[-1])
+    def _safe_ma(series):
+        v = series.iloc[-1]
+        return _cur if pd.isna(v) else float(v)
     indicators.update({
-        'sma_5': df['Close'].rolling(5).mean().iloc[-1],
-        'sma_10': df['Close'].rolling(10).mean().iloc[-1],
-        'sma_20': df['Close'].rolling(20).mean().iloc[-1],
-        'ema_5': df['Close'].ewm(span=5).mean().iloc[-1],
-        'ema_10': df['Close'].ewm(span=10).mean().iloc[-1],
-        'ema_20': df['Close'].ewm(span=20).mean().iloc[-1],
+        'sma_5': _safe_ma(df['Close'].rolling(5).mean()),
+        'sma_10': _safe_ma(df['Close'].rolling(10).mean()),
+        'sma_20': _safe_ma(df['Close'].rolling(20).mean()),
+        'ema_5': _safe_ma(df['Close'].ewm(span=5).mean()),
+        'ema_10': _safe_ma(df['Close'].ewm(span=10).mean()),
+        'ema_20': _safe_ma(df['Close'].ewm(span=20).mean()),
     })
     
     # Stochastic oscillator
@@ -161,8 +196,10 @@ def calculate_short_term_indicators(df):
     high_14 = df['High'].rolling(14).max()
     _stoch_denom = (high_14 - low_14).replace(0, np.nan)
     k_percent = 100 * ((df['Close'] - low_14) / _stoch_denom)
-    indicators['stoch_k'] = k_percent.rolling(3).mean().iloc[-1]
-    indicators['stoch_d'] = k_percent.rolling(3).mean().rolling(3).mean().iloc[-1]
+    _sk = k_percent.rolling(3).mean().iloc[-1]
+    _sd = k_percent.rolling(3).mean().rolling(3).mean().iloc[-1]
+    indicators['stoch_k'] = _sk if not (np.isnan(_sk) if isinstance(_sk, float) else False) else 50.0
+    indicators['stoch_d'] = _sd if not (np.isnan(_sd) if isinstance(_sd, float) else False) else 50.0
     
     return indicators
 
@@ -228,7 +265,6 @@ def detect_candlestick_patterns(df):
     
     # Multi-candle patterns
     if len(recent) >= 3:
-        # Three consecutive higher/lower closes
         closes = recent['Close'].values
         if all(closes[i] > closes[i-1] for i in range(1, len(closes))):
             patterns['candlestick_patterns'].append("Three Rising Candles")
@@ -236,7 +272,50 @@ def detect_candlestick_patterns(df):
         elif all(closes[i] < closes[i-1] for i in range(1, len(closes))):
             patterns['candlestick_patterns'].append("Three Falling Candles")
             patterns['pattern_strength'] -= 25
-    
+
+    # --- Engulfing patterns (2 candles) ---
+    if len(recent) >= 2:
+        prev = recent.iloc[-2]
+        curr = recent.iloc[-1]
+        prev_body_top = max(prev['Open'], prev['Close'])
+        prev_body_bot = min(prev['Open'], prev['Close'])
+        curr_body_top = max(curr['Open'], curr['Close'])
+        curr_body_bot = min(curr['Open'], curr['Close'])
+        prev_bearish = prev['Close'] < prev['Open']
+        curr_bullish = curr['Close'] > curr['Open']
+
+        if prev_bearish and curr_bullish and curr_body_bot <= prev_body_bot and curr_body_top >= prev_body_top:
+            patterns['candlestick_patterns'].append("Bullish Engulfing")
+            patterns['pattern_strength'] += 30
+
+        prev_bullish = prev['Close'] > prev['Open']
+        curr_bearish = curr['Close'] < curr['Open']
+        if prev_bullish and curr_bearish and curr_body_bot <= prev_body_bot and curr_body_top >= prev_body_top:
+            patterns['candlestick_patterns'].append("Bearish Engulfing")
+            patterns['pattern_strength'] -= 30
+
+    # --- Morning Star / Evening Star (3 candles) ---
+    if len(recent) >= 3:
+        c1 = recent.iloc[-3]
+        c2 = recent.iloc[-2]
+        c3 = recent.iloc[-1]
+        c1_body = abs(c1['Close'] - c1['Open'])
+        c2_body = abs(c2['Close'] - c2['Open'])
+        c3_body = abs(c3['Close'] - c3['Open'])
+        c1_range = c1['High'] - c1['Low'] if c1['High'] != c1['Low'] else 1
+        c2_ratio = c2_body / c1_range if c1_range > 0 else 0
+        c1_mid = (c1['Open'] + c1['Close']) / 2
+
+        # Morning Star: bearish, small-body, bullish closing above c1 midpoint
+        if c1['Close'] < c1['Open'] and c2_ratio < 0.3 and c3['Close'] > c3['Open'] and c3['Close'] > c1_mid:
+            patterns['candlestick_patterns'].append("Morning Star")
+            patterns['pattern_strength'] += 35
+
+        # Evening Star: bullish, small-body, bearish closing below c1 midpoint
+        if c1['Close'] > c1['Open'] and c2_ratio < 0.3 and c3['Close'] < c3['Open'] and c3['Close'] < c1_mid:
+            patterns['candlestick_patterns'].append("Evening Star")
+            patterns['pattern_strength'] -= 35
+
     return patterns
 
 def detect_chart_patterns(df):
@@ -301,12 +380,17 @@ def analyze_volume_patterns(df):
     volume_sma_10 = volume.rolling(10).mean()
     current_volume = volume.iloc[-1]
     avg_volume = volume_sma_10.iloc[-1]
-    
+    smoothed_volume = volume.tail(3).mean()
+
+    raw_ratio = current_volume / avg_volume if avg_volume > 0 else 0
+    smoothed_ratio = smoothed_volume / avg_volume if avg_volume > 0 else 0
+
     volume_analysis.update({
         'current_volume': current_volume,
         'avg_volume_10d': avg_volume,
-        'volume_ratio': current_volume / avg_volume if avg_volume > 0 else 0,
-        'volume_trend': 'High' if current_volume > avg_volume * 1.5 else 'Normal' if current_volume > avg_volume * 0.8 else 'Low'
+        'volume_ratio': smoothed_ratio,
+        'volume_ratio_raw': raw_ratio,
+        'volume_trend': 'High' if smoothed_volume > avg_volume * 1.5 else 'Normal' if smoothed_volume > avg_volume * 0.8 else 'Low'
     })
     
     # Price-Volume correlation
@@ -314,7 +398,7 @@ def analyze_volume_patterns(df):
     recent_volume_change = volume.pct_change().tail(10)
     
     correlation = recent_price_change.corr(recent_volume_change)
-    volume_analysis['price_volume_correlation'] = correlation
+    volume_analysis['price_volume_correlation'] = 0.0 if pd.isna(correlation) else float(correlation)
     
     # Volume breakout signals
     volume_breakouts = []
@@ -378,6 +462,29 @@ def find_support_resistance_levels(df):
     else:
         levels['resistance_levels'] = []
     
+    # ATR-based fallback when pivot-based levels are empty
+    if not levels['support_levels'] or not levels['resistance_levels']:
+        try:
+            tr = pd.concat([
+                highs - lows,
+                (highs - df['Close'].shift(1)).abs(),
+                (lows - df['Close'].shift(1)).abs()
+            ], axis=1).max(axis=1)
+            atr_14 = tr.rolling(14).mean().iloc[-1] if len(tr) >= 14 else tr.mean()
+            if not pd.isna(atr_14) and atr_14 > 0:
+                if not levels['support_levels']:
+                    levels['support_levels'] = [
+                        round(current_price - atr_14 * m, 2)
+                        for m in [1.0, 1.5, 2.0]
+                    ]
+                if not levels['resistance_levels']:
+                    levels['resistance_levels'] = [
+                        round(current_price + atr_14 * m, 2)
+                        for m in [1.0, 1.5, 2.0]
+                    ]
+        except Exception:
+            pass
+    
     # Key psychological levels (round numbers)
     price_range = [current_price * 0.9, current_price * 1.1]
     _pr_start = int(price_range[0]) if price_range[0] > 0 else 0
@@ -408,12 +515,13 @@ def analyze_short_term_trends(df):
     
     trend_analysis.update(trends)
     
-    # Moving average alignment
+    # Moving average alignment (NaN-safe: fall back to current price)
     if len(df) >= 20:
-        sma_5 = prices.rolling(5).mean().iloc[-1]
-        sma_10 = prices.rolling(10).mean().iloc[-1]
-        sma_20 = prices.rolling(20).mean().iloc[-1]
-        current = prices.iloc[-1]
+        current = float(prices.iloc[-1])
+        _ma = lambda n: float(v) if not pd.isna(v := prices.rolling(n).mean().iloc[-1]) else current
+        sma_5 = _ma(5)
+        sma_10 = _ma(10)
+        sma_20 = _ma(20)
         
         if current > sma_5 > sma_10 > sma_20:
             trend_analysis['ma_alignment'] = 'Strong Uptrend'
@@ -686,6 +794,145 @@ def display_short_term_analysis(analysis):
             trend = analysis[trend_key]
             emoji = "📈" if trend > 0 else "📉" if trend < 0 else "➡️"
             print(f"   {period}D Trend       : {emoji} {trend:+.2f}%")
+
+def calculate_ichimoku(df):
+    """Calculate Ichimoku Cloud components."""
+    result = {}
+    try:
+        high = df['High']
+        low = df['Low']
+        close = df['Close']
+
+        tenkan = (high.rolling(9).max() + low.rolling(9).min()) / 2
+        kijun = (high.rolling(26).max() + low.rolling(26).min()) / 2
+        senkou_a = ((tenkan + kijun) / 2).shift(26)
+        senkou_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
+        chikou = close.shift(-26)
+
+        cur = close.iloc[-1]
+        t = tenkan.iloc[-1] if not pd.isna(tenkan.iloc[-1]) else cur
+        k = kijun.iloc[-1] if not pd.isna(kijun.iloc[-1]) else cur
+        sa = senkou_a.iloc[-1] if len(senkou_a.dropna()) > 0 and not pd.isna(senkou_a.dropna().iloc[-1]) else cur
+        sb = senkou_b.iloc[-1] if len(senkou_b.dropna()) > 0 and not pd.isna(senkou_b.dropna().iloc[-1]) else cur
+
+        cloud_top = max(sa, sb)
+        cloud_bottom = min(sa, sb)
+
+        if cur > cloud_top:
+            cloud_signal = 'ABOVE_CLOUD'
+        elif cur < cloud_bottom:
+            cloud_signal = 'BELOW_CLOUD'
+        else:
+            cloud_signal = 'INSIDE_CLOUD'
+
+        tk_cross = 'BULLISH' if t > k else ('BEARISH' if t < k else 'NEUTRAL')
+
+        result.update({
+            'ichimoku_tenkan': round(t, 2),
+            'ichimoku_kijun': round(k, 2),
+            'ichimoku_senkou_a': round(sa, 2),
+            'ichimoku_senkou_b': round(sb, 2),
+            'ichimoku_cloud_signal': cloud_signal,
+            'ichimoku_tk_cross': tk_cross,
+        })
+    except Exception:
+        result.update({
+            'ichimoku_tenkan': 0, 'ichimoku_kijun': 0,
+            'ichimoku_senkou_a': 0, 'ichimoku_senkou_b': 0,
+            'ichimoku_cloud_signal': 'N/A', 'ichimoku_tk_cross': 'N/A',
+        })
+    return result
+
+
+def calculate_fibonacci_levels(df):
+    """Calculate Fibonacci retracement levels from recent swing high/low."""
+    result = {}
+    try:
+        close = df['Close']
+        swing_high = df['High'].max()
+        swing_low = df['Low'].min()
+        diff = swing_high - swing_low
+
+        levels = {
+            'fib_0': swing_high,
+            'fib_236': swing_high - diff * 0.236,
+            'fib_382': swing_high - diff * 0.382,
+            'fib_500': swing_high - diff * 0.500,
+            'fib_618': swing_high - diff * 0.618,
+            'fib_786': swing_high - diff * 0.786,
+            'fib_100': swing_low,
+        }
+        for k, v in levels.items():
+            result[k] = round(v, 2)
+
+        cur = close.iloc[-1]
+        nearest_level = min(levels.items(), key=lambda x: abs(x[1] - cur))
+        result['fib_nearest_level'] = nearest_level[0]
+        result['fib_nearest_price'] = nearest_level[1]
+
+        pct_from_high = ((swing_high - cur) / diff * 100) if diff > 0 else 0
+        result['fib_retracement_pct'] = round(pct_from_high, 2)
+    except Exception:
+        result.update({
+            'fib_0': 0, 'fib_236': 0, 'fib_382': 0, 'fib_500': 0,
+            'fib_618': 0, 'fib_786': 0, 'fib_100': 0,
+            'fib_nearest_level': 'N/A', 'fib_nearest_price': 0,
+            'fib_retracement_pct': 0,
+        })
+    return result
+
+
+def calculate_bollinger_bands(df, window=20, num_std=2):
+    """Calculate Bollinger Bands with squeeze detection."""
+    result = {}
+    try:
+        close = df['Close']
+        sma = close.rolling(window).mean()
+        std = close.rolling(window).std()
+
+        upper = sma + num_std * std
+        lower = sma - num_std * std
+
+        cur = close.iloc[-1]
+        u = upper.iloc[-1]
+        l = lower.iloc[-1]
+        m = sma.iloc[-1]
+
+        if any(pd.isna(v) for v in (u, l, m)):
+            raise ValueError("Insufficient data for Bollinger Bands")
+
+        width = (u - l) / m * 100 if m > 0 else 0
+        pct_b = (cur - l) / (u - l) * 100 if (u - l) > 0 else 50
+
+        avg_width = ((upper - lower) / sma * 100).rolling(50).mean()
+        avg_w = avg_width.iloc[-1] if not pd.isna(avg_width.iloc[-1]) else width
+        squeeze = width < avg_w * 0.75
+
+        if cur > u:
+            bb_signal = 'OVERBOUGHT'
+        elif cur < l:
+            bb_signal = 'OVERSOLD'
+        elif squeeze:
+            bb_signal = 'SQUEEZE'
+        else:
+            bb_signal = 'NEUTRAL'
+
+        result.update({
+            'bb_upper': round(u, 2),
+            'bb_middle': round(m, 2),
+            'bb_lower': round(l, 2),
+            'bb_width': round(width, 2),
+            'bb_pct_b': round(pct_b, 2),
+            'bb_signal': bb_signal,
+            'bb_squeeze': squeeze,
+        })
+    except Exception:
+        result.update({
+            'bb_upper': 0, 'bb_middle': 0, 'bb_lower': 0,
+            'bb_width': 0, 'bb_pct_b': 50, 'bb_signal': 'N/A', 'bb_squeeze': False,
+        })
+    return result
+
 
 if __name__ == "__main__":
     # Test the short-term technical analysis

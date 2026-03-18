@@ -68,10 +68,17 @@ class VolumeAnalyzer:
             
             # 5. Calculate volume-based support/resistance
             sr_data = self._calculate_volume_sr_levels(stock_data, profile_data)
+
+            # 6. Accumulation/Distribution line
+            ad_data = self._calculate_ad_line(stock_data)
+
+            # 7. Money Flow Index
+            mfi_data = self._calculate_mfi(stock_data)
             
-            # 6. Generate composite volume signal
+            # 8. Generate composite volume signal
             composite_signal = self._generate_composite_signal(
-                vwap_data, flow_data, blocks_data, profile_data, sr_data
+                vwap_data, flow_data, blocks_data, profile_data, sr_data,
+                ad_data=ad_data, mfi_data=mfi_data
             )
             
             # Combine all analysis
@@ -117,6 +124,15 @@ class VolumeAnalyzer:
                 'volume_confidence': composite_signal['confidence'],  # 0-100%
                 'volume_quality': composite_signal['quality'],  # HIGH/MODERATE/LOW
                 
+                # A/D Line
+                'ad_line_value': ad_data.get('ad_current', 0),
+                'ad_line_slope_20d': ad_data.get('ad_slope_20d', 0),
+                'ad_line_signal': ad_data.get('ad_signal', 'NEUTRAL'),
+
+                # Money Flow Index
+                'mfi_value': mfi_data.get('mfi_value', 50),
+                'mfi_signal': mfi_data.get('mfi_signal', 'NEUTRAL'),
+
                 # Metadata
                 'volume_analysis_timestamp': datetime.now().isoformat(),
                 'volume_analysis_status': 'SUCCESS'
@@ -384,6 +400,8 @@ class VolumeAnalyzer:
         except Exception as e:
             self.logger.error(f"Volume profile generation failed: {e}")
             current_price = data['Close'].iloc[-1] if len(data) > 0 else 0
+            if pd.isna(current_price) or current_price is None:
+                current_price = 0
             return {
                 'poc': current_price, 'vah': current_price * 1.02,
                 'val': current_price * 0.98, 'shape': 'NORMAL',
@@ -393,6 +411,8 @@ class VolumeAnalyzer:
     def _empty_volume_profile(self, data: pd.DataFrame) -> Dict:
         """Return a neutral volume profile when price range is zero/invalid."""
         current_price = data['Close'].iloc[-1] if len(data) > 0 else 0
+        if pd.isna(current_price) or current_price is None:
+            current_price = 0
         return {
             'poc': current_price, 'vah': current_price * 1.02,
             'val': current_price * 0.98, 'shape': 'NORMAL',
@@ -449,9 +469,61 @@ class VolumeAnalyzer:
                 'zone_distance_pct': 0
             }
     
+    def _calculate_ad_line(self, data: pd.DataFrame) -> Dict:
+        """Accumulation/Distribution line and trend."""
+        try:
+            high = data['High']
+            low = data['Low']
+            close = data['Close']
+            volume = data['Volume']
+            hl_range = high - low
+            hl_range = hl_range.replace(0, np.nan)
+            clv = ((close - low) - (high - close)) / hl_range
+            clv = clv.fillna(0)
+            ad = (clv * volume).cumsum()
+            ad_current = float(ad.iloc[-1]) if not ad.empty else 0
+            ad_20 = ad.tail(20)
+            if len(ad_20) >= 2:
+                slope = float(np.polyfit(range(len(ad_20)), ad_20.values, 1)[0])
+            else:
+                slope = 0
+            if slope > 0:
+                signal = 'ACCUMULATION'
+            elif slope < 0:
+                signal = 'DISTRIBUTION'
+            else:
+                signal = 'NEUTRAL'
+            return {'ad_current': ad_current, 'ad_slope_20d': round(slope, 2), 'ad_signal': signal}
+        except Exception:
+            return {'ad_current': 0, 'ad_slope_20d': 0, 'ad_signal': 'NEUTRAL'}
+
+    def _calculate_mfi(self, data: pd.DataFrame, period: int = 14) -> Dict:
+        """Money Flow Index (0-100)."""
+        try:
+            tp = (data['High'] + data['Low'] + data['Close']) / 3
+            raw_mf = tp * data['Volume']
+            tp_diff = tp.diff()
+            pos_mf = raw_mf.where(tp_diff > 0, 0).rolling(period).sum()
+            neg_mf = raw_mf.where(tp_diff <= 0, 0).rolling(period).sum()
+            mr = pos_mf / neg_mf.replace(0, np.nan)
+            mfi = 100 - (100 / (1 + mr))
+            val = float(mfi.iloc[-1]) if not mfi.empty else 50
+            if np.isnan(val):
+                val = 50
+            if val > 80:
+                signal = 'OVERBOUGHT'
+            elif val < 20:
+                signal = 'OVERSOLD'
+            else:
+                signal = 'NEUTRAL'
+            return {'mfi_value': round(val, 1), 'mfi_signal': signal}
+        except Exception:
+            return {'mfi_value': 50, 'mfi_signal': 'NEUTRAL'}
+
     def _generate_composite_signal(self, vwap_data: Dict, flow_data: Dict,
                                    blocks_data: Dict, profile_data: Dict,
-                                   sr_data: Dict) -> Dict:
+                                   sr_data: Dict, ad_data: Dict = None,
+                                   mfi_data: Dict = None) -> Dict:
         """Generate composite volume signal from all analyses."""
         try:
             score = 50  # Start neutral
@@ -506,7 +578,25 @@ class VolumeAnalyzer:
             if profile_data['shape'] == 'NORMAL':
                 score += 5  # Normal distribution is stable
                 signals.append(('PROFILE', 'BALANCED'))
-            
+
+            # 5. A/D Line
+            if ad_data:
+                if ad_data.get('ad_signal') == 'ACCUMULATION':
+                    score += 7
+                    signals.append(('AD', 'ACCUMULATION'))
+                elif ad_data.get('ad_signal') == 'DISTRIBUTION':
+                    score -= 7
+                    signals.append(('AD', 'DISTRIBUTION'))
+
+            # 6. MFI
+            if mfi_data:
+                if mfi_data.get('mfi_signal') == 'OVERSOLD':
+                    score += 5
+                    signals.append(('MFI', 'OVERSOLD'))
+                elif mfi_data.get('mfi_signal') == 'OVERBOUGHT':
+                    score -= 5
+                    signals.append(('MFI', 'OVERBOUGHT'))
+
             # Clamp score to 0-100
             if isinstance(score, float) and np.isnan(score):
                 score = 50
@@ -535,10 +625,10 @@ class VolumeAnalyzer:
             else:
                 confidence = 50
             
-            # Quality assessment
-            if confidence >= 75 and blocks_data['activity_level'] == 'HIGH':
+            # Quality assessment — relaxed so LOW is reserved for truly weak signals
+            if confidence >= 70 and blocks_data['activity_level'] in ('HIGH', 'MODERATE'):
                 quality = 'HIGH'
-            elif confidence >= 60:
+            elif confidence >= 45 or blocks_data['activity_level'] in ('HIGH', 'MODERATE'):
                 quality = 'MODERATE'
             else:
                 quality = 'LOW'

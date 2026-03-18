@@ -16,36 +16,78 @@ Can be extended with premium APIs (NewsAPI, AlphaVantage, Twitter API, etc.)
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 import logging
 from datetime import datetime, timedelta
+import re
+try:
+    import requests
+    import xml.etree.ElementTree as ET
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
+_POSITIVE_WORDS = frozenset([
+    'surge', 'surges', 'rally', 'rallies', 'jump', 'jumps', 'gain', 'gains',
+    'profit', 'profits', 'growth', 'grows', 'up', 'rise', 'rises', 'rising',
+    'record', 'high', 'beat', 'beats', 'strong', 'bullish', 'boom', 'upgrade',
+    'outperform', 'buy', 'positive', 'soar', 'soars', 'recovery', 'improving',
+    'robust', 'expand', 'expansion', 'breakout', 'upside', 'momentum',
+    'optimistic', 'confidence', 'dividend', 'bonus', 'approval', 'deal', 'win',
+    'award', 'order', 'contract', 'launch', 'innovation', 'milestone'
+])
+_NEGATIVE_WORDS = frozenset([
+    'crash', 'crashes', 'fall', 'falls', 'drop', 'drops', 'decline', 'declines',
+    'loss', 'losses', 'down', 'low', 'miss', 'misses', 'weak', 'bearish',
+    'slump', 'plunge', 'sell', 'selling', 'negative', 'warn', 'warning',
+    'downgrade', 'underperform', 'cut', 'cuts', 'risk', 'probe', 'fraud',
+    'debt', 'default', 'bankruptcy', 'layoff', 'layoffs', 'fine', 'penalty',
+    'investigation', 'scandal', 'recall', 'lawsuit', 'shutdown', 'suspend',
+    'concern', 'disappointing', 'volatile', 'uncertainty', 'fear'
+])
+
 
 class SentimentAnalyzer:
     """
-    Analyze stock sentiment from multiple sources
+    Analyze stock sentiment from multiple sources including real news headlines.
     """
     
     def __init__(self):
-        """Initialize the sentiment analyzer"""
         self.logger = logging.getLogger(__name__)
+        self._news_cache: Dict[str, Dict] = {}
+        self._cache_ttl = 3600
         
-    def analyze_sentiment(self, symbol: str, stock_data: Dict) -> Dict:
+    def analyze_sentiment(self, symbol: str, stock_data: Dict, bundle=None) -> Dict:
         """
-        Comprehensive sentiment analysis combining multiple signals
+        Comprehensive sentiment analysis combining multiple signals.
         
         Args:
             symbol: Stock ticker symbol
             stock_data: Dictionary with stock information
+            bundle: Optional StockDataBundle to reuse pre-fetched data
             
         Returns:
             Dict with sentiment scores and signals
         """
         try:
-            ticker = yf.Ticker(f"{symbol}.NS")
+            # Reuse bundle data when available to avoid redundant API calls
+            hist = None
+            ticker = None
+            if bundle is not None:
+                _h3m = getattr(bundle, 'hist_3mo', None)
+                if _h3m is not None and isinstance(_h3m, pd.DataFrame) and not _h3m.empty:
+                    hist = _h3m
+                elif hasattr(bundle, 'hist_1y') and isinstance(bundle.hist_1y, pd.DataFrame) and not bundle.hist_1y.empty:
+                    hist = bundle.hist_1y.tail(63)
+                ticker = getattr(bundle, 'ticker', None)
 
-            # Reuse existing hist from stock_data bundle if available
-            hist = stock_data.get('_hist_3mo') if isinstance(stock_data.get('_hist_3mo'), pd.DataFrame) else None
-            if hist is None or hist.empty:
+            if hist is None or (isinstance(hist, pd.DataFrame) and hist.empty):
+                hist = stock_data.get('_hist_3mo') if isinstance(stock_data.get('_hist_3mo'), pd.DataFrame) else None
+
+            if ticker is None:
+                ticker = yf.Ticker(f"{symbol}.NS")
+
+            if hist is None or (isinstance(hist, pd.DataFrame) and hist.empty):
                 hist = ticker.history(period="3mo")
 
             if hist.empty:
@@ -94,11 +136,12 @@ class SentimentAnalyzer:
             ])
             
             return {
-                'sentiment_composite_score': composite_score,  # A-012: renamed from 'composite_score'
-                'composite_score': composite_score,            # A-012: kept as alias for backward compat
+                'sentiment_composite_score': composite_score,
+                'composite_score': composite_score,
                 'overall_sentiment': overall_sentiment,
                 'sentiment_signal': sentiment_signal,
                 'confidence': confidence,
+                'is_fallback': False,
                 'news_sentiment': news_sentiment,
                 'analyst_sentiment': analyst_sentiment,
                 'market_sentiment': market_sentiment,
@@ -111,45 +154,103 @@ class SentimentAnalyzer:
             self.logger.error(f"Error analyzing sentiment for {symbol}: {e}")
             return self._get_default_sentiment()
     
+    def _fetch_news_headlines(self, symbol: str) -> List[str]:
+        """Fetch recent news headlines from Google News RSS (free, no API key)."""
+        if not _HAS_REQUESTS:
+            return []
+        cached = self._news_cache.get(symbol)
+        if cached and (datetime.now() - cached['ts']).total_seconds() < self._cache_ttl:
+            return cached['headlines']
+        try:
+            company = symbol.replace('&', '%26')
+            url = f"https://news.google.com/rss/search?q={company}+NSE+stock&hl=en-IN&gl=IN&ceid=IN:en"
+            resp = requests.get(url, timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
+            if resp.status_code != 200:
+                return []
+            root = ET.fromstring(resp.content)
+            headlines = []
+            for item in root.findall('.//item')[:15]:
+                title = item.findtext('title', '')
+                if title:
+                    title = re.sub(r'<[^>]+>', '', title).strip()
+                    headlines.append(title)
+            self._news_cache[symbol] = {'ts': datetime.now(), 'headlines': headlines}
+            return headlines
+        except Exception as e:
+            self.logger.debug(f"News fetch for {symbol} failed: {e}")
+            return []
+
+    @staticmethod
+    def _headline_sentiment_score(headlines: List[str]) -> float:
+        """Keyword-based sentiment scoring on headlines. Returns 0-100."""
+        if not headlines:
+            return 50.0
+        pos_total, neg_total = 0, 0
+        for h in headlines:
+            words = set(re.findall(r'[a-z]+', h.lower()))
+            pos_total += len(words & _POSITIVE_WORDS)
+            neg_total += len(words & _NEGATIVE_WORDS)
+        total = pos_total + neg_total
+        if total == 0:
+            return 50.0
+        ratio = (pos_total - neg_total) / total
+        return float(np.clip(50 + ratio * 40, 10, 90))
+
     def _analyze_news_sentiment(self, hist: pd.DataFrame, stock_data: Dict) -> Dict:
         """
-        Analyze news sentiment from price action and volume patterns
-        (Proxy for actual news sentiment in absence of news APIs)
+        Analyze news sentiment — uses real headlines when available,
+        falls back to multi-window price-action proxy.
         """
-        # Use price momentum as proxy for news sentiment
+        symbol = stock_data.get('symbol', '')
+        headlines = self._fetch_news_headlines(symbol) if symbol else []
+        headline_score = self._headline_sentiment_score(headlines)
+        has_real_news = len(headlines) >= 3
+
         returns = hist['Close'].pct_change()
-        recent_returns = returns.tail(20)
-        
-        # Positive news typically causes sustained upward movement
-        positive_days = (recent_returns > 0.01).sum()
-        negative_days = (recent_returns < -0.01).sum()
-        
-        # Volume spikes often accompany news
+        r5 = returns.tail(5)
+        r10 = returns.tail(10)
+        r20 = returns.tail(20)
+
+        pos_20 = (r20 > 0.01).sum()
+        neg_20 = (r20 < -0.01).sum()
         avg_volume = hist['Volume'].mean()
         recent_volume = hist['Volume'].tail(5).mean()
         volume_surge = recent_volume / avg_volume if avg_volume > 0 else 1.0
-        
-        # Calculate news sentiment score
-        momentum_score = (positive_days - negative_days) / 20 * 100
-        volume_score = min(volume_surge * 20, 30)  # Cap at 30
-        
-        news_score = np.clip(50 + momentum_score + volume_score, 0, 100)
-        
-        # Determine signal
+
+        mom_5  = float(r5.mean() * 100) if len(r5) > 0 else 0
+        mom_10 = float(r10.mean() * 100) if len(r10) > 0 else 0
+        mom_20 = float(r20.mean() * 100) if len(r20) > 0 else 0
+        for v in (mom_5, mom_10, mom_20):
+            if np.isnan(v):
+                v = 0
+        multi_mom = mom_5 * 0.5 + mom_10 * 0.3 + mom_20 * 0.2
+
+        momentum_score = np.clip(multi_mom * 15, -30, 30)
+        volume_bonus = min(volume_surge * 10, 20)
+        proxy_score = float(np.clip(50 + momentum_score + volume_bonus, 0, 100))
+
+        if has_real_news:
+            news_score = headline_score * 0.6 + proxy_score * 0.4
+        else:
+            news_score = proxy_score
+
         if news_score >= 65:
             signal = "POSITIVE"
         elif news_score >= 35:
             signal = "NEUTRAL"
         else:
             signal = "NEGATIVE"
-        
+
+        desc = f"{signal} ({len(headlines)} headlines)" if has_real_news else f"{signal} (proxy)"
         return {
-            'score': news_score,
+            'score': float(np.clip(news_score, 0, 100)),
             'signal': signal,
-            'positive_days': int(positive_days),
-            'negative_days': int(negative_days),
+            'positive_days': int(pos_20),
+            'negative_days': int(neg_20),
             'volume_surge': volume_surge,
-            'description': f"{signal} news sentiment (momentum-based)"
+            'headline_count': len(headlines),
+            'headline_score': headline_score if has_real_news else None,
+            'description': desc
         }
     
     def _analyze_analyst_sentiment(self, ticker: yf.Ticker, stock_data: Dict) -> Dict:
@@ -450,13 +551,14 @@ class SentimentAnalyzer:
             return "VERY_WEAK"
     
     def _get_default_sentiment(self) -> Dict:
-        """Return default neutral sentiment"""
+        """Return default neutral sentiment with is_fallback flag."""
         return {
-            'sentiment_composite_score': 50.0,  # A-012: canonical name
-            'composite_score': 50.0,            # A-012: backward-compat alias
+            'sentiment_composite_score': 50.0,
+            'composite_score': 50.0,
             'overall_sentiment': 'NEUTRAL',
             'sentiment_signal': 'HOLD',
             'confidence': 40.0,
+            'is_fallback': True,
             'news_sentiment': {'score': 50, 'signal': 'NEUTRAL', 'description': 'No data'},
             'analyst_sentiment': {'score': 50, 'signal': 'NEUTRAL', 'description': 'No data'},
             'market_sentiment': {'score': 50, 'signal': 'NEUTRAL', 'description': 'No data'},
@@ -523,8 +625,8 @@ class SentimentAnalyzer:
             adjustment += 2
             reasons.append("Strong earnings growth (+2)")
         
-        # Cap adjustment at ±15
-        adjustment = np.clip(adjustment, -15.0, 15.0)
+        # Cap adjustment at ±3 (confidence-weighted, avoids oversized sentiment swings)
+        adjustment = np.clip(adjustment, -3.0, 3.0)
         adjusted_score = np.clip(base_score + adjustment, 0, 100)
         
         return {

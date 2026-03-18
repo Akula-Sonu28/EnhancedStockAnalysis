@@ -11,19 +11,15 @@ if not reports:
     raise FileNotFoundError("No Enhanced_Stock_Report_*.xlsx found in reports/")
 f = reports[-1]
 print('Using report: {}'.format(os.path.basename(f)))
-pa = pd.read_excel(f, sheet_name='Portfolio Allocation')
+pa = pd.read_excel(f, sheet_name='Portfolio Allocation', header=1)
 cd = pd.read_excel(f, sheet_name='Complete Data')
 
-invest_col = 'INVEST_RS' if 'INVEST_RS' in pa.columns else 'INVEST_₹'
-my_val_col  = 'MY_VALUE_RS' if 'MY_VALUE_RS' in pa.columns else 'MY_VALUE_₹'
-my_pft_col  = 'MY_PROFIT_%'
-my_shr_col  = 'MY_SHARES'
-
-# Resolve actual column names
 invest_col = [c for c in pa.columns if 'INVEST' in str(c)][0]
-my_val_col  = [c for c in pa.columns if 'MY_VALUE' in str(c)][0]
+my_val_col  = [c for c in pa.columns if 'MY VALUE' in str(c) or 'MY_VALUE' in str(c)][0]
+my_pft_col  = [c for c in pa.columns if 'P&L' in str(c) or 'MY_PROFIT' in str(c)][0]
+my_shr_col  = [c for c in pa.columns if 'MY QTY' in str(c) or 'MY_SHARES' in str(c)][0]
 
-owned = pa[pa['I_OWN_IT?'] == True].copy()
+owned = pa[pa['OWNED?'] == True].copy()
 owned['pnl_pct'] = owned[my_pft_col] * 100
 owned['pnl_rs']  = owned.apply(
     lambda r: r[my_val_col] - (r[my_val_col] / (1 + r[my_pft_col])) if r[my_pft_col] != -1 else -r[my_val_col], axis=1
@@ -56,13 +52,13 @@ for _, r in owned.sort_values('pnl_pct').iterrows():
     elif r['pnl_pct'] > 5: flag = '  > partial book'
     print('    {:<15} {:>+7.2f}%  Rs {:>9,.0f}  RSI={:>5.1f}  ML={:<12} Risk={}{}'.format(
         r['symbol'], r['pnl_pct'], r['pnl_rs'],
-        r['RSI'], r['ML_SIGNAL'], r['RISK'], flag))
+        r['RSI'], r['ML'], r['RISK'], flag))
 
 at_loss = owned[owned['pnl_pct'] < 0].sort_values('pnl_pct')
 total_loss_rs = at_loss['pnl_rs'].sum()
 gap('L-01', 'CRITICAL',
     '{} stocks at LOSS (total unrealised loss = Rs {:,.0f}) — no stop-loss defined in sheet'.format(len(at_loss), abs(total_loss_rs)),
-    at_loss[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'PRICE', 'SUPPORT', 'RSI', 'ML_SIGNAL', 'RISK']].to_string(index=False) +
+    at_loss[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'PRICE', 'SUPPORT', 'RSI', 'ML', 'RISK']].to_string(index=False) +
     '\n\n  A moderate investor MUST have a stop-loss level in the sheet.\n  Without it, losses can compound with no exit trigger defined.')
 
 # Stocks at loss being INCREASED
@@ -72,15 +68,15 @@ at_loss_increase = at_loss_increase[at_loss_increase['pnl_pct'] < 0]
 if len(at_loss_increase):
     gap('L-02', 'CRITICAL',
         'Averaging DOWN: {} stocks at loss being INCREASED'.format(len(at_loss_increase)),
-        at_loss_increase[['symbol', 'pnl_pct', 'pnl_rs', 'RSI', 'ML_SIGNAL', 'RISK', invest_col]].to_string(index=False) +
+        at_loss_increase[['symbol', 'pnl_pct', 'pnl_rs', 'RSI', 'ML', 'RISK', invest_col]].to_string(index=False) +
         '\n\n  Averaging into a losing position = doubling risk, not reducing it.\n  For moderate investor: only INCREASE if stock is profitable OR has strong fundamental trigger.')
 
 # Stocks at loss being HELD with ML=SELL
-at_loss_hold_sell = owned[(owned['pnl_pct'] < -2) & (owned['ML_SIGNAL'] == 'SELL')]
+at_loss_hold_sell = owned[(owned['pnl_pct'] < -2) & (owned['ML'] == 'SELL')]
 if len(at_loss_hold_sell):
     gap('L-03', 'HIGH',
         '{} stocks at loss with ML=SELL — holding but model says exit'.format(len(at_loss_hold_sell)),
-        at_loss_hold_sell[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'RSI', 'ML_SIGNAL', 'ML_CONF_%', 'RISK']].to_string(index=False))
+        at_loss_hold_sell[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'RSI', 'ML', 'ML CONF %', 'RISK']].to_string(index=False))
 
 # Stocks at loss being SOLD — but selling at loss
 sells = pa[pa['ACTION'] == 'SELL']
@@ -88,8 +84,8 @@ sells_m = sells.merge(owned[['symbol', 'pnl_pct', 'pnl_rs']], on='symbol', how='
 at_loss_sell = sells_m[sells_m['pnl_pct'] < 0]
 gap('L-04', 'HIGH',
     'BAJAJHLDNG + GICRE: Being SOLD at a loss — capital not rotating, capital is LEAVING',
-    sells_m[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'ML_SIGNAL', 'WHY']].to_string(index=False) +
-    '\n\n  Moderate investor rule: Only sell at loss if: (a) fundamentals broken, or (b) better\n  capital use proven. WHY column says "REBALANCE" — not a strong enough reason to crystallise loss.')
+    sells_m[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'ML', 'REASON']].to_string(index=False) +
+    '\n\n  Moderate investor rule: Only sell at loss if: (a) fundamentals broken, or (b) better\n  capital use proven. REASON column says "REBALANCE" — not a strong enough reason to crystallise loss.')
 
 # =============================================================================
 # THEME 2: PROFIT BOOKING — gaps in when/how much to book
@@ -102,36 +98,36 @@ in_profit = owned[owned['pnl_pct'] > 0].sort_values('pnl_pct', ascending=False)
 total_profit_rs = in_profit['pnl_rs'].sum()
 print('\n  [All profitable positions — Rs {:,.0f} total unrealised profit]:'.format(total_profit_rs))
 for _, r in in_profit.iterrows():
-    book = r['BOOK_%_IF_SELL']
+    book = r['BOOK %']
     book_str = '{:.0f}% exit'.format(book * 100) if pd.notna(book) else 'NO BOOK INSTRUCTION'
     print('    {:<15} {:>+7.2f}%  Rs {:>8,.0f}  {:>5,.1f} RSI  ML={:<12} | {}'.format(
-        r['symbol'], r['pnl_pct'], r['pnl_rs'], r['RSI'], r['ML_SIGNAL'], book_str))
+        r['symbol'], r['pnl_pct'], r['pnl_rs'], r['RSI'], r['ML'], book_str))
 
 # Stocks with >8% profit and no BOOK_%
-big_profit_no_book = in_profit[(in_profit['pnl_pct'] > 8) & (in_profit['BOOK_%_IF_SELL'].isna())]
+big_profit_no_book = in_profit[(in_profit['pnl_pct'] > 8) & (in_profit['BOOK %'].isna())]
 gap('P-01', 'CRITICAL',
     '{} stocks with >8% profit and NO profit booking instruction'.format(len(big_profit_no_book)),
-    big_profit_no_book[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'BOOK_%_IF_SELL', 'RSI', 'RESISTANCE', 'ML_SIGNAL']].to_string(index=False) +
+    big_profit_no_book[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'BOOK %', 'RSI', 'RESIST', 'ML']].to_string(index=False) +
     '\n\n  Profit without a booking plan = hope strategy.\n  SBIN at +15.6% (Rs {:,.0f} profit) has ZERO booking instruction.'.format(
         big_profit_no_book[big_profit_no_book['symbol'] == 'SBIN']['pnl_rs'].values[0] if 'SBIN' in big_profit_no_book['symbol'].values else 0))
 
 # Stocks near resistance with no booking plan
 near_res = in_profit[
     (in_profit['pnl_pct'] > 3) &
-    (in_profit['BOOK_%_IF_SELL'].isna()) &
-    ((in_profit['PRICE'] / in_profit['RESISTANCE']) > 0.95)
+    (in_profit['BOOK %'].isna()) &
+    ((in_profit['PRICE'] / in_profit['RESIST']) > 0.95)
 ]
 gap('P-02', 'HIGH',
-    '{} profitable stocks trading within 5% of RESISTANCE — no partial exit set'.format(len(near_res)),
-    near_res[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'PRICE', 'RESISTANCE', 'RSI', 'ML_SIGNAL', 'BOOK_%_IF_SELL']].to_string(index=False) +
+    '{} profitable stocks trading within 5% of RESIST — no partial exit set'.format(len(near_res)),
+    near_res[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'PRICE', 'RESIST', 'RSI', 'ML', 'BOOK %']].to_string(index=False) +
     '\n\n  Resistance = natural ceiling. Price often reverses at resistance.\n  No partial exit here = giving back unrealised profits.')
 
 # ML says SELL on profitable held stocks
-ml_sell_profit = in_profit[(in_profit['ML_SIGNAL'] == 'SELL') & (in_profit['ACTION'].isin(['HOLD', 'INCREASE']))]
+ml_sell_profit = in_profit[(in_profit['ML'] == 'SELL') & (in_profit['ACTION'].isin(['HOLD', 'INCREASE']))]
 if len(ml_sell_profit):
     gap('P-03', 'HIGH',
         '{} profitable stocks where ML=SELL but no booking action planned'.format(len(ml_sell_profit)),
-        ml_sell_profit[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'ML_SIGNAL', 'ML_CONF_%', 'RSI', 'BOOK_%_IF_SELL']].to_string(index=False) +
+        ml_sell_profit[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'ML', 'ML CONF %', 'RSI', 'BOOK %']].to_string(index=False) +
         '\n\n  ML model predicts short-term price decline for these profitable stocks.\n  Without a booking trigger, you risk watching profits evaporate.')
 
 # RSI overbought on profitable stocks (momentum exhaustion)
@@ -139,14 +135,14 @@ rsi_ob_profit = in_profit[(in_profit['RSI'] > 68) & (in_profit['pnl_pct'] > 3)]
 if len(rsi_ob_profit):
     gap('P-04', 'HIGH',
         'Overbought (RSI>68) on profitable positions — classic time to book partial'.format(),
-        rsi_ob_profit[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'RSI', 'PRICE', 'RESISTANCE', 'ML_SIGNAL', 'BOOK_%_IF_SELL']].to_string(index=False) +
+        rsi_ob_profit[['symbol', 'ACTION', 'pnl_pct', 'pnl_rs', 'RSI', 'PRICE', 'RESIST', 'ML', 'BOOK %']].to_string(index=False) +
         '\n\n  RSI>68 signals buyers are exhausted. Smart money starts exiting here.\n  Moderate investor should book 25-30% of position when RSI crosses 70.')
 
 # Booking amount vs actual profit booked
-book_set = pa[pa['BOOK_%_IF_SELL'].notna()]
+book_set = pa[pa['BOOK %'].notna()]
 print('\n  [Currently DEFINED booking instructions]:')
-print(book_set[['symbol', 'ACTION', my_pft_col, 'BOOK_%_IF_SELL', 'BOOK_₹_AMOUNT', 'WHEN_TO_ACT']].to_string(index=False))
-total_bookable = book_set['BOOK_₹_AMOUNT'].sum()
+print(book_set[['symbol', 'ACTION', my_pft_col, 'BOOK %', 'BOOK ₹', 'WHEN']].to_string(index=False))
+total_bookable = book_set['BOOK ₹'].sum()
 print('\n  Total capital bookable from current instructions: Rs {:,.0f}'.format(total_bookable))
 print('  Total unrealised profit available to book      : Rs {:,.0f}'.format(total_profit_rs))
 print('  Gap (unplanned profit)                         : Rs {:,.0f}'.format(total_profit_rs - total_bookable))
@@ -189,28 +185,28 @@ new_pos = pa[pa['ACTION'].isin(['NEW POSITION', '🚀 PRE-BREAKOUT - BUY NOW'])]
 risky_new = new_pos[new_pos['RISK'].isin(['HIGH', 'VERY HIGH'])]
 gap('R-01', 'CRITICAL',
     '{}/{} new positions are HIGH/VERY HIGH risk — unsafe destination for booked profits'.format(len(risky_new), len(new_pos)),
-    risky_new[['symbol', 'ACTION', 'RISK', invest_col, 'ML_SIGNAL', 'ML_CONF_%', 'VOLATILITY_%', 'RSI', 'SCORE']].to_string(index=False) +
+    risky_new[['symbol', 'ACTION', 'RISK', invest_col, 'ML', 'ML CONF %', 'VOLATILITY %', 'RSI', 'SCORE']].to_string(index=False) +
     '\n\n  Moderate investor rule: Profits should rotate into LOWER or same risk tier.\n  Rotating profits from moderate stocks into HIGH RISK stocks defeats capital protection goal.')
 
 # GA: Rotating into stocks already at overbought/near-top
 rot_ob = new_pos[new_pos['RSI'] > 65]
 gap('R-02', 'HIGH',
     '{} rotation targets are already overbought (RSI>65) — buying the high'.format(len(rot_ob)),
-    rot_ob[['symbol', 'ACTION', 'RSI', 'PRICE', 'SUPPORT', 'RESISTANCE', '20D_CHANGE_%', invest_col, 'ML_SIGNAL']].to_string(index=False) +
+    rot_ob[['symbol', 'ACTION', 'RSI', 'PRICE', 'SUPPORT', 'RESIST', '20D CHG %', invest_col, 'ML']].to_string(index=False) +
     '\n\n  You are rotating profits out and immediately deploying at high RSI = no margin of safety.\n  Ideal rotation entry: RSI 40-55 with price near SUPPORT.')
 
 # GA: NEW POSITION stocks with 0 allocation
 no_alloc_new = pa[(pa['ACTION'] == 'NEW POSITION') & (pa[invest_col] == 0)]
 gap('R-03', 'MEDIUM',
     '{} "NEW POSITION" stocks have Rs 0 allocation — rotation has no defined destination'.format(len(no_alloc_new)),
-    no_alloc_new[['symbol', 'ACTION', 'SCORE', 'RISK', invest_col, 'ML_SIGNAL', 'ML_CONF_%']].to_string(index=False) +
+    no_alloc_new[['symbol', 'ACTION', 'SCORE', 'RISK', invest_col, 'ML', 'ML CONF %']].to_string(index=False) +
     '\n\n  If you book profits from SBIN/BANKINDIA, where does that capital go?\n  HDFCBANK/MUTHOOTFIN/INDUSTOWER are tagged NEW POSITION but have Rs 0 budget.\n  These should either have an allocation or be moved to WATCHLIST.')
 
 # GA: Selling at loss to fund new buys (capital destruction, not rotation)
 loss_to_fund = sells_m[sells_m['pnl_pct'] < 0]
 gap('R-04', 'HIGH',
     'Selling BAJAJHLDNG+GICRE at loss to fund new buys — this is capital DESTRUCTION not rotation',
-    loss_to_fund[['symbol', my_val_col, 'pnl_pct', 'pnl_rs', 'ML_SIGNAL', 'WHY']].to_string(index=False) +
+    loss_to_fund[['symbol', my_val_col, 'pnl_pct', 'pnl_rs', 'ML', 'REASON']].to_string(index=False) +
     '\n\n  Profit rotation = sell winners, buy new opportunities.\n  Loss liquidation = crystallise loss, reduce capital base permanently.\n  BAJAJHLDNG: -4.4% loss (Rs {:,.0f} lost forever), GICRE: -2.1% (Rs {:,.0f} lost).'.format(
         abs(loss_to_fund[loss_to_fund['symbol'] == 'BAJAJHLDNG']['pnl_rs'].values[0]) if 'BAJAJHLDNG' in loss_to_fund['symbol'].values else 0,
         abs(loss_to_fund[loss_to_fund['symbol'] == 'GICRE']['pnl_rs'].values[0]) if 'GICRE' in loss_to_fund['symbol'].values else 0))
@@ -233,30 +229,25 @@ owned['port_wt'] = owned[my_val_col] / port_val * 100
 overweight = owned[owned['port_wt'] > 12].sort_values('port_wt', ascending=False)
 gap('C-02', 'HIGH',
     '{} positions are >12% of portfolio — concentration risk'.format(len(overweight)),
-    overweight[['symbol', my_val_col, 'port_wt', 'pnl_pct', 'RISK', 'ML_SIGNAL']].to_string(index=False) +
+    overweight[['symbol', my_val_col, 'port_wt', 'pnl_pct', 'RISK', 'ML']].to_string(index=False) +
     '\n\n  Moderate investor rule: Max single position = 10-12% of portfolio.\n  Above 12% = single stock can make/break the entire portfolio.')
 
-# Exhaustion signal on owned stocks
-exhausted_owned = owned[owned['EXHAUSTION?'] == True]
+# Exhaustion signal on owned stocks (skip if EXHAUSTION? column removed)
+exhausted_owned = owned[owned['EXHAUSTION?'] == True] if 'EXHAUSTION?' in owned.columns else pd.DataFrame()
 if len(exhausted_owned):
     gap('C-03', 'HIGH',
         '{} owned stocks showing EXHAUSTION signal — price top is near, should book'.format(len(exhausted_owned)),
-        exhausted_owned[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'RSI', 'PRICE', 'RESISTANCE', 'EXIT_SCORE', 'BOOK_%_IF_SELL']].to_string(index=False) +
+        exhausted_owned[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'RSI', 'PRICE', 'RESIST', 'BOOK %']].to_string(index=False) +
         '\n\n  EXHAUSTION = volume + momentum + overbought all converging at top.\n  This is the system telling you: TAKE MONEY OFF THE TABLE NOW.')
 
-# EXIT_SCORE > 5 but no exit instruction
-high_exit = owned[(owned['EXIT_SCORE'] > 5) & (owned['BOOK_%_IF_SELL'].isna())]
-if len(high_exit):
-    gap('C-04', 'HIGH',
-        '{} stocks with EXIT_SCORE > 5 but no booking instruction'.format(len(high_exit)),
-        high_exit[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'EXIT_SCORE', 'EXIT_SIGNALS', 'RSI', 'ML_SIGNAL']].to_string(index=False))
+# High exit signals but no exit instruction (EXIT_SCORE column removed in new format)
 
 # HOLD stocks with 20D change negative — silent losses building
-silent_loss = owned[(owned['ACTION'] == 'HOLD') & (owned['20D_CHANGE_%'] < -3) & (owned['pnl_pct'] < 5)]
+silent_loss = owned[(owned['ACTION'] == 'HOLD') & (owned['20D CHG %'] < -3) & (owned['pnl_pct'] < 5)]
 if len(silent_loss):
     gap('C-05', 'MEDIUM',
         '{} HOLD stocks declining >3% in 20D — profits eroding silently'.format(len(silent_loss)),
-        silent_loss[['symbol', 'ACTION', my_val_col, 'pnl_pct', '20D_CHANGE_%', 'RSI', 'ML_SIGNAL', 'EXIT_SIGNALS']].to_string(index=False) +
+        silent_loss[[c for c in ['symbol', 'ACTION', my_val_col, 'pnl_pct', '20D CHG %', 'RSI', 'ML', 'EXIT_SIGNALS'] if c in silent_loss.columns]].to_string(index=False) +
         '\n\n  HOLD is not a strategy. These stocks need: Review | Partial book | Stop-loss')
 
 # =============================================================================
@@ -293,7 +284,7 @@ print('  Unrealised loss  (total)     : Rs {:>12,.0f}  ({:.1f}% of portfolio)'.f
 print('  Net unrealised P/L           : Rs {:>12,.0f}'.format(total_unrealised_profit + total_unrealised_loss))
 print('  Bookable profit (est 25% of overbought/>8% stocks): Rs {:>8,.0f}'.format(bookable_now))
 print('  Stocks with NO exit plan     : {} / {}'.format(
-    owned['BOOK_%_IF_SELL'].isna().sum(), len(owned)))
+    owned['BOOK %'].isna().sum(), len(owned)))
 
 # =============================================================================
 # FINAL SUMMARY

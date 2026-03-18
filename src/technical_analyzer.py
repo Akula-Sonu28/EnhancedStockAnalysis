@@ -129,13 +129,17 @@ def calculate_indicators(df):
         # Trend Direction
         if current_price is None or (isinstance(current_price, float) and np.isnan(current_price)):
             current_price = 0
-        if all(indicators[ma] < current_price for ma in ['sma20', 'sma50', 'sma200']):
+        _ma_vals = {ma: indicators.get(ma) for ma in ['sma20', 'sma50', 'sma200']}
+        _any_nan = any(v is None or (isinstance(v, float) and np.isnan(v)) for v in _ma_vals.values())
+        if _any_nan or current_price == 0:
+            indicators['trend'] = 'Sideways'
+        elif all(_ma_vals[ma] < current_price for ma in ['sma20', 'sma50', 'sma200']):
             indicators['trend'] = 'Strong Uptrend'
-        elif all(indicators[ma] > current_price for ma in ['sma20', 'sma50', 'sma200']):
+        elif all(_ma_vals[ma] > current_price for ma in ['sma20', 'sma50', 'sma200']):
             indicators['trend'] = 'Strong Downtrend'
-        elif indicators['sma20'] > indicators['sma50'] > indicators['sma200']:
+        elif _ma_vals['sma20'] > _ma_vals['sma50'] > _ma_vals['sma200']:
             indicators['trend'] = 'Uptrend'
-        elif indicators['sma20'] < indicators['sma50'] < indicators['sma200']:
+        elif _ma_vals['sma20'] < _ma_vals['sma50'] < _ma_vals['sma200']:
             indicators['trend'] = 'Downtrend'
         else:
             indicators['trend'] = 'Sideways'
@@ -143,7 +147,7 @@ def calculate_indicators(df):
         return {k: safe_float(v) if not isinstance(v, (list, str)) else v for k, v in indicators.items()}
     except Exception as e:
         logging.error(f"Error calculating indicators: {str(e)}")
-        return None
+        return {}
 
 def compute_technical_score(indicators):
     """

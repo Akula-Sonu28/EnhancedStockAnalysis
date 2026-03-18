@@ -26,8 +26,8 @@ class MarketRegimeDetector:
         self.midcap_symbol = "NIFTY_MID_SELECT.NS"  # Nifty Midcap Select
         self.india_vix_symbol = "^INDIAVIX"  # India VIX
         
-        # Regime thresholds
-        self.bull_threshold = 0.6
+        # Regime thresholds (symmetric to avoid bearish classification bias)
+        self.bull_threshold = 0.5
         self.bear_threshold = -0.5
         
         # Default signal weights (adjusted dynamically by VIX)
@@ -123,23 +123,30 @@ class MarketRegimeDetector:
             return self._get_default_regime()
     
     def _get_index_data(self, symbol: str, period_days: int) -> Optional[pd.DataFrame]:
-        """Fetch index data from yfinance"""
-        try:
-            ticker = yf.Ticker(symbol)
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=period_days + 30)
-            
-            data = ticker.history(start=start_date, end=end_date)
-            
-            if data.empty:
-                self.logger.warning(f"No data available for {symbol}")
+        """Fetch index data from yfinance with retry"""
+        import time as _time
+        for _attempt in range(3):
+            try:
+                ticker = yf.Ticker(symbol)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=period_days + 30)
+                
+                data = ticker.history(start=start_date, end=end_date)
+                
+                if data.empty:
+                    self.logger.warning(f"No data available for {symbol}")
+                    return None
+                
+                return data
+                
+            except (ConnectionError, TimeoutError, OSError) as e:
+                _wait = (2 ** _attempt) * 2
+                self.logger.warning(f"Retry {_attempt+1}/3 for {symbol}: {e}")
+                _time.sleep(_wait)
+            except Exception as e:
+                self.logger.error(f"Error fetching data for {symbol}: {e}")
                 return None
-            
-            return data
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching data for {symbol}: {e}")
-            return None
+        return None
     
     def _calculate_trend_signal(self, df: pd.DataFrame) -> float:
         """
@@ -285,8 +292,10 @@ class MarketRegimeDetector:
         valid = [s for s in secondary_scores if s is not None]
         if not valid:
             return 1.0
-        primary_dir = 1 if primary_score > 0 else (-1 if primary_score < 0 else 0)
-        agree = sum(1 for s in valid if (s > 0) == (primary_dir > 0) or (s < 0) == (primary_dir < 0))
+        if abs(primary_score) < 1e-9:
+            return 0.5
+        primary_dir = 1 if primary_score > 0 else -1
+        agree = sum(1 for s in valid if (s > 0 and primary_dir > 0) or (s < 0 and primary_dir < 0))
         return agree / len(valid)
 
     def _get_vix_level(self) -> float:
@@ -298,10 +307,9 @@ class MarketRegimeDetector:
                 if pd.isna(_vix_val) or np.isinf(_vix_val):
                     return 15.0
                 return float(_vix_val)
-        except:
-            pass
+        except Exception as e:
+            logging.debug(f"VIX fetch failed: {e}")
         
-        # Default VIX if unavailable (neutral level)
         return 15.0
     
     def _calculate_regime_stability(self, df: pd.DataFrame, current_regime: str) -> str:
@@ -425,9 +433,19 @@ class MarketRegimeDetector:
         Returns:
             Dict with adjusted score and explanations
         """
+        def _sv(v, d):
+            if v is None:
+                return d
+            try:
+                f = float(v)
+                return d if (np.isnan(f) or np.isinf(f)) else f
+            except (TypeError, ValueError):
+                return d
+
+        stock_score = _sv(stock_score, 50.0)
         regime = regime_data.get('regime', 'UNKNOWN')
-        regime_score = regime_data.get('regime_score', 0)
-        vix = regime_data.get('vix_level', 15.0)
+        regime_score = _sv(regime_data.get('regime_score'), 0)
+        vix = _sv(regime_data.get('vix_level'), 15.0)
         
         if regime == 'UNKNOWN':
             return {
@@ -441,10 +459,10 @@ class MarketRegimeDetector:
         adjustment = 0.0
         adjustments = []
         
-        # Get stock characteristics
-        is_growth = stock_data.get('pe_ratio', 20) > 25
-        is_value = stock_data.get('pe_ratio', 20) < 15
-        beta = stock_data.get('beta', 1.0)
+        _pe = _sv(stock_data.get('pe_ratio'), 20)
+        is_growth = _pe > 25
+        is_value = _pe < 15
+        beta = _sv(stock_data.get('beta'), 1.0)
         
         # BULL MARKET adjustments
         if regime == 'BULL':
@@ -459,42 +477,42 @@ class MarketRegimeDetector:
                 adjustments.append("High beta advantage in bull market (+3)")
             
             # Momentum stocks get boost
-            if stock_data.get('real_rsi', 50) > 60:
+            _rsi = _sv(stock_data.get('real_rsi'), 50)
+            if _rsi > 60:
                 adjustment += 2.0
                 adjustments.append("Momentum advantage in bull market (+2)")
         
-        # BEAR MARKET adjustments
         elif regime == 'BEAR':
-            # Value and defensive stocks perform better
+            adjustment -= 5.0
+            adjustments.append("Bear market base penalty (-5)")
+
+            _bear_bonus = 0.0
             if is_value:
-                adjustment += 5.0
-                adjustments.append("Value stock premium in bear market (+5)")
-            
-            # Low beta stocks outperform
+                _bear_bonus += 2.0
+                adjustments.append("Value stock partial credit in bear (+2)")
             if beta < 0.8:
-                adjustment += 4.0
-                adjustments.append("Low beta advantage in bear market (+4)")
+                _bear_bonus += 1.0
+                adjustments.append("Low beta partial credit in bear (+1)")
+            _bear_bonus = min(_bear_bonus, 3.0)
+            adjustment += _bear_bonus
             
-            # Penalize momentum stocks
-            if stock_data.get('real_rsi', 50) > 70:
+            _rsi = _sv(stock_data.get('real_rsi'), 50)
+            if _rsi > 70:
                 adjustment -= 5.0
                 adjustments.append("Overbought penalty in bear market (-5)")
             
-            # Reward oversold stocks
-            if stock_data.get('real_rsi', 50) < 30:
-                adjustment += 3.0
-                adjustments.append("Oversold opportunity in bear market (+3)")
+            if _rsi < 30:
+                adjustment += 2.0
+                adjustments.append("Oversold partial opportunity in bear (+2)")
         
-        # SIDEWAYS MARKET adjustments
         else:
-            # Quality matters most
-            roe = stock_data.get('roe', 0)
+            roe = _sv(stock_data.get('roe'), 0)
             if roe > 15:
                 adjustment += 3.0
                 adjustments.append("Quality premium in sideways market (+3)")
             
-            # Range-bound trading opportunities
-            if 40 < stock_data.get('real_rsi', 50) < 60:
+            _rsi = _sv(stock_data.get('real_rsi'), 50)
+            if 40 < _rsi < 60:
                 adjustment += 2.0
                 adjustments.append("Range-trading setup (+2)")
         

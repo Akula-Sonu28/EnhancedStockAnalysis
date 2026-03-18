@@ -23,6 +23,7 @@ Author: GAP-18 fix — March 2026
 
 import yfinance as yf
 import numpy as np
+import pandas as pd
 from datetime import datetime
 from typing import Dict
 import logging
@@ -355,7 +356,8 @@ class CrisisDetector:
             else:
                 signals['vix_spike_pct'] = 0.0
                 signals['vix_absolute']  = 15.0
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"[CRISIS] VIX fetch failed: {e}")
             signals['vix_spike_pct'] = 0.0
             signals['vix_absolute']  = 15.0
 

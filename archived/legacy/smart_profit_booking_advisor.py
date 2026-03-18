@@ -124,7 +124,7 @@ class SmartProfitBookingAdvisor:
     def load_portfolio_allocation(self):
         """Load portfolio allocation sheet"""
         try:
-            self.report_df = pd.read_excel(self.latest_report, sheet_name='Portfolio Allocation')
+            self.report_df = pd.read_excel(self.latest_report, sheet_name='Portfolio Allocation', header=1)
             print(f"✅ Loaded Portfolio Allocation: {len(self.report_df)} stocks")
             return True
         except Exception as e:

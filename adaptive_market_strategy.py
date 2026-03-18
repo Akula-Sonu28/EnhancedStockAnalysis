@@ -8,6 +8,7 @@ an adaptive strategy that adjusts to different market regimes
 for optimal performance across all conditions.
 """
 
+import logging
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -52,35 +53,41 @@ class AdaptiveMarketRegimeStrategy:
             }
         }
         
-        # Adaptive weights based on market conditions
+        # Adaptive weights based on market conditions (V5.2 keys)
+        # ML weight set to 0.00: ML model disabled (test accuracy 39% = random).
+        # Former ML weight redistributed to momentum_technical.
         self.adaptive_weights = {
             'BULL_MODERATE': {
-                'momentum_technical': 0.40,    # Increased - momentum works in bull markets
-                'fundamental_quality': 0.30,   # Reduced - momentum more important
-                'volume_strength': 0.20,       # Increased - volume confirms moves
-                'sector_momentum': 0.10,       # Standard
-                'risk_adjustment': 0.00        # Removed - take more risk in bull markets
+                'fundamental_quality': 0.15,
+                'momentum_technical': 0.30,
+                'volume_strength': 0.10,
+                'multi_timeframe': 0.15,
+                'ml_signal': 0.00,
+                'risk_adjustment': 0.30,
             },
             'CALM': {
-                'momentum_technical': 0.25,    # Balanced approach
-                'fundamental_quality': 0.45,   # Increased - fundamentals matter more
-                'volume_strength': 0.15,       # Standard
-                'sector_momentum': 0.10,       # Standard
-                'risk_adjustment': 0.05        # Small weight - stable conditions
+                'fundamental_quality': 0.15,
+                'momentum_technical': 0.25,
+                'volume_strength': 0.05,
+                'multi_timeframe': 0.15,
+                'ml_signal': 0.00,
+                'risk_adjustment': 0.40,
             },
             'SIDEWAYS': {
-                'momentum_technical': 0.15,    # Reduced - momentum doesn't work
-                'fundamental_quality': 0.50,   # Increased - focus on value
-                'volume_strength': 0.10,       # Reduced - less institutional flow
-                'sector_momentum': 0.15,       # Increased - sector rotation important
-                'risk_adjustment': 0.10        # Increased - manage range-bound risk
+                'fundamental_quality': 0.15,
+                'momentum_technical': 0.20,
+                'volume_strength': 0.05,
+                'multi_timeframe': 0.20,
+                'ml_signal': 0.00,
+                'risk_adjustment': 0.40,
             },
             'BEAR_MODERATE': {
-                'momentum_technical': 0.10,    # Minimal - avoid momentum
-                'fundamental_quality': 0.60,   # Maximum - quality companies survive
-                'volume_strength': 0.05,       # Minimal - volume can be misleading
-                'sector_momentum': 0.05,       # Minimal - all sectors decline
-                'risk_adjustment': 0.20        # Maximum - preserve capital
+                'fundamental_quality': 0.15,
+                'momentum_technical': 0.20,
+                'volume_strength': 0.05,
+                'multi_timeframe': 0.15,
+                'ml_signal': 0.00,
+                'risk_adjustment': 0.45,
             }
         }
         
@@ -116,7 +123,16 @@ class AdaptiveMarketRegimeStrategy:
         """Detect current market regime using Nifty 50 data"""
         try:
             nifty = yf.Ticker("^NSEI")
-            hist = nifty.history(period="2mo")  # Last 2 months
+            import time as _time
+            hist = pd.DataFrame()
+            for _attempt in range(3):
+                try:
+                    hist = nifty.history(period="2mo")
+                    break
+                except (ConnectionError, TimeoutError, OSError) as _e:
+                    _wait = (2 ** _attempt) * 2
+                    logging.warning(f"Nifty fetch retry {_attempt+1}/3: {_e}")
+                    _time.sleep(_wait)
             
             if len(hist) < 30:
                 return {'regime': 'CALM', 'confidence': 'LOW'}
@@ -190,6 +206,7 @@ class AdaptiveMarketRegimeStrategy:
         'BULL': 'BULL_MODERATE', 'BULL_STRONG': 'BULL_MODERATE', 'BULLISH': 'BULL_MODERATE',
         'BEAR': 'BEAR_MODERATE', 'BEAR_STRONG': 'BEAR_MODERATE', 'BEARISH': 'BEAR_MODERATE',
         'SIDEWAYS': 'SIDEWAYS', 'CALM': 'CALM', 'UNKNOWN': 'CALM', 'NEUTRAL': 'CALM',
+        'VOLATILE': 'BEAR_MODERATE', 'RANGE': 'SIDEWAYS',
         'BULL_MODERATE': 'BULL_MODERATE', 'BEAR_MODERATE': 'BEAR_MODERATE',
     }
 
@@ -275,7 +292,7 @@ class AdaptiveMarketRegimeStrategy:
                 else:
                     position_weight = max_position * 0.5
             
-            # Don't exceed portfolio exposure limits
+            position_weight = min(position_weight, max_position)
             if total_weight + position_weight <= position_strategy['portfolio_exposure']:
                 action = 'BUY' if position_weight >= max_position * 0.5 else 'SMALL_POSITION'
                 confidence = 'HIGH' if quintile in [regime_data.get('best_quintile', 'Q1')] else 'MEDIUM'
@@ -305,10 +322,10 @@ class AdaptiveMarketRegimeStrategy:
         
         # Risk management
         recommendations['risk_management'] = {
-            'stop_loss': self._get_stop_loss_for_regime(current_regime),
-            'rebalance_frequency': self._get_rebalance_frequency(current_regime),
-            'monitoring_level': self._get_monitoring_level(current_regime),
-            'regime_change_action': self._get_regime_change_action(current_regime)
+            'stop_loss': self._get_stop_loss_for_regime(mapped),
+            'rebalance_frequency': self._get_rebalance_frequency(mapped),
+            'monitoring_level': self._get_monitoring_level(mapped),
+            'regime_change_action': self._get_regime_change_action(mapped)
         }
         
         return recommendations

@@ -12,7 +12,10 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import logging
 import pickle
+import json
+import os
 from pathlib import Path
+from datetime import datetime
 
 class MLPricePredictor:
     """
@@ -24,10 +27,36 @@ class MLPricePredictor:
     - Expected return
     """
     
+    FEATURE_NAMES = [
+        'real_rsi', 'enhanced_rsi_14', 'enhanced_macd', 'enhanced_signal_line',
+        'enhanced_bb_position', 'enhanced_bb_width', 'enhanced_atr_14', 'enhanced_adx',
+        'enhanced_cci', 'enhanced_stoch_k', 'enhanced_stoch_d', 'enhanced_williams_r',
+        'enhanced_roc', 'enhanced_mfi', 'enhanced_obv_trend', 'enhanced_vwap_distance',
+        'ma_20', 'ma_50', 'ma_200', 'enhanced_price_vs_ma20',
+        'price_change_1d', 'price_change_5d', 'price_change_20d', 'price_change_50d',
+        'price_momentum_5d', 'price_momentum_10d', 'price_momentum_20d',
+        'price_vs_52wk_high', 'price_vs_52wk_low', 'price_range_position',
+        'volume_ratio_5d', 'volume_ratio_10d', 'volume_ratio_20d',
+        'obv_trend', 'volume_strength', 'volume_price_corr',
+        'avg_daily_range', 'volume_momentum', 'volume_expansion', 'vwap_distance',
+        'pe_ratio', 'pb_ratio', 'roe', 'debt_to_equity',
+        'revenue_growth', 'earnings_growth', 'profit_margin',
+        'operating_margin', 'dividend_yield', 'current_ratio',
+        'fundamental_score', 'undervaluation_score', 'peg_ratio', 'ev_ebitda', 'price_to_sales',
+        'news_sentiment', 'analyst_sentiment', 'market_sentiment',
+        'earnings_sentiment', 'buzz_sentiment',
+        'volatility', 'beta', 'drawdown', 'sharpe_approx', 'downside_risk',
+    ]
+    MODEL_DIR = Path('models')
+
     def __init__(self):
         self.model = None
         self.scaler = StandardScaler()
         self.is_trained = False
+        self.model_version = None
+        self.train_accuracy = None
+        self.test_accuracy = None
+        self.feature_importances = None
         self._load_trained_model()
     
     def _load_trained_model(self):
@@ -37,12 +66,23 @@ class MLPricePredictor:
             if model_path.exists():
                 with open(model_path, 'rb') as f:
                     data = pickle.load(f)
+                    if not isinstance(data, dict) or 'model' not in data or 'scaler' not in data:
+                        logging.warning("Invalid ML pickle structure — expected dict with 'model' and 'scaler'")
+                        self.is_trained = False
+                        return
+                    if not hasattr(data['model'], 'predict'):
+                        logging.warning("ML pickle 'model' lacks predict method")
+                        self.is_trained = False
+                        return
                     self.model = data['model']
                     self.scaler = data['scaler']
                     self.is_trained = True
+                    self.model_version = data.get('version')
+                    self.train_accuracy = data.get('train_accuracy')
+                    self.test_accuracy = data.get('test_accuracy')
                     trained_date = data.get('trained_date', 'unknown')
                     num_samples = data.get('num_samples', 0)
-                    logging.info(f"Loaded trained ML model (trained: {trained_date}, samples: {num_samples})")
+                    logging.info(f"Loaded ML model v{self.model_version} (trained: {trained_date}, samples: {num_samples})")
             else:
                 logging.info("No trained model found. Using fallback predictions.")
         except Exception as e:
@@ -85,18 +125,100 @@ class MLPricePredictor:
             
             self.model.fit(X_train, y_train)
             
-            # Calculate accuracy
-            train_accuracy = self.model.score(X_train, y_train)
-            test_accuracy = self.model.score(X_test, y_test)
+            self.train_accuracy = self.model.score(X_train, y_train)
+            self.test_accuracy = self.model.score(X_test, y_test)
             
-            logging.info(f"ML Model trained - Train accuracy: {train_accuracy:.2%}, Test accuracy: {test_accuracy:.2%}")
+            logging.info(f"ML Model trained - Train acc: {self.train_accuracy:.2%}, Test acc: {self.test_accuracy:.2%}")
             
             self.is_trained = True
+            self.model_version = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+            # Feature importance
+            if hasattr(self.model, 'feature_importances_'):
+                importances = self.model.feature_importances_
+                names = self.FEATURE_NAMES[:len(importances)] if len(self.FEATURE_NAMES) >= len(importances) else \
+                    [f'feature_{i}' for i in range(len(importances))]
+                self.feature_importances = sorted(
+                    zip(names, importances), key=lambda x: x[1], reverse=True
+                )
+
+            self._save_model(len(training_data))
+            self._export_feature_importance()
             return True
             
         except Exception as e:
             logging.error(f"Error training ML model: {e}")
             return False
+
+    def _save_model(self, num_samples: int):
+        """Save model with versioning."""
+        self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'model': self.model,
+            'scaler': self.scaler,
+            'trained_date': datetime.now().isoformat(),
+            'num_samples': num_samples,
+            'version': self.model_version,
+            'train_accuracy': self.train_accuracy,
+            'test_accuracy': self.test_accuracy,
+        }
+        try:
+            latest = self.MODEL_DIR / 'ml_predictor_latest.pkl'
+            versioned = self.MODEL_DIR / f'ml_predictor_{self.model_version}.pkl'
+            with open(latest, 'wb') as f:
+                pickle.dump(payload, f)
+            with open(versioned, 'wb') as f:
+                pickle.dump(payload, f)
+            logging.info(f"Model saved: {versioned.name}")
+        except Exception as e:
+            logging.warning(f"Failed to save model: {e}")
+
+    def _export_feature_importance(self):
+        """Export feature importances to JSON for analysis."""
+        if not self.feature_importances:
+            return
+        self.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+        out = self.MODEL_DIR / 'feature_importance.json'
+        try:
+            data = {
+                'version': self.model_version,
+                'exported_at': datetime.now().isoformat(),
+                'features': [
+                    {'name': name, 'importance': float(imp)}
+                    for name, imp in self.feature_importances
+                ]
+            }
+            with open(out, 'w') as f:
+                json.dump(data, f, indent=2)
+            logging.info(f"Feature importance exported to {out}")
+        except Exception as e:
+            logging.debug(f"Failed to export feature importance: {e}")
+
+    def should_retrain(self, days_threshold: int = 30) -> bool:
+        """Check if model needs retraining based on age."""
+        latest = self.MODEL_DIR / 'ml_predictor_latest.pkl'
+        if not latest.exists():
+            return True
+        try:
+            mtime = datetime.fromtimestamp(latest.stat().st_mtime)
+            age_days = (datetime.now() - mtime).days
+            if age_days >= days_threshold:
+                logging.info(f"Model is {age_days} days old — retraining recommended")
+                return True
+            return False
+        except Exception:
+            return True
+
+    def get_model_info(self) -> Dict:
+        """Return metadata about current model."""
+        return {
+            'is_trained': self.is_trained,
+            'version': self.model_version,
+            'train_accuracy': self.train_accuracy,
+            'test_accuracy': self.test_accuracy,
+            'top_features': self.feature_importances[:10] if self.feature_importances else [],
+            'needs_retrain': self.should_retrain(),
+        }
     
     def _safe_float(self, value, default=0.0):
         """Convert value to float, handling strings and None"""
@@ -262,19 +384,26 @@ class MLPricePredictor:
             # Scale features
             features_scaled = self.scaler.transform(features.reshape(1, -1))
             
+            # Validate feature count against scaler
+            expected_features = getattr(self.scaler, 'n_features_in_', None)
+            if expected_features is not None and features.shape[0] != expected_features:
+                logging.warning(f"Feature count mismatch: got {features.shape[0]}, expected {expected_features}")
+                return self._get_fallback_prediction(stock_data)
+
             # Get prediction and probabilities
             prediction = self.model.predict(features_scaled)[0]
             probabilities = self.model.predict_proba(features_scaled)[0]
             
-            # Calculate confidence (max probability)
+            # Map probabilities using model.classes_ for correct ordering
+            classes = list(self.model.classes_) if hasattr(self.model, 'classes_') else [-1, 0, 1]
+            prob_map = {int(c): float(probabilities[i]) for i, c in enumerate(classes) if i < len(probabilities)}
+            
             confidence = float(np.max(probabilities) * 100)
             
-            # Map prediction to signal
             signal_map = {1: 'BUY', 0: 'HOLD', -1: 'SELL'}
             signal = signal_map.get(int(prediction), 'HOLD')
             
-            # Estimate expected return (rough approximation)
-            expected_return = float(prediction * confidence * 0.2)  # Simple heuristic
+            expected_return = float(prediction * confidence * 0.2)
             
             return {
                 'prediction': int(prediction),
@@ -282,9 +411,9 @@ class MLPricePredictor:
                 'signal': signal,
                 'expected_return': expected_return,
                 'probabilities': {
-                    'down': float(probabilities[0]) if len(probabilities) > 0 else 0.33,
-                    'hold': float(probabilities[1]) if len(probabilities) > 1 else 0.34,
-                    'up': float(probabilities[2]) if len(probabilities) > 2 else 0.33,
+                    'down': prob_map.get(-1, 0.33),
+                    'hold': prob_map.get(0, 0.34),
+                    'up': prob_map.get(1, 0.33),
                 }
             }
             
@@ -303,20 +432,25 @@ class MLPricePredictor:
             hist_full: Full available OHLCV history (for 52-week high / 6-month vol).
                        If None, hist is used for both.
         """
+        _stock_data = info or {}
         try:
             import pandas as _pd
             if hist is None or (hasattr(hist, 'empty') and hist.empty) or len(hist) < 60:
-                return self._get_fallback_prediction({})
+                return self._get_fallback_prediction(_stock_data)
             if not self.is_trained or self.model is None:
-                return self._get_fallback_prediction({})
-            # Lazy import — train_ml_model is the single source-of-truth for feature building.
-            # The import runs module-level setup once (logging, dir creation) — acceptable cost.
+                return self._get_fallback_prediction(_stock_data)
             from train_ml_model import build_features_from_hist  # noqa: E402
             features = build_features_from_hist(
                 hist, info=info or {}, hist_full=hist_full
             )
             if features is None:
-                return self._get_fallback_prediction({})
+                return self._get_fallback_prediction(_stock_data)
+
+            expected_features = getattr(self.scaler, 'n_features_in_', None)
+            if expected_features is not None and features.shape[0] != expected_features:
+                logging.warning(f"predict_from_ohlcv: feature count {features.shape[0]} != expected {expected_features}")
+                return self._get_fallback_prediction(_stock_data)
+
             features_scaled = self.scaler.transform(features.reshape(1, -1))
             prediction    = self.model.predict(features_scaled)[0]
             probabilities = self.model.predict_proba(features_scaled)[0]
@@ -324,20 +458,24 @@ class MLPricePredictor:
             signal_map    = {1: 'BUY', 0: 'HOLD', -1: 'SELL'}
             signal        = signal_map.get(int(prediction), 'HOLD')
             expected_return = float(prediction * confidence * 0.2)
+
+            classes = list(self.model.classes_) if hasattr(self.model, 'classes_') else [-1, 0, 1]
+            prob_map = {int(c): float(probabilities[i]) for i, c in enumerate(classes) if i < len(probabilities)}
+
             return {
                 'prediction':      int(prediction),
                 'confidence':      confidence,
                 'signal':          signal,
                 'expected_return': expected_return,
                 'probabilities': {
-                    'down': float(probabilities[0]) if len(probabilities) > 0 else 0.33,
-                    'hold': float(probabilities[1]) if len(probabilities) > 1 else 0.34,
-                    'up':   float(probabilities[2]) if len(probabilities) > 2 else 0.33,
+                    'down': prob_map.get(-1, 0.33),
+                    'hold': prob_map.get(0, 0.34),
+                    'up':   prob_map.get(1, 0.33),
                 },
             }
         except Exception as e:
             logging.error(f"predict_from_ohlcv error: {e}")
-            return self._get_fallback_prediction({})
+            return self._get_fallback_prediction(_stock_data)
 
     def _get_fallback_prediction(self, stock_data: dict) -> Dict:
         """

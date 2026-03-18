@@ -16,6 +16,7 @@ IMPROVEMENTS in V2.0:
 
 import pandas as pd
 import numpy as np
+import logging
 from typing import Dict, List, Tuple, Optional
 import yfinance as yf
 from datetime import datetime, timedelta
@@ -158,7 +159,14 @@ class EarlyBreakoutDetector:
             # Require at least 3 confirmations + score >= 60 for valid setup
             if confirmations_count < 3 or breakout_score < 60:
                 return self._empty_result()
-            
+
+            # IMPROVEMENT 9: False breakout filter
+            if self._is_false_breakout(df, resistance):
+                breakout_score = int(breakout_score * 0.5)
+                signals.append("⚠️ Possible false breakout — price fell back below resistance")
+                if breakout_score < 60:
+                    return self._empty_result()
+
             # Determine breakout timing probability (IMPROVED - more conservative)
             if breakout_score >= 90 and confirmations_count >= 5:
                 expected_days = 2
@@ -202,7 +210,7 @@ class EarlyBreakoutDetector:
             }
             
         except Exception as e:
-            print(f"Error in pre-breakout detection: {e}")
+            logging.error(f"Error in pre-breakout detection: {e}")
             return self._empty_result()
     
     def detect_momentum_exhaustion(self, df: pd.DataFrame, stock_data: dict, entry_price: Optional[float] = None) -> Dict:
@@ -317,7 +325,7 @@ class EarlyBreakoutDetector:
             }
             
         except Exception as e:
-            print(f"Error in exhaustion detection: {e}")
+            logging.error(f"Error in exhaustion detection: {e}")
             return self._empty_exhaustion_result()
     
     # ===== HELPER FUNCTIONS =====
@@ -453,6 +461,19 @@ class EarlyBreakoutDetector:
 
         return price_higher and rsi_now < rsi_prior and rsi_now > 50
     
+    def _is_false_breakout(self, df, resistance_level: float) -> bool:
+        """Check if price crossed above resistance recently but fell back below."""
+        try:
+            if df is None or df.empty or len(df) < 5:
+                return False
+            recent = df.tail(5)
+            close = recent['Close']
+            crossed_above = (close > resistance_level).any()
+            latest_below = float(close.iloc[-1]) < resistance_level
+            return crossed_above and latest_below
+        except Exception:
+            return False
+
     def _empty_result(self) -> Dict:
         """Return empty pre-breakout result"""
         return {

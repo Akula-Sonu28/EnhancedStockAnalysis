@@ -5,7 +5,9 @@ Centralized configuration for all analysis parameters
 """
 
 import os
-from dataclasses import dataclass
+import json
+import threading
+from dataclasses import dataclass, fields, asdict
 from typing import Dict, List, Optional
 
 @dataclass
@@ -60,7 +62,44 @@ class AnalysisConfig:
     MAX_PORTFOLIO_POSITIONS: int = 15
     MIN_ALLOCATION_PERCENTAGE: float = 2.0
     MAX_SINGLE_STOCK_WEIGHT: float = 20.0
-    
+
+    # Allocation Thresholds
+    MIN_INVESTMENT_PER_STOCK: float = 3000
+    MAX_ALLOCATION_PCT: float = 0.05
+    TARGET_PORTFOLIO_SIZE: int = 23
+    SECTOR_CAP: int = 10
+    CATEGORY_SECTOR_CAP: int = 5
+    SECTOR_REDUCE_MIN_SCORE: float = 45.0
+    CORE_CONCENTRATION_THRESHOLD: float = 0.40
+
+    # Exit Strategy Thresholds
+    EXIT_TOP_PCT: float = 0.30
+    EXIT_BOTTOM_PCT: float = 0.20
+    REBALANCE_PROFIT_THRESHOLD: float = 0.05
+    PROFIT_BOOKING_THRESHOLD: float = 0.20
+
+    # Regime Exposure
+    BEAR_EXPOSURE: float = 0.50
+    SIDEWAYS_EXPOSURE: float = 0.85
+    BULL_EXPOSURE: float = 1.00
+
+    # Score Smoothing
+    SCORE_SMOOTHING_WEIGHT: float = 0.70
+    SCORE_SMOOTHING_MAX_AGE_DAYS: int = 3
+
+    # Sector Cap Enforcement
+    SECTOR_CAP_ENFORCE_HOLDINGS: bool = True
+
+    # Liquidity Filter
+    MIN_AVG_DAILY_VOLUME: int = 50000
+    ILLIQUID_SCORE_PENALTY: float = 15.0
+
+    # Cache Retention
+    CACHE_MAX_AGE_DAYS: int = 7
+
+    # Extreme Volatility
+    MAX_SAFE_VOLATILITY: float = 80.0
+
     # File Paths
     REPORTS_DIR: str = "reports"
     DATA_DIR: str = "data"
@@ -91,29 +130,63 @@ class AnalysisConfig:
 
 # Global configuration instance
 CONFIG = AnalysisConfig()
+_CONFIG_LOCK = threading.Lock()
 
 def get_config() -> AnalysisConfig:
     """Get the global configuration instance"""
     return CONFIG
 
 def update_config(**kwargs) -> None:
-    """Update configuration parameters"""
+    """Update configuration parameters (thread-safe)."""
     global CONFIG
-    for key, value in kwargs.items():
-        if hasattr(CONFIG, key):
-            setattr(CONFIG, key, value)
-        else:
-            print(f"Warning: Unknown configuration parameter: {key}")
+    with _CONFIG_LOCK:
+        for key, value in kwargs.items():
+            if hasattr(CONFIG, key):
+                setattr(CONFIG, key, value)
+            else:
+                print(f"Warning: Unknown configuration parameter: {key}")
 
-def load_config_from_file(file_path: str) -> None:
-    """Load configuration from a JSON or YAML file"""
-    # TODO: Implement file-based configuration loading
-    pass
+def load_config_from_file(file_path: str = 'config.json') -> None:
+    """Load configuration from a JSON file and update the global CONFIG instance."""
+    global CONFIG
+    if not os.path.exists(file_path):
+        return
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        with _CONFIG_LOCK:
+            valid_fields = {fld.name for fld in fields(CONFIG)}
+            for key, value in data.items():
+                if key in valid_fields:
+                    setattr(CONFIG, key, value)
+        print(f"[CONFIG] Loaded settings from {file_path}")
+    except Exception as e:
+        print(f"[CONFIG] Warning: could not load {file_path}: {e}")
 
-def save_config_to_file(file_path: str) -> None:
-    """Save current configuration to a file"""
-    # TODO: Implement configuration saving
-    pass
+def save_config_to_file(file_path: str = 'config.json') -> None:
+    """Serialize current CONFIG to a JSON file."""
+    try:
+        with _CONFIG_LOCK:
+            data = {}
+            for fld in fields(CONFIG):
+                val = getattr(CONFIG, fld.name)
+                if isinstance(val, list) and fld.name == 'NIFTY_50_STOCKS':
+                    continue
+                try:
+                    json.dumps(val)
+                    data[fld.name] = val
+                except (TypeError, ValueError):
+                    pass
+        os.makedirs(os.path.dirname(file_path) if os.path.dirname(file_path) else '.', exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        print(f"[CONFIG] Saved settings to {file_path}")
+    except Exception as e:
+        print(f"[CONFIG] Warning: could not save {file_path}: {e}")
+
+
+# Auto-load config.json at import time if it exists
+load_config_from_file('config.json')
 
 # Technical Analysis Weights (Required by technical_analyzer.py)
 TECHNICAL_WEIGHTS = {

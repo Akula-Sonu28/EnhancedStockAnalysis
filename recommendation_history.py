@@ -17,6 +17,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import logging
+import threading
 
 class RecommendationHistory:
     """Manages historical recommendations and enforces consistency rules"""
@@ -29,6 +30,7 @@ class RecommendationHistory:
             history_file: Path to CSV file storing recommendation history
         """
         self.history_file = history_file
+        self._lock = threading.Lock()
         self.history_df = self._load_history()
         
         # Configuration
@@ -37,11 +39,14 @@ class RecommendationHistory:
         self.FUNDAMENTAL_CHANGE_THRESHOLD = 0.2  # 20% change in fundamentals
         
     def _load_history(self) -> pd.DataFrame:
-        """Load recommendation history from CSV"""
+        """Load recommendation history from CSV, ensuring outcome columns exist."""
         if os.path.exists(self.history_file):
             try:
                 df = pd.read_csv(self.history_file)
                 df['date'] = pd.to_datetime(df['date'])
+                for col in self.OUTCOME_COLUMNS:
+                    if col not in df.columns:
+                        df[col] = np.nan
                 logging.info(f"Loaded recommendation history: {len(df)} records")
                 return df
             except Exception as e:
@@ -87,11 +92,17 @@ class RecommendationHistory:
         """
         Back-fill forward returns for past recommendations whose outcome windows
         have elapsed.  Returns the number of rows updated.
+        Thread-safe: acquires self._lock during DataFrame mutation.
         """
+        with self._lock:
+            return self._update_outcomes_locked()
+
+    def _update_outcomes_locked(self) -> int:
         updated = 0
         now = datetime.now()
         horizons = {'7d': 7, '30d': 30, '90d': 90}
 
+        pending_rows = []
         for idx, row in self.history_df.iterrows():
             rec_date = pd.to_datetime(row['date'], errors='coerce')
             if pd.isna(rec_date):
@@ -101,24 +112,58 @@ class RecommendationHistory:
             rec_price = row.get('price')
             if pd.isna(rec_price) or rec_price in (None, 0):
                 continue
-
             needs_update = False
             for label, days in horizons.items():
                 col_price = f'price_{label}'
                 if pd.isna(row.get(col_price)) and (now - rec_date).days >= days:
                     needs_update = True
                     break
+            if needs_update:
+                pending_rows.append((idx, row['symbol'], rec_date, float(rec_price)))
 
-            if not needs_update:
-                continue
+        if not pending_rows:
+            return 0
 
-            symbol = row['symbol']
+        symbols_needed = list({
+            (s + '.NS' if not s.endswith('.NS') else s)
+            for _, s, _, _ in pending_rows
+        })
+        global_start = min(rd - timedelta(days=1) for _, _, rd, _ in pending_rows)
+        global_end = max(rd + timedelta(days=95) for _, _, rd, _ in pending_rows)
+
+        try:
+            bulk = yf.download(
+                symbols_needed,
+                start=global_start.strftime('%Y-%m-%d'),
+                end=global_end.strftime('%Y-%m-%d'),
+                group_by='ticker',
+                progress=False,
+                threads=True
+            )
+        except Exception as e:
+            logging.warning(f"Batch yfinance download failed, falling back: {e}")
+            bulk = None
+
+        for idx, symbol, rec_date, rec_price in pending_rows:
             try:
-                suffix = '.NS' if not symbol.endswith('.NS') else ''
-                ticker = yf.Ticker(f"{symbol}{suffix}")
-                start = rec_date - timedelta(days=1)
-                end = rec_date + timedelta(days=95)
-                hist = ticker.history(start=start, end=end)
+                ns_sym = symbol + '.NS' if not symbol.endswith('.NS') else symbol
+                if bulk is not None and not bulk.empty:
+                    if len(symbols_needed) == 1:
+                        hist = bulk
+                    else:
+                        hist = bulk[ns_sym] if ns_sym in bulk.columns.get_level_values(0) else pd.DataFrame()
+                    if isinstance(hist, pd.DataFrame) and not hist.empty:
+                        hist = hist.dropna(subset=['Close'])
+                else:
+                    hist = pd.DataFrame()
+
+                if hist.empty:
+                    ticker = yf.Ticker(ns_sym)
+                    hist = ticker.history(
+                        start=(rec_date - timedelta(days=1)),
+                        end=(rec_date + timedelta(days=95))
+                    )
+
                 if hist.empty:
                     continue
                 if hist.index.tz is not None:
@@ -127,12 +172,13 @@ class RecommendationHistory:
                 for label, days in horizons.items():
                     col_price = f'price_{label}'
                     col_ret = f'return_{label}'
-                    if pd.isna(row.get(col_price)) and (now - rec_date).days >= days:
+                    if pd.isna(self.history_df.at[idx, col_price] if col_price in self.history_df.columns else np.nan) \
+                            and (now - rec_date).days >= days:
                         target_date = rec_date + timedelta(days=days)
                         future = hist[hist.index >= target_date]
                         if not future.empty:
                             fwd_price = float(future['Close'].iloc[0])
-                            fwd_ret = ((fwd_price - float(rec_price)) / float(rec_price)) * 100
+                            fwd_ret = ((fwd_price - rec_price) / rec_price) * 100 if rec_price != 0 else 0.0
                             self.history_df.at[idx, col_price] = fwd_price
                             self.history_df.at[idx, col_ret] = round(fwd_ret, 2)
                             updated += 1
@@ -144,6 +190,55 @@ class RecommendationHistory:
             logging.info(f"Updated {updated} outcome fields")
         return updated
 
+    def get_weekly_changes(self, days: int = 7) -> Dict:
+        """
+        Compare current scores with scores from `days` ago.
+        Returns dict with 'improved', 'deteriorated', 'new' lists of dicts.
+        """
+        with self._lock:
+            if self.history_df is None or self.history_df.empty:
+                return {'improved': [], 'deteriorated': [], 'new': []}
+
+            df = self.history_df.copy()
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            now = datetime.now()
+            cutoff = now - timedelta(days=days)
+
+            recent = df[df['date'] >= cutoff].sort_values('date', ascending=False)
+            older = df[df['date'] < cutoff].sort_values('date', ascending=False)
+
+            improved, deteriorated, new_stocks = [], [], []
+            seen = set()
+            for _, row in recent.iterrows():
+                sym = row.get('symbol')
+                if sym in seen:
+                    continue
+                seen.add(sym)
+                curr_score = row.get('score', 0)
+                if curr_score is None or (isinstance(curr_score, float) and np.isnan(curr_score)):
+                    curr_score = 0
+
+                prev_rows = older[older['symbol'] == sym]
+                if prev_rows.empty:
+                    new_stocks.append({'symbol': sym, 'score': curr_score, 'action': row.get('action', '')})
+                    continue
+
+                prev_score = prev_rows.iloc[0].get('score', 0)
+                if prev_score is None or (isinstance(prev_score, float) and np.isnan(prev_score)):
+                    prev_score = 0
+                _cs = 0.0 if (curr_score is None or (isinstance(curr_score, float) and np.isnan(curr_score))) else float(curr_score)
+                _ps = 0.0 if (prev_score is None or (isinstance(prev_score, float) and np.isnan(prev_score))) else float(prev_score)
+                delta = _cs - _ps
+                entry = {'symbol': sym, 'current_score': _cs, 'previous_score': _ps, 'change': round(delta, 1), 'action': row.get('action', '')}
+                if delta >= 5:
+                    improved.append(entry)
+                elif delta <= -5:
+                    deteriorated.append(entry)
+
+            improved.sort(key=lambda x: -x['change'])
+            deteriorated.sort(key=lambda x: x['change'])
+            return {'improved': improved, 'deteriorated': deteriorated, 'new': new_stocks}
+
     def get_last_recommendation(self, symbol: str) -> Optional[Dict]:
         """
         Get the most recent recommendation for a symbol
@@ -154,13 +249,14 @@ class RecommendationHistory:
         Returns:
             Dict with last recommendation details, or None if not found
         """
-        symbol_history = self.history_df[self.history_df['symbol'] == symbol]
-        
-        if symbol_history.empty:
-            return None
-        
-        last_rec = symbol_history.sort_values('date', ascending=False).iloc[0]
-        return last_rec.to_dict()
+        with self._lock:
+            symbol_history = self.history_df[self.history_df['symbol'] == symbol]
+            
+            if symbol_history.empty:
+                return None
+            
+            last_rec = symbol_history.sort_values('date', ascending=False).iloc[0]
+            return last_rec.to_dict()
     
     def check_cooldown_period(self, symbol: str, proposed_action: str) -> Tuple[bool, str]:
         """
@@ -224,6 +320,12 @@ class RecommendationHistory:
             return True, "New stock, no history"
         
         last_score = last_rec.get('score', 0)
+        if last_score is None or (isinstance(last_score, float) and np.isnan(last_score)):
+            last_score = 0.0
+        if current_score is None or (isinstance(current_score, float) and np.isnan(current_score)):
+            current_score = 0.0
+        last_score = float(last_score)
+        current_score = float(current_score)
         score_change = current_score - last_score
         
         is_significant = abs(score_change) >= self.SCORE_CHANGE_THRESHOLD
@@ -399,22 +501,36 @@ class RecommendationHistory:
             rank: Stock rank
             sector: Stock sector
         """
+        def _clean(v, d=0):
+            if v is None:
+                return d
+            try:
+                f = float(v)
+                return d if (np.isnan(f) or np.isinf(f)) else f
+            except (TypeError, ValueError):
+                return d
+        score = _clean(score, 0)
+        price = _clean(price, 0)
+        if price <= 0:
+            logging.warning(f"Skipping recommendation for {symbol}: invalid price {price}")
+            return
         new_rec = pd.DataFrame([{
             'date': datetime.now(),
             'symbol': symbol,
             'action': action,
             'score': score,
             'price': price,
-            'pe_ratio': fundamentals.get('pe_ratio', 0),
-            'roe': fundamentals.get('roe', 0),
-            'debt_to_equity': fundamentals.get('debt_to_equity', 0),
+            'pe_ratio': _clean(fundamentals.get('pe_ratio'), 0),
+            'roe': _clean(fundamentals.get('roe'), 0),
+            'debt_to_equity': _clean(fundamentals.get('debt_to_equity'), 0),
             'reason': reason,
             'rank': rank,
             'sector': sector
         }])
         
-        self.history_df = pd.concat([self.history_df, new_rec], ignore_index=True)
-        self._save_history()
+        with self._lock:
+            self.history_df = pd.concat([self.history_df, new_rec], ignore_index=True)
+            self._save_history()
         
         # Ensure price and score are numeric for formatting
         try:
@@ -435,13 +551,14 @@ class RecommendationHistory:
         Returns:
             DataFrame with recent recommendation history
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
-        symbol_history = self.history_df[
-            (self.history_df['symbol'] == symbol) &
-            (self.history_df['date'] >= cutoff_date)
-        ].sort_values('date', ascending=False)
-        
-        return symbol_history
+        with self._lock:
+            cutoff_date = datetime.now() - timedelta(days=days)
+            symbol_history = self.history_df[
+                (self.history_df['symbol'] == symbol) &
+                (self.history_df['date'] >= cutoff_date)
+            ].sort_values('date', ascending=False)
+            
+            return symbol_history.copy()
     
     def get_flip_flop_stocks(self, days: int = 14) -> List[Dict]:
         """
@@ -453,8 +570,9 @@ class RecommendationHistory:
         Returns:
             List of dicts with flip-flop details
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
-        recent_history = self.history_df[self.history_df['date'] >= cutoff_date]
+        with self._lock:
+            cutoff_date = datetime.now() - timedelta(days=days)
+            recent_history = self.history_df[self.history_df['date'] >= cutoff_date].copy()
         
         flip_flops = []
         
@@ -464,7 +582,6 @@ class RecommendationHistory:
             if len(symbol_recs) < 2:
                 continue
             
-            # Check for BUY -> SELL or SELL -> BUY patterns
             actions = symbol_recs['action'].tolist()
             dates = symbol_recs['date'].tolist()
             
@@ -488,6 +605,98 @@ class RecommendationHistory:
         
         return flip_flops
     
+    # ------------------------------------------------------------------
+    # Performance metrics (win/loss, expectancy, profit factor, etc.)
+    # ------------------------------------------------------------------
+
+    def get_performance_metrics(self, horizon: str = '30d') -> Dict:
+        """
+        Compute win/loss metrics from filled outcome columns.
+
+        Args:
+            horizon: '7d', '30d', or '90d'
+
+        Returns:
+            Dict with win_rate, avg_win, avg_loss, profit_factor,
+            expectancy, max_dd_per_holding, best_calls, worst_calls.
+        """
+        ret_col = f'return_{horizon}'
+        with self._lock:
+            df = self.history_df.copy()
+
+        if ret_col not in df.columns:
+            return self._empty_performance()
+
+        valid = df.dropna(subset=[ret_col]).copy()
+        valid[ret_col] = pd.to_numeric(valid[ret_col], errors='coerce')
+        valid = valid.dropna(subset=[ret_col])
+
+        if valid.empty:
+            return self._empty_performance()
+
+        wins = valid[valid[ret_col] > 0]
+        losses = valid[valid[ret_col] <= 0]
+
+        win_rate = len(wins) / len(valid) * 100 if len(valid) else 0
+        avg_win = float(wins[ret_col].mean()) if not wins.empty else 0
+        avg_loss = float(losses[ret_col].mean()) if not losses.empty else 0
+        loss_sum = abs(losses[ret_col].sum()) if not losses.empty else 0
+        win_sum = float(wins[ret_col].sum()) if not wins.empty else 0
+        profit_factor = win_sum / loss_sum if loss_sum > 0 else float('inf')
+        loss_rate = 100 - win_rate
+        expectancy = (win_rate / 100) * avg_win - (loss_rate / 100) * abs(avg_loss)
+
+        avg_win_loss_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else float('inf')
+
+        worst_by_symbol = valid.groupby('symbol')[ret_col].min()
+
+        best = valid.nlargest(5, ret_col)[['symbol', 'action', 'score', 'price', ret_col, 'date']].to_dict('records')
+        worst = valid.nsmallest(5, ret_col)[['symbol', 'action', 'score', 'price', ret_col, 'date']].to_dict('records')
+
+        return {
+            'horizon': horizon,
+            'total_with_outcomes': len(valid),
+            'wins': len(wins),
+            'losses': len(losses),
+            'win_rate': round(win_rate, 1),
+            'avg_win': round(avg_win, 2),
+            'avg_loss': round(avg_loss, 2),
+            'avg_win_loss_ratio': round(avg_win_loss_ratio, 2) if avg_win_loss_ratio != float('inf') else 0,
+            'profit_factor': round(profit_factor, 2) if profit_factor != float('inf') else 999,
+            'expectancy': round(expectancy, 2),
+            'max_drawdown_per_holding': worst_by_symbol.to_dict(),
+            'best_calls': best,
+            'worst_calls': worst,
+        }
+
+    @staticmethod
+    def _empty_performance() -> Dict:
+        return {
+            'horizon': '', 'total_with_outcomes': 0, 'wins': 0, 'losses': 0,
+            'win_rate': 0, 'avg_win': 0, 'avg_loss': 0, 'avg_win_loss_ratio': 0,
+            'profit_factor': 0, 'expectancy': 0, 'max_drawdown_per_holding': {},
+            'best_calls': [], 'worst_calls': [],
+        }
+
+    def get_performance_summary_df(self) -> pd.DataFrame:
+        """Return a DataFrame summarising performance across all horizons."""
+        rows = []
+        for h in ('7d', '30d', '90d'):
+            m = self.get_performance_metrics(h)
+            rows.append({
+                'Horizon': h,
+                'Recommendations': m['total_with_outcomes'],
+                'Wins': m['wins'],
+                'Losses': m['losses'],
+                'Win Rate %': m['win_rate'],
+                'Avg Win %': m['avg_win'],
+                'Avg Loss %': m['avg_loss'],
+                'Win/Loss Ratio': m['avg_win_loss_ratio'],
+                'Profit Factor': m['profit_factor'],
+                'Expectancy %': m['expectancy'],
+            })
+        return pd.DataFrame(rows)
+
     def generate_stability_report(self) -> Dict:
         """
         Generate a report on recommendation stability
@@ -495,36 +704,37 @@ class RecommendationHistory:
         Returns:
             Dict with stability metrics
         """
-        if self.history_df.empty:
-            return {
-                'total_recommendations': 0,
-                'unique_stocks': 0,
-                'flip_flops_7d': 0,
-                'flip_flops_14d': 0,
-                'average_hold_days': 0
-            }
+        with self._lock:
+            if self.history_df.empty:
+                return {
+                    'total_recommendations': 0,
+                    'unique_stocks': 0,
+                    'flip_flops_7d': 0,
+                    'flip_flops_14d': 0,
+                    'average_hold_days': 0
+                }
+            _df = self.history_df.copy()
         
         flip_flops_7d = len(self.get_flip_flop_stocks(days=7))
         flip_flops_14d = len(self.get_flip_flop_stocks(days=14))
         
-        # Calculate average hold days for each stock
         hold_days = []
-        for symbol in self.history_df['symbol'].unique():
-            symbol_recs = self.history_df[self.history_df['symbol'] == symbol].sort_values('date')
+        for symbol in _df['symbol'].unique():
+            symbol_recs = _df[_df['symbol'] == symbol].sort_values('date').drop_duplicates(subset='date')
             if len(symbol_recs) >= 2:
-                for i in range(len(symbol_recs) - 1):
-                    _d0 = pd.to_datetime(symbol_recs.iloc[i]['date'], errors='coerce')
-                    _d1 = pd.to_datetime(symbol_recs.iloc[i+1]['date'], errors='coerce')
-                    if pd.isna(_d0) or pd.isna(_d1):
-                        continue
-                    hold_days.append((_d1 - _d0).days)
+                _first = pd.to_datetime(symbol_recs.iloc[0]['date'], errors='coerce')
+                _last = pd.to_datetime(symbol_recs.iloc[-1]['date'], errors='coerce')
+                if not pd.isna(_first) and not pd.isna(_last) and _last > _first:
+                    hold_days.append((_last - _first).days)
+        
+        _avg_hold = round(sum(hold_days) / len(hold_days), 1) if hold_days else None
         
         return {
-            'total_recommendations': len(self.history_df),
-            'unique_stocks': self.history_df['symbol'].nunique(),
+            'total_recommendations': len(_df),
+            'unique_stocks': _df['symbol'].nunique(),
             'flip_flops_7d': flip_flops_7d,
             'flip_flops_14d': flip_flops_14d,
-            'average_hold_days': sum(hold_days) / len(hold_days) if hold_days else 0,
-            'oldest_recommendation': self.history_df['date'].min(),
-            'latest_recommendation': self.history_df['date'].max()
+            'average_hold_days': _avg_hold if _avg_hold is not None else 'N/A',
+            'oldest_recommendation': _df['date'].min(),
+            'latest_recommendation': _df['date'].max()
         }

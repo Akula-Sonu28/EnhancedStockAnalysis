@@ -12,16 +12,16 @@ if not reports:
     raise FileNotFoundError("No Enhanced_Stock_Report_*.xlsx found in reports/")
 f = reports[-1]
 print('Using report: {}'.format(os.path.basename(f)))
-pa = pd.read_excel(f, sheet_name='Portfolio Allocation')
+pa = pd.read_excel(f, sheet_name='Portfolio Allocation', header=1)
 cd = pd.read_excel(f, sheet_name='Complete Data')
 
 invest_col = [c for c in pa.columns if 'INVEST' in str(c)][0]
-my_val_col  = [c for c in pa.columns if 'MY_VALUE' in str(c)][0]
+my_val_col  = [c for c in pa.columns if 'MY VALUE' in str(c) or 'MY_VALUE' in str(c)][0]
 
-owned = pa[pa['I_OWN_IT?'] == True].copy()
-owned['pnl_pct'] = owned['MY_PROFIT_%'] * 100
+owned = pa[pa['OWNED?'] == True].copy()
+owned['pnl_pct'] = owned['P&L %'] * 100
 owned['pnl_rs']  = owned.apply(
-    lambda r: r[my_val_col] - (r[my_val_col] / (1 + r['MY_PROFIT_%'])) if r['MY_PROFIT_%'] != -1 else -r[my_val_col], axis=1)
+    lambda r: r[my_val_col] - (r[my_val_col] / (1 + r['P&L %'])) if r['P&L %'] != -1 else -r[my_val_col], axis=1)
 
 losers  = owned[owned['pnl_pct'] < 0].sort_values('pnl_pct')
 winners = owned[owned['pnl_pct'] > 5].sort_values('pnl_pct', ascending=False)
@@ -58,7 +58,7 @@ for _, r in losers.iterrows():
     elif 'SWAP' in str(r['ACTION']): action_note = '--> swapping (good IF target wins)'
     elif 'SKIP' in str(r['ACTION']): action_note = '<<< STUCK — SKIP means nothing happens'
     print('    {:<13} {:>+6.2f}%  Rs {:>7,.0f}  Score={:>5.1f}  RSI={:>5.1f}  ML={:<8}  {}'.format(
-        r['symbol'], r['pnl_pct'], r[my_val_col], r['SCORE'], r['RSI'], r['ML_SIGNAL'], action_note))
+        r['symbol'], r['pnl_pct'], r[my_val_col], r['SCORE'], r['RSI'], r['ML'], action_note))
 
 print('\n  Total capital stuck in losers: Rs {:,.0f}'.format(total_stuck))
 
@@ -66,22 +66,25 @@ print('\n  Total capital stuck in losers: Rs {:,.0f}'.format(total_stuck))
 hold_losers = losers[losers['ACTION'] == 'HOLD']
 gap('01', 'CRITICAL',
     '{} HOLD losers — Rs {:,.0f} has ZERO rotation trigger'.format(len(hold_losers), hold_losers[my_val_col].sum()),
-    hold_losers[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'SCORE', 'RSI', '20D_CHANGE_%', 'ML_SIGNAL', 'EXIT_SCORE']].to_string(index=False) +
+    hold_losers[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'SCORE', 'RSI', '20D CHG %', 'ML']].to_string(index=False) +
     '\n\n  ACTION=HOLD means the allocator decided: do nothing. No price exit. No time exit.\n  Capital stays in losers indefinitely. For a rotation investor this is the worst outcome.')
 
 # INCREASE on losers — ANTI-rotation
 inc_losers = losers[losers['ACTION'] == 'INCREASE']
 gap('02', 'CRITICAL',
     '{} INCREASE on losers — system is sending MORE capital INTO losing positions'.format(len(inc_losers)),
-    inc_losers[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'SCORE', 'RSI', 'ML_SIGNAL', invest_col]].to_string(index=False) +
+    inc_losers[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'pnl_rs', 'SCORE', 'RSI', 'ML', invest_col]].to_string(index=False) +
     '\n\n  BANKBARODA: -1.25% loss + RSI=73 (near top) + ML=SELL. System scores it 100 (FBS)\n  but wants to BUY MORE into a position already at a loss and at resistance.\n  UCOBANK: -3.47% loss + ML=BUY (good) but buying losers, not rotating to better stocks.\n\n  BUG in allocator: FBS=100 triggers INCREASE regardless of current position P/L.')
 
 # IDBI SKIP with Rs 31,766 value — capital parked
 idbi = losers[losers['symbol'] == 'IDBI']
+_idbi_cols = ['symbol', 'ACTION', my_val_col, 'pnl_pct', 'SCORE', 'RSI', 'ML']
+if 'EXHAUSTION?' in pa.columns:
+    _idbi_cols.insert(-1, 'EXHAUSTION?')
 gap('03', 'HIGH',
     'IDBI: SKIP action on Rs 31,766 value — capital parked with no rotation plan',
-    idbi[['symbol', 'ACTION', my_val_col, 'pnl_pct', 'SCORE', 'RSI', 'EXIT_SCORE', 'EXHAUSTION?', 'ML_SIGNAL']].to_string(index=False) +
-    '\n\n  IDBI has EXIT_SCORE=45, EXHAUSTION=True, RSI=68.7 (near top).\n  System should say: EXIT and rotate. Instead it says: SKIP - WAIT.')
+    idbi[_idbi_cols].to_string(index=False) +
+    '\n\n  IDBI has EXHAUSTION=True, RSI=68.7 (near top).\n  System should say: EXIT and rotate. Instead it says: SKIP - WAIT.')
 
 # =============================================================================
 # SECTION 2 — ROTATION QUALITY: Are exits mapped to specific winners?
@@ -110,8 +113,8 @@ print('\n  Total freed capital: Rs {:,.0f}'.format(total_freed))
 sell_unspecified = exits[exits['ACTION'] == 'SELL']
 gap('04', 'HIGH',
     'SELL proceeds (Rs {:,.0f}) go to unspecified pool — no rotation target assigned'.format(sell_unspecified[my_val_col].sum()),
-    sell_unspecified[['symbol', 'ACTION', my_val_col, 'MY_PROFIT_%', 'SCORE', 'ML_SIGNAL', 'WHY']].to_string(index=False) +
-    '\n\n  WHY = "REBALANCE - Better opportunities" is generic.\n  Rotation needs: FROM=BAJAJHLDNG -> TO=MAHABANK (with explicit score justification).\n  Without mapping, freed capital sits in wallet or gets mis-deployed.')
+    sell_unspecified[['symbol', 'ACTION', my_val_col, 'P&L %', 'SCORE', 'ML', 'REASON']].to_string(index=False) +
+    '\n\n  REASON = "REBALANCE - Better opportunities" is generic.\n  Rotation needs: FROM=BAJAJHLDNG -> TO=MAHABANK (with explicit score justification).\n  Without mapping, freed capital sits in wallet or gets mis-deployed.')
 
 # Swap targets quality check
 print('\n  [SWAP target quality — is the destination actually a winner?]:')
@@ -123,12 +126,12 @@ for _, r in swap_rows.iterrows():
         t = trow.iloc[0]
         quality = []
         if t['RSI'] > 65: quality.append('RSI={:.0f} OVERBOUGHT'.format(t['RSI']))
-        if t['ML_SIGNAL'] in ['SELL']: quality.append('ML=SELL')
+        if t['ML'] in ['SELL']: quality.append('ML=SELL')
         if t['RISK'] in ['HIGH', 'VERY HIGH']: quality.append('Risk={}'.format(t['RISK']))
-        if t['20D_CHANGE_%'] < 0: quality.append('20D falling')
+        if t['20D CHG %'] < 0: quality.append('20D falling')
         status = ' | '.join(quality) if quality else 'CLEAN TARGET'
         print('    {} -> {} | Score={:.0f} RSI={:.1f} 20D={:+.1f}% | Issues: {}'.format(
-            r['symbol'], target_name, t['SCORE'], t['RSI'], t['20D_CHANGE_%'], status))
+            r['symbol'], target_name, t['SCORE'], t['RSI'], t['20D CHG %'], status))
 
 gap('05', 'MEDIUM',
     'CASTROLIND swap target (MAHABANK) RSI=64, +17.3% in 20D — decent but not cheap entry',
@@ -183,11 +186,11 @@ gap('08', 'CRITICAL',
 
 gap('09', 'CRITICAL',
     'BUG: No ROTATION_TARGET column — SELL action has no destination winner',
-    '  Current: SELL -> WHY = "REBALANCE". Capital freed but nowhere defined to put it.\n  BAJAJHLDNG freed Rs 83,928 -> the plan says nothing about which specific stock gets it.\n  A rotation investor needs: SELL_FROM + BUY_INTO as a linked pair.\n\n  Fix: Add "ROTATION_TARGET" column. When ACTION=SELL, populate with top-ranked\n  non-owned stock that has lowest RSI + highest score + correct sector.')
+    '  Current: SELL -> REASON = "REBALANCE". Capital freed but nowhere defined to put it.\n  BAJAJHLDNG freed Rs 83,928 -> the plan says nothing about which specific stock gets it.\n  A rotation investor needs: SELL_FROM + BUY_INTO as a linked pair.\n\n  Fix: Add "ROTATION_TARGET" column. When ACTION=SELL, populate with top-ranked\n  non-owned stock that has lowest RSI + highest score + correct sector.')
 
 gap('10', 'HIGH',
-    'BUG: WHEN_TO_ACT missing on 13 actionable stocks — rotation is timing-blind',
-    '  SELL/SWAP/INCREASE/PRE-BREAKOUT on 13 stocks have no WHEN_TO_ACT.\n  Without timing, the rotation queue has no order of execution.\n  Question: Which loser exits FIRST and which winner enters FIRST?\n  System cannot answer this — rotation executes randomly or never.\n\n  Fix: Auto-populate WHEN_TO_ACT based on: RSI>70 -> "Within 2 days",\n  EXIT_SCORE>20 -> "Within 1 week", else "Within 2 weeks".')
+    'BUG: WHEN missing on 13 actionable stocks — rotation is timing-blind',
+    '  SELL/SWAP/INCREASE/PRE-BREAKOUT on 13 stocks have no WHEN.\n  Without timing, the rotation queue has no order of execution.\n  Question: Which loser exits FIRST and which winner enters FIRST?\n  System cannot answer this — rotation executes randomly or never.\n\n  Fix: Auto-populate WHEN based on: RSI>70 -> "Within 2 days", else "Within 2 weeks".')
 
 gap('11', 'HIGH',
     'BUG: YESBANK tagged PRE-BREAKOUT (rotation destination) but is itself a loser',
@@ -195,15 +198,15 @@ gap('11', 'HIGH',
 
 gap('12', 'HIGH',
     'BUG: ONGC PRE-BREAKOUT (rotation target) has RSI=69, up 13.7% in 20D',
-    '  Rs 71,114 rotates into ONGC which has already made its move.\n  You are rotating capital into the TOP of a war-crude rally.\n  Ideal rotation timing: enter near SUPPORT (RSI 40-55), not near RESISTANCE.\n\n  Fix: Add entry_quality check: RSI>65 AND dist_from_support>8% -> downgrade to WATCHLIST.')
+    '  Rs 71,114 rotates into ONGC which has already made its move.\n  You are rotating capital into the TOP of a war-crude rally.\n  Ideal rotation timing: enter near SUPPORT (RSI 40-55), not near RESIST.\n\n  Fix: Add entry_quality check: RSI>65 AND dist_from_support>8% -> downgrade to WATCHLIST.')
 
 gap('13', 'MEDIUM',
     'BUG: IDBI SKIP+EXHAUSTION — Rs 31,766 is visible but locked with no rotation path',
-    '  IDBI has EXIT_SCORE=45, EXHAUSTION=True, RSI=68.7 (near top), loss=-1.7%.\n  System should ROTATE OUT immediately. Instead: SKIP-WAIT.\n  The SKIP logic overrides all exit signals. Capital stays stuck.\n\n  Fix: If EXHAUSTION=True AND EXIT_SCORE>30 AND I_OWN_IT -> override SKIP with SELL+ROTATE.')
+    '  IDBI has EXHAUSTION=True, RSI=68.7 (near top), loss=-1.7%.\n  System should ROTATE OUT immediately. Instead: SKIP-WAIT.\n  The SKIP logic overrides all exit signals. Capital stays stuck.\n\n  Fix: If EXHAUSTION=True AND OWNED? -> override SKIP with SELL+ROTATE.')
 
 gap('14', 'MEDIUM',
     'BUG: Profitable stocks (SBIN +15.6%, INDIANB +7.7%) have no BOOK instruction',
-    '  Profit booking creates rotation capital. Without booking, the rotation engine\n  has no self-funding mechanism — it relies on SELLs and fresh cash only.\n\n  Fix: Auto-set BOOK_%_IF_SELL = 0.25 when: pnl_pct > 10 OR (pnl_pct>5 AND RSI>65)\n  This auto-generates Rs 15,000-50,000 of rotation capital from existing winners.')
+    '  Profit booking creates rotation capital. Without booking, the rotation engine\n  has no self-funding mechanism — it relies on SELLs and fresh cash only.\n\n  Fix: Auto-set BOOK % = 0.25 when: pnl_pct > 10 OR (pnl_pct>5 AND RSI>65)\n  This auto-generates Rs 15,000-50,000 of rotation capital from existing winners.')
 
 # =============================================================================
 # SECTION 5 — ROTATION SCORE: How efficient is the current rotation plan?
@@ -276,7 +279,7 @@ print('  Total: {} gaps  |  Critical: {}  |  High: {}  |  Medium: {}'.format(
 print()
 print('  === ROTATION ACTION QUEUE (priority order) ===')
 print('  1. EXIT FIRST (today/tomorrow):')
-print('     - IDBI: EXIT now (EXHAUSTION=True, RSI=68.7, EXIT_SCORE=45) -> rotate to HDFCBANK')
+print('     - IDBI: EXIT now (EXHAUSTION=True, RSI=68.7) -> rotate to HDFCBANK')
 print('     - BANKBARODA: STOP INCREASE. Set rotation trigger at RSI<60 -> rotate when it dips')
 print('     - UCOBANK: Same — stop adding. ML=BUY so hold but no more capital in')
 print()
