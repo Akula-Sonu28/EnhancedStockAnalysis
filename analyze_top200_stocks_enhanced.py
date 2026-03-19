@@ -44,11 +44,8 @@ from pathlib import Path
 import sqlite3
 import hashlib
 import shutil
-try:
-    from filelock import FileLock, Timeout as FileLockTimeout
-    _HAS_FILELOCK = True
-except ImportError:
-    _HAS_FILELOCK = False
+from filelock import FileLock, Timeout as FileLockTimeout  # HI-06: hard dependency
+_HAS_FILELOCK = True
 warnings.filterwarnings('ignore')
 
 
@@ -80,10 +77,10 @@ from volume_analyzer import VolumeAnalyzer  # Phase 2: Volume Profile & Order Fl
 from recommendation_history import RecommendationHistory  # 🔧 FIX: Recommendation consistency tracking
 from early_breakout_detector import EarlyBreakoutDetector  # 🚀 NEW: Pre-breakout detection & exit signals
 import yfinance as yf
-from config import AnalysisConfig  # A-009: Centralised thresholds & settings
+from config import AnalysisConfig, get_config  # A-009: Centralised thresholds & settings
 
-# Module-level config singleton — all hardcoded thresholds sourced from here
-_config = AnalysisConfig()
+# MI-05: Use the global CONFIG singleton, not a local instance.
+_config = get_config()
 
 # Suppress yfinance verbose error logging for cleaner output
 logging.getLogger('yfinance').setLevel(logging.CRITICAL)
@@ -714,7 +711,15 @@ class EnhancedTop200StockAnalyzer:
         # 3. CROSS-VALIDATION - Check consistency between related metrics
         try:
             # Validate market cap vs price consistency
-            if all(k in validated_data and validated_data[k] for k in ['market_cap', 'shares_outstanding', 'current_price']):
+            def _valid_numeric(vd, key):
+                v = vd.get(key)
+                if v is None or v == 0:
+                    return False
+                try:
+                    return not (isinstance(v, float) and (np.isnan(v) or np.isinf(v)))
+                except (TypeError, ValueError):
+                    return False
+            if all(_valid_numeric(validated_data, k) for k in ['market_cap', 'shares_outstanding', 'current_price']):
                 implied_price = validated_data['market_cap'] / validated_data['shares_outstanding']
                 current_price = validated_data['current_price']
                 
@@ -724,7 +729,7 @@ class EnhancedTop200StockAnalyzer:
                     validated_data['data_quality_flag'] = 'price_inconsistency'
             
             # Validate P/E vs Earnings consistency
-            if all(k in validated_data and validated_data[k] for k in ['pe_ratio', 'current_price', 'earnings_per_share']):
+            if all(_valid_numeric(validated_data, k) for k in ['pe_ratio', 'current_price', 'earnings_per_share']):
                 implied_pe = validated_data['current_price'] / validated_data['earnings_per_share']
                 stated_pe = validated_data['pe_ratio']
                 
@@ -816,335 +821,34 @@ class EnhancedTop200StockAnalyzer:
         return max(0, min(100, quality_score))
     
     def _calculate_optimized_score(self, stock_data: dict) -> float:
+        """DEPRECATED: Shadow scoring removed in CB-02 remediation.
+        Returns final_blended_score if available, else 50.
+        All sector biases (+10 Banking, -10 IT) have been eliminated.
         """
-        VALUE INVESTING SCORING FORMULA - Aligned with User Strategy
-        ✨ ENHANCED v2.0 - Backtest-validated improvements (+0.80% alpha target)
-        
-        USER'S STRATEGY:
-        70% CORE:
-           - 40% Deep Value (buy undervalued, sell at fair value)
-           - 30% Momentum + Value (riding trends on cheap stocks)
-        20% HEDGING: Defensive, low volatility
-        10% SPECULATIVE: High risk/high reward
-        
-        PHILOSOPHY: Buy low, sell high. Don't sell quality winners!
-        
-        SCORING COMPONENTS:
-        1. UNDERVALUATION (40%) - Most important! Find cheap stocks
-        2. GROWTH POTENTIAL (25%) - Can it appreciate?
-        3. MOMENTUM (20%) - Is it moving up?
-        4. QUALITY (10%) - Financial health
-        5. RISK (5%) - Downside protection
-        
-        ✨ NEW ENHANCEMENTS:
-        - Sector-specific adjustments (Banking +10, IT -10)
-        - Market regime awareness
-        - Technical confirmation filters
-        - Confidence bands for recommendations
-        
-        This scores for: "Should I BUY this?" not "Should I SELL this?"
-        """
-        
-        # Helper function to safely convert to float
-        def safe_float(value, default=0):
-            try:
-                if value is None or value == '':
-                    return float(default)
-                f = float(value)
-                return float(default) if (np.isnan(f) or np.isinf(f)) else f
-            except (ValueError, TypeError):
-                return float(default)
-        
-        # ========================================================================
-        # 1. UNDERVALUATION (40%) - PRIMARY FACTOR FOR VALUE INVESTING
-        # ========================================================================
-        
-        # Base undervaluation score (from fundamental analysis)
-        undervaluation_score = safe_float(stock_data.get('undervaluation_score'), 50)
-        
-        # P/E Ratio - lower is better for value
-        pe_ratio = safe_float(stock_data.get('pe_ratio'), 25)
-        pe_score = 0
-        if pe_ratio > 0:
-            if pe_ratio < 10:
-                pe_score = 100  # Very undervalued
-            elif pe_ratio < 15:
-                pe_score = 80   # Undervalued
-            elif pe_ratio < 20:
-                pe_score = 60   # Fair
-            elif pe_ratio < 25:
-                pe_score = 40   # Slightly expensive
-            else:
-                pe_score = 20   # Expensive
-        else:
-            pe_score = 30  # Negative P/E (losses)
-        
-        # P/B Ratio - lower is better
-        pb_ratio = safe_float(stock_data.get('pb_ratio'), 3)
-        pb_score = 0
-        if pb_ratio < 1:
-            pb_score = 100  # Trading below book value!
-        elif pb_ratio < 2:
-            pb_score = 80
-        elif pb_ratio < 3:
-            pb_score = 60
-        elif pb_ratio < 4:
-            pb_score = 40
-        else:
-            pb_score = 20
-        
-        # 52-week position - lower in range is better for buying
-        current_price = safe_float(stock_data.get('current_price'), 0)
-        week_52_low = safe_float(stock_data.get('52_week_low'), current_price)
-        week_52_high = safe_float(stock_data.get('52_week_high'), current_price)
-        
-        position_score = 0
-        if week_52_high > week_52_low and current_price > 0:
-            position_in_range = (current_price - week_52_low) / (week_52_high - week_52_low)
-            # Lower in range = better buying opportunity
-            position_score = (1 - position_in_range) * 100
-        else:
-            position_score = 50
-        
-        # Combine undervaluation components
-        undervaluation_final = (
-            (undervaluation_score * 0.40) +
-            (pe_score * 0.30) +
-            (pb_score * 0.20) +
-            (position_score * 0.10)
-        ) * 0.40  # 40% of total score
-        
-        # ========================================================================
-        # 2. GROWTH POTENTIAL (25%) - Can it appreciate significantly?
-        # ========================================================================
-        
-        revenue_growth = safe_float(stock_data.get('revenue_growth'), 0)
-        earnings_growth = safe_float(stock_data.get('earnings_growth'), 0)
-        quarterly_revenue_growth = safe_float(stock_data.get('quarterly_revenue_growth'), 0)
-        
-        growth_score = 0
-        
-        # Revenue growth
-        if revenue_growth > 25:
-            growth_score += 10
-        elif revenue_growth > 15:
-            growth_score += 7
-        elif revenue_growth > 10:
-            growth_score += 5
-        elif revenue_growth > 5:
-            growth_score += 3
-        
-        # Earnings growth
-        if earnings_growth > 25:
-            growth_score += 10
-        elif earnings_growth > 15:
-            growth_score += 7
-        elif earnings_growth > 10:
-            growth_score += 5
-        elif earnings_growth > 5:
-            growth_score += 3
-        
-        # Recent acceleration (quarterly)
-        if quarterly_revenue_growth > revenue_growth:
-            growth_score += 5  # Accelerating!
-        
-        growth_score = min(25, growth_score)
-        growth_final = growth_score * 0.25  # 25% of total score
-        
-        # ========================================================================
-        # 3. MOMENTUM (20%) - Is trend in our favor?
-        # ========================================================================
-        
-        price_change_1m = safe_float(stock_data.get('price_change_1m'), 0)
-        price_change_3m = safe_float(stock_data.get('price_change_3m'), 0)
-        sentiment_composite = safe_float(stock_data.get('sentiment_composite_score'), 50)
-        
-        momentum_score = 0
-        
-        # Recent momentum (1-3 months)
-        if price_change_1m > 15:
-            momentum_score += 7
-        elif price_change_1m > 10:
-            momentum_score += 5
-        elif price_change_1m > 5:
-            momentum_score += 3
-        elif price_change_1m > 0:
-            momentum_score += 1
-        
-        if price_change_3m > 20:
-            momentum_score += 7
-        elif price_change_3m > 10:
-            momentum_score += 5
-        elif price_change_3m > 5:
-            momentum_score += 3
-        
-        # Sentiment momentum
-        sentiment_boost = ((sentiment_composite - 50) / 50) * 6  # -6 to +6
-        momentum_score += sentiment_boost
-        
-        momentum_final = max(0, momentum_score) * 0.20  # 20% of total score
-        
-        # ========================================================================
-        # 4. QUALITY (10%) - Financial health
-        # ========================================================================
-        
-        roe = safe_float(stock_data.get('roe'), 10)
-        operating_margin = safe_float(stock_data.get('operating_margin'), 10)
-        current_ratio = safe_float(stock_data.get('current_ratio'), 1)
-        
-        quality_score = 0
-        
-        # ROE (return on equity)
-        if roe > 20:
-            quality_score += 4
-        elif roe > 15:
-            quality_score += 3
-        elif roe > 10:
-            quality_score += 2
-        elif roe > 5:
-            quality_score += 1
-        
-        # Operating margin
-        if operating_margin > 20:
-            quality_score += 3
-        elif operating_margin > 15:
-            quality_score += 2
-        elif operating_margin > 10:
-            quality_score += 1
-        
-        # Current ratio (liquidity)
-        if current_ratio > 2:
-            quality_score += 3
-        elif current_ratio > 1.5:
-            quality_score += 2
-        elif current_ratio > 1:
-            quality_score += 1
-        
-        quality_final = quality_score * 0.10  # 10% of total score
-        
-        # ========================================================================
-        # 5. RISK ADJUSTMENT (5%) - Downside protection
-        # ========================================================================
-        
-        volatility = safe_float(stock_data.get('volatility_6m'), 30)
-        debt_to_equity = safe_float(stock_data.get('debt_to_equity'), 1)
-        max_drawdown = safe_float(stock_data.get('max_drawdown_6m'), 0)
-        
-        risk_score = 5  # Start at full points
-        
-        # Volatility penalty (but not too harsh - volatility creates opportunity!)
-        if volatility > 50:
-            risk_score -= 2
-        elif volatility > 40:
-            risk_score -= 1
-        
-        # Debt penalty (debt_to_equity is in percentage from yfinance)
-        if debt_to_equity > 200:
-            risk_score -= 2
-        elif debt_to_equity > 150:
-            risk_score -= 1
-        
-        # Drawdown penalty
-        if max_drawdown < -25:
-            risk_score -= 1
-        
-        risk_final = max(0, risk_score) * 0.05  # 5% of total score
-        
-        # ========================================================================
-        # TOTAL SCORE
-        # ========================================================================
-        
-        total_score = undervaluation_final + growth_final + momentum_final + quality_final + risk_final
-        
-        # ========================================================================
-        # ✨ ENHANCEMENT 1: SECTOR-SPECIFIC ADJUSTMENTS
-        # Based on backtest: Banking/NBFC win, IT loses consistently
-        # ========================================================================
-        
-        sector = str(stock_data.get('sector') or '').upper()
-        symbol = str(stock_data.get('symbol') or '').upper()
-        
-        # Banking/NBFC Boost (+10 points) - Proven winners: CANBK +6.6%, UNIONBANK +5.6%
-        banking_sectors = ['BANK', 'FINANCIAL SERVICES', 'FINANCE', 'NBFC']
-        if any(s in sector for s in banking_sectors):
-            total_score += 10
-            total_score = min(100, total_score)  # Cap at 100
-        
-        # IT Services Penalty (-10 points) - Proven losers: TCS -6.5%, HCLTECH -5.6%, WIPRO -2.8%
-        it_symbols = ['TCS', 'INFY', 'WIPRO', 'HCLTECH', 'TECHM', 'LTTS', 'COFORGE', 'PERSISTENT']
-        it_sectors = ['IT', 'INFORMATION TECHNOLOGY', 'SOFTWARE', 'TECHNOLOGY']
-        if symbol in it_symbols or any(s in sector for s in it_sectors):
-            total_score -= 10
-            total_score = max(0, total_score)  # Floor at 0
-        
-        # Defensive penalty in bullish markets (-5 points)
-        defensive_symbols = ['NESTLEIND', 'HINDUNILVR', 'BRITANNIA', 'DABUR', 'MARICO']
-        defensive_sectors = ['FMCG', 'CONSUMER GOODS', 'PHARMACEUTICALS']
-        is_defensive = symbol in defensive_symbols or any(s in sector for s in defensive_sectors)
-        
-        # Only penalize defensives if we have bullish regime (momentum_score > 10)
-        if is_defensive and momentum_score > 10:
-            total_score -= 5
-            total_score = max(0, total_score)
-        
-        # ========================================================================
-        # ✨ ENHANCEMENT 2 & 5: TECHNICAL CONFIRMATION FILTERS
-        # Require positive technicals for high scores to avoid false positives
-        # ========================================================================
-        
-        # If score would be >75, verify technical strength
-        if total_score > 75:
-            rsi = safe_float(stock_data.get('rsi'), 50)
-            
-            # Require RSI >40 (avoid oversold traps)
-            if rsi < 40:
-                total_score -= 10  # Penalty for weak technicals despite good fundamentals
-            
-            # Require positive momentum for very high scores (>80)
-            if total_score > 80 and momentum_score < 5:
-                total_score -= 5  # Slight penalty if no momentum confirmation
-        
-        # ========================================================================
-        # ✨ ENHANCEMENT 4: VOLUME CONFIRMATION
-        # Penalize high scores with declining volume (institutional exit signal)
-        # ========================================================================
-        
-        volume_trend = stock_data.get('volume_trend', 'neutral')
-        if total_score > 70 and volume_trend == 'declining':
-            total_score -= 10  # Warning: Smart money may be exiting
-        elif total_score > 70 and volume_trend == 'rising':
-            total_score += 5  # Bonus: Institutional accumulation
-            total_score = min(100, total_score)
-        
-        # Cap at 0-100
-        total_score = max(0, min(100, total_score))
-        return total_score if not np.isnan(total_score) else 50.0
+        return stock_data.get('final_blended_score', 50.0)
     
     def apply_confidence_bands(self, score: float, stock_data: dict) -> dict:
-        """
-        ✨ ENHANCEMENT 3: CONFIDENCE BANDS
-        Maps scores to recommendation confidence levels
-        
-        Based on backtest: Scores 60-75 had mixed results, >85 strongest
-        
-        Returns:
-            dict: confidence_level, recommendation_strength, risk_warning
-        """
-        if score >= 85:
+        """HI-01: Confidence bands aligned with config thresholds (single source)."""
+        from config import get_config as _gc
+        _cfg = _gc()
+        _sb = getattr(_cfg, 'STRONG_BUY_THRESHOLD', 70)
+        _b = getattr(_cfg, 'BUY_THRESHOLD', 60)
+        _h = getattr(_cfg, 'HOLD_THRESHOLD', 50)
+        if score >= _sb:
             return {
                 'confidence_level': 'STRONG BUY',
                 'recommendation_strength': 'HIGH',
                 'risk_warning': None,
                 'action_bias': 'AGGRESSIVE'
             }
-        elif score >= 75:
+        elif score >= _b:
             return {
                 'confidence_level': 'BUY',
                 'recommendation_strength': 'MEDIUM',
                 'risk_warning': None,
                 'action_bias': 'NORMAL'
             }
-        elif score >= 60:
+        elif score >= _h:
             return {
                 'confidence_level': 'HOLD/CAUTIOUS',
                 'recommendation_strength': 'LOW',
@@ -1159,62 +863,9 @@ class EnhancedTop200StockAnalyzer:
                 'action_bias': 'DEFENSIVE'
             }
     
-    def detect_market_regime(self, results_df: pd.DataFrame = None) -> dict:
-        """
-        ✨ ENHANCEMENT 2: MARKET REGIME DETECTION
-        Detects current market conditions to adjust strategy
-        
-        Regimes:
-        - BULLISH: Strong uptrend (like Q1 2025: +3.34% avg)
-        - BEARISH: Correction (like Q4 2024: -2.71% avg)
-        - ROTATION: Sector rotation (like Q3 2025)
-        - NEUTRAL: Mixed signals
-        
-        Returns:
-            dict: regime, confidence, recommended_exposure
-        """
-        # Simple regime detection based on recent market performance
-        # In production, this would use actual index data (Nifty 50, etc.)
-        
-        if results_df is not None and len(results_df) > 0:
-            # Analyze average momentum across stocks
-            avg_momentum = results_df['price_change_3m'].mean() if 'price_change_3m' in results_df.columns else 0
-            avg_score = results_df['overall_score_with_value'].mean() if 'overall_score_with_value' in results_df.columns else 50
-            
-            if avg_momentum > 10 and avg_score > 65:
-                return {
-                    'regime': 'BULLISH',
-                    'confidence': 0.8,
-                    'recommended_exposure': 1.0,  # Full allocation
-                    'strategy': 'Aggressive - favor high-momentum stocks',
-                    'risk_level': 'MODERATE'
-                }
-            elif avg_momentum < -5 and avg_score < 55:
-                return {
-                    'regime': 'BEARISH',
-                    'confidence': 0.7,
-                    'recommended_exposure': 0.5,  # Reduce to 50%
-                    'strategy': 'Defensive - hold cash, favor quality',
-                    'risk_level': 'HIGH'
-                }
-            elif abs(avg_momentum) < 5:
-                return {
-                    'regime': 'ROTATION',
-                    'confidence': 0.6,
-                    'recommended_exposure': 0.75,  # 75% allocation
-                    'strategy': 'Selective - favor sector leaders',
-                    'risk_level': 'MODERATE'
-                }
-        
-        # Default: NEUTRAL
-        return {
-            'regime': 'NEUTRAL',
-            'confidence': 0.5,
-            'recommended_exposure': 0.85,  # 85% allocation
-            'strategy': 'Balanced approach',
-            'risk_level': 'MODERATE'
-        }
-    
+    # CB-06: detect_market_regime() REMOVED — use self.market_regime_detector.detect_regime()
+    # (MarketRegimeDetector) as single source of truth.
+
     def calculate_portfolio_context_score(self, symbol: str, stock_data: dict, 
                                          current_holdings: dict = None) -> dict:
         """
@@ -1966,10 +1617,14 @@ class EnhancedTop200StockAnalyzer:
                     'buzz_sentiment_score': sentiment_data['buzz_sentiment']['score'],
                     'buzz_sentiment_signal': sentiment_data['buzz_sentiment']['signal'],
                     'buzz_level': sentiment_data['buzz_sentiment'].get('buzz_level', 'LOW'),
-                    'sentiment_analysis_status': 'success'
+                    'sentiment_analysis_status': 'fallback' if sentiment_data.get('is_fallback') else 'success',
+                    'sentiment_is_fallback': sentiment_data.get('is_fallback', False),
                 })
                 
-                logging.info(f"Sentiment Analysis for {symbol}: {sentiment_data['overall_sentiment']} ({sentiment_data['composite_score']:.1f}/100), Confidence: {sentiment_data['confidence']:.1f}%")
+                _sent_label = sentiment_data['overall_sentiment']
+                if sentiment_data.get('is_fallback'):
+                    _sent_label = f"{_sent_label} (NO DATA)"
+                logging.info(f"Sentiment Analysis for {symbol}: {_sent_label} ({sentiment_data['composite_score']:.1f}/100), Confidence: {sentiment_data['confidence']:.1f}%")
                 
             except Exception as sentiment_error:
                 logging.warning(f"Sentiment analysis error for {symbol}: {sentiment_error}")
@@ -2109,11 +1764,7 @@ class EnhancedTop200StockAnalyzer:
                 'undervaluation_score': undervaluation_score,
                 'overall_score_balanced': (fund_score * 0.6) + (advanced_tech_score * 0.4),
                 'overall_score_triple': (fund_score * 0.5) + (advanced_tech_score * 0.3) + (legacy_score * 0.2),
-                'overall_score_with_value': (
-                    (fund_score * 0.35) + (advanced_tech_score * 0.50) + (undervaluation_score * 0.15)
-                    if str(getattr(self, 'current_market_regime', '') or '').upper() in ('BEAR', 'BEARISH')
-                    else (fund_score * 0.35) + (advanced_tech_score * 0.35) + (undervaluation_score * 0.3)
-                ),
+                'overall_score_with_value': 50,  # CB-02: placeholder — overwritten by final_blended_score after hybrid scoring
                 'overall_score_real_tech': (fund_score * 0.5) + (real_tech_score * 0.35) + (undervaluation_score * 0.15),
                 'overall_score_mtf_enhanced': (fund_score * 0.4) + (advanced_tech_score * 0.35) + (undervaluation_score * 0.25),
                 'overall_score_institutional': (fund_score * 0.35) + (advanced_tech_score * 0.3) + (institutional_score * 0.2) + (undervaluation_score * 0.15),
@@ -2126,7 +1777,7 @@ class EnhancedTop200StockAnalyzer:
                 # OPTIMIZED SCORING FORMULA (0.556 correlation - proven accuracy!)
                 # Based on correlation analysis showing best predictors
                 # ========================================================================
-                'optimized_score': self._calculate_optimized_score(stock_data),
+                'optimized_score': 50,  # CB-02: shadow scoring removed; overwritten by final_blended_score
                 'analysis_duration_seconds': round(time.time() - start_time, 2),
                 'status': 'completed'
             })
@@ -2149,8 +1800,9 @@ class EnhancedTop200StockAnalyzer:
                 current_holdings_dict = getattr(self, '_holdings_dict', {})
                 _stock_sector = stock_data.get('sector', 'Unknown')
                 if symbol in current_holdings_dict and _stock_sector != 'Unknown':
-                    current_holdings_dict[symbol]['sector'] = _stock_sector
-                    current_holdings_dict[symbol]['market_cap'] = stock_data.get('market_cap', 0)
+                    with self._state_lock:
+                        current_holdings_dict[symbol]['sector'] = _stock_sector
+                        current_holdings_dict[symbol]['market_cap'] = stock_data.get('market_cap', 0)
                 portfolio_context = self.calculate_portfolio_context_score(
                     symbol, stock_data, current_holdings_dict
                 )
@@ -2398,6 +2050,7 @@ class EnhancedTop200StockAnalyzer:
                 }
                 
                 # Add hybrid scores to stock data
+                _scoring_failed = hybrid_results.get('scoring_failed', False)
                 stock_data.update({
                     'hybrid_overall_score': hybrid_results['hybrid_score'],
                     'hybrid_fundamental_quality': hybrid_results['components'].get('fundamental_quality', 0),
@@ -2410,28 +2063,30 @@ class EnhancedTop200StockAnalyzer:
                     'market_regime_detected': self.current_market_regime,
                     'adaptive_position_size': adaptive_recommendation['position_size'],
                     'adaptive_quintile_target': adaptive_recommendation['quintile_preference'],
-                    'hybrid_confidence': 0.8,
+                    'hybrid_confidence': 0.0 if _scoring_failed else 0.8,
                     'hybrid_market_regime': hybrid_results['adjustments'].get('market_regime', 'SIDEWAYS'),
                     'hybrid_ml_active': hybrid_results['adjustments'].get('ml_active', False),
+                    'scoring_failed': _scoring_failed,
+                    'data_coverage': hybrid_results.get('data_coverage', 1.0),
                 })
                 
                 logging.debug(f"Hybrid scoring applied to {symbol}: Score={hybrid_results['hybrid_score']:.2f}, Regime={self.current_market_regime}")
                 
             except Exception as e:
                 logging.warning(f"Hybrid scoring failed for {symbol}: {e}")
-                # V5.0: Fallback to neutral 50 (improved engine removed)
                 stock_data.update({
-                    'hybrid_overall_score': 50,
-                    'hybrid_fundamental_quality': 50,
-                    'hybrid_momentum_technical': 50,
-                    'hybrid_volume_strength': 50,
-                    'hybrid_risk_adjustment': 50,
+                    'hybrid_overall_score': 0,
+                    'hybrid_fundamental_quality': 0,
+                    'hybrid_momentum_technical': 0,
+                    'hybrid_volume_strength': 0,
+                    'hybrid_risk_adjustment': 0,
                     'hybrid_sector_multiplier': 1.0,
                     'market_regime_detected': 'UNKNOWN',
-                    'adaptive_position_size': 'MEDIUM',
-                    'adaptive_quintile_target': 'Q3',
-                    'hybrid_confidence': 0.5,
-                    'hybrid_market_regime': 'UNKNOWN'
+                    'adaptive_position_size': 'SMALL',
+                    'adaptive_quintile_target': 'Q1',
+                    'hybrid_confidence': 0.0,
+                    'hybrid_market_regime': 'UNKNOWN',
+                    'scoring_failed': True,
                 })
             
             # ✅ PORTFOLIO ALLOCATION ENHANCEMENT: Add missing fields for retail investors
@@ -2566,23 +2221,31 @@ class EnhancedTop200StockAnalyzer:
                     key=os.path.getmtime, reverse=True
                 )
                 _cached = None
-                _max_age_days = 3
+                _max_age_days = getattr(_config, 'SCORE_SMOOTHING_MAX_AGE_DAYS', 3)
+                _smooth_w = getattr(_config, 'SCORE_SMOOTHING_WEIGHT', 0.70)
                 for _pf in _prev_files:
                     if _pf != _today_path:
                         _file_age_days = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(_pf))).days
                         if _file_age_days > _max_age_days:
                             break
-                        with open(_pf, 'r', encoding='utf-8') as _fp:
-                            _cached = json.load(_fp)
+                        _lock = FileLock(_pf + '.lock', timeout=5)  # HI-06
+                        with _lock:
+                            with open(_pf, 'r', encoding='utf-8') as _fp:
+                                _cached = json.load(_fp)
                         break
                 if _cached and isinstance(_cached, dict):
                     _prev_score = _cached.get('final_blended_score')
                     if _prev_score is not None and not (isinstance(_prev_score, float) and np.isnan(_prev_score)):
                         _prev_score = float(_prev_score)
                         if 0 < _prev_score <= 100:
-                            final_blended_score = 0.7 * final_blended_score + 0.3 * _prev_score
-                            stock_data['score_smoothed'] = True
-                            stock_data['prev_score_used'] = _prev_score
+                            _delta = abs(final_blended_score - _prev_score)
+                            if _delta > 10:
+                                stock_data['score_smoothing_skipped'] = 'circuit_breaker'
+                                logging.info(f"[CB-04] {symbol}: smoothing skipped, delta={_delta:.1f} > 10")
+                            else:
+                                final_blended_score = _smooth_w * final_blended_score + (1 - _smooth_w) * _prev_score
+                                stock_data['score_smoothed'] = True
+                                stock_data['prev_score_used'] = _prev_score
             except Exception as _smooth_err:
                 logging.debug(f"Score smoothing failed for {symbol}: {_smooth_err}")
             stock_data.setdefault('score_smoothed', False)
@@ -2591,6 +2254,7 @@ class EnhancedTop200StockAnalyzer:
             stock_data['final_blended_score'] = final_blended_score
             stock_data['final_score_with_phase1'] = final_blended_score
             stock_data['overall_score'] = final_blended_score
+            stock_data['overall_score_with_value'] = final_blended_score  # CB-02: canonical alias
             stock_data['improved_overall_score'] = final_blended_score
             stock_data['corrected_overall_score'] = final_blended_score
 
@@ -2627,10 +2291,11 @@ class EnhancedTop200StockAnalyzer:
             _buy_thr        = _config.BUY_THRESHOLD        + _regime_thr_delta
             _hold_thr       = _config.HOLD_THRESHOLD + (3 if _is_bear else 0)
             logging.debug(f"[GAP-6] Regime={_curr_regime} bear={_is_bear} bull={_is_bull} → STRONG_BUY≥{_strong_buy_thr}, BUY≥{_buy_thr}")
-            if data_quality < 30:
-                # Very poor data quality - downgrade to HOLD at best
+            if stock_data.get('scoring_failed'):
+                phase2_recommendation = "⛔ INSUFFICIENT DATA - SKIP"
+                logging.warning(f"[CB-01] {symbol}: scoring_failed=True, coverage={stock_data.get('data_coverage', 0):.0%}")
+            elif data_quality < 30:
                 phase2_recommendation = "🟡 HOLD (LOW DATA QUALITY)"
-                # Track for retry
                 with self._state_lock:
                     if symbol not in self.low_quality_stocks:
                         self.low_quality_stocks.append(symbol)
@@ -2649,7 +2314,11 @@ class EnhancedTop200StockAnalyzer:
             else:
                 phase2_recommendation = "🔴 SELL"
             
-            # 🚀 ADAPTIVE MARKET REGIME ADJUSTMENT: Consider current market conditions
+            # MI-11: Flag if fundamental data was unavailable
+            if stock_data.get('fundamental_data_failed') and 'BUY' in phase2_recommendation:
+                phase2_recommendation += " (CAUTION: NO FUNDAMENTAL DATA)"
+                logging.warning(f"[MI-11] {symbol}: fundamental_data_failed=True, recommendation downgraded")
+
             market_regime = _resolved_regime
             adaptive_position = stock_data.get('adaptive_position_size', 'MEDIUM')
             adaptive_quintile = stock_data.get('adaptive_quintile_target', 'Q3')
@@ -2667,14 +2336,20 @@ class EnhancedTop200StockAnalyzer:
                     regime_adjustment = f" (SIDEWAYS-Q1: {adaptive_position})"
             elif market_regime == 'BEAR':
                 if adaptive_position == 'SMALL' and 'BUY' in phase2_recommendation:
-                    phase2_recommendation = phase2_recommendation.replace('STRONG BUY', 'BUY').replace('BUY', 'WEAK BUY')
+                    if 'STRONG BUY' in phase2_recommendation:
+                        phase2_recommendation = phase2_recommendation.replace('STRONG BUY', 'BUY')
                     regime_adjustment = f" (BEAR: SMALL)"
                 elif adaptive_position == 'MEDIUM':
                     if 'STRONG BUY' in phase2_recommendation:
                         phase2_recommendation = phase2_recommendation.replace('STRONG BUY', 'BUY')
                         regime_adjustment = f" (BEAR: MEDIUM)"
                     elif 'BUY' in phase2_recommendation and final_blended_score < _buy_thr + 5:
-                        phase2_recommendation = phase2_recommendation.replace('BUY (VALUE)', 'HOLD').replace('BUY (UNDERVALUED)', 'HOLD').replace('BUY', 'HOLD')
+                        if 'BUY (VALUE)' in phase2_recommendation:
+                            phase2_recommendation = phase2_recommendation.replace('BUY (VALUE)', 'HOLD')
+                        elif 'BUY (UNDERVALUED)' in phase2_recommendation:
+                            phase2_recommendation = phase2_recommendation.replace('BUY (UNDERVALUED)', 'HOLD')
+                        else:
+                            phase2_recommendation = phase2_recommendation.replace('BUY', 'HOLD')
                         regime_adjustment = f" (BEAR: MARGINAL)"
                     elif 'BUY' in phase2_recommendation:
                         regime_adjustment = f" (BEAR: MEDIUM)"
@@ -2725,12 +2400,16 @@ class EnhancedTop200StockAnalyzer:
             # Extreme volatility / corporate action safety downgrade
             _ext_vol = stock_data.get('extreme_volatility_flag', False)
             _corp_warn = stock_data.get('corporate_action_warning', False)
-            if _ext_vol and 'BUY' in str(stock_data.get('final_recommendation', '')).upper():
-                stock_data['final_recommendation'] = 'HOLD (EXTREME VOLATILITY)'
-                logging.warning(f"{symbol}: BUY downgraded to HOLD due to extreme volatility")
+            _pre_safety_rec = stock_data.get('final_recommendation', '')
+            if _ext_vol and 'BUY' in str(_pre_safety_rec).upper():
+                stock_data['pre_safety_recommendation'] = _pre_safety_rec
+                stock_data['final_recommendation'] = f'HOLD (EXTREME VOLATILITY — was {_pre_safety_rec})'
+                logging.warning(f"{symbol}: {_pre_safety_rec} downgraded to HOLD due to extreme volatility")
             if _corp_warn and 'BUY' in str(stock_data.get('final_recommendation', '')).upper():
-                stock_data['final_recommendation'] = 'HOLD (UNDER REVIEW — POSSIBLE CORPORATE ACTION)'
-                logging.warning(f"{symbol}: BUY downgraded to HOLD due to possible corporate action")
+                _pre_corp_rec = stock_data.get('final_recommendation', '')
+                stock_data['pre_safety_recommendation'] = stock_data.get('pre_safety_recommendation', _pre_corp_rec)
+                stock_data['final_recommendation'] = f'HOLD (CORPORATE ACTION REVIEW — was {_pre_safety_rec})'
+                logging.warning(f"{symbol}: {_pre_corp_rec} downgraded to HOLD due to possible corporate action")
 
             # Score comparison (legacy fields zeroed for backward compat)
             stock_data['score_adjustment'] = 0
@@ -4761,12 +4440,13 @@ class EnhancedTop200StockAnalyzer:
                 return results_df
             
             # Convert numeric columns to proper types to avoid ufunc errors
-            numeric_cols = ['fundamental_score_final', 'enhanced_technical_score_final', 
-                          'undervaluation_score', 'overall_score_with_value', 
-                          'pe_ratio', 'pb_ratio', 'roe']
-            for col in numeric_cols:
+            _score_cols_sector = {'fundamental_score_final', 'enhanced_technical_score_final',
+                                 'undervaluation_score', 'overall_score_with_value'}
+            _ratio_cols_sector = {'pe_ratio', 'pb_ratio', 'roe'}
+            for col in (_score_cols_sector | _ratio_cols_sector):
                 if col in results_df.columns:
-                    results_df[col] = pd.to_numeric(results_df[col], errors='coerce').fillna(0)
+                    _default = 50 if col in _score_cols_sector else 0
+                    results_df[col] = pd.to_numeric(results_df[col], errors='coerce').fillna(_default)
             
             # Group by sector and calculate statistics
             sector_stats = {}
@@ -5388,9 +5068,17 @@ class EnhancedTop200StockAnalyzer:
             allocation_data = []
             
             # STEP 1: Add current holdings to allocation
+            _INSTRUMENT_ALIASES = ['Instrument', 'Symbol', 'Stock', 'Ticker', 'symbol', 'instrument']
+            def _resolve_instrument_col(df_cols):
+                for alias in _INSTRUMENT_ALIASES:
+                    if alias in df_cols:
+                        return alias
+                return 'Instrument'
+
             if current_holdings is not None and not current_holdings.empty:
+                _inst_col = _resolve_instrument_col(current_holdings.columns)
                 for idx, holding in current_holdings.iterrows():
-                    symbol = holding['Instrument'].upper()
+                    symbol = holding[_inst_col].upper()
                     
                     # Calculate holding percentage of current portfolio
                     holding_percentage = (holding['Cur. val'] / current_portfolio_value) * 100 if current_portfolio_value > 0 else 0
@@ -5699,7 +5387,7 @@ class EnhancedTop200StockAnalyzer:
                             'action_reason': action_reason,
                         })
                     else:
-                        # Holdings not in analysis — check staleness via recommendation history
+                        logging.warning(f"[M5] Holdings symbol {symbol} not found in analysis results — may need manual review")
                         _stale_action = "HOLD CURRENT"
                         _stale_rec = "HOLD (NOT ANALYZED)"
                         _stale_priority = "LOW"
@@ -5784,64 +5472,62 @@ class EnhancedTop200StockAnalyzer:
             print(f"   🔧 CHECKPOINT 3: Processed {len(allocation_data)} current holdings")
 
             # SECTOR CAP ENFORCEMENT ON EXISTING HOLDINGS
-            # Strategy: only REDUCE weak stocks (below SECTOR_REDUCE_MIN_SCORE).
-            # High-ROI stocks stay even if sector is overweight — the system warns
-            # but doesn't force you out of your best performers.
+            # Strategy: reduce down to SECTOR_CAP, protecting the top-scoring stocks.
+            # The lowest-scoring stocks in the overweight sector are marked REDUCE
+            # until the sector count reaches SECTOR_CAP.
             if getattr(_config, 'SECTOR_CAP_ENFORCE_HOLDINGS', True):
                 _sector_counts_h = {}
                 for _alloc in allocation_data:
                     _s = _alloc.get('sector', 'Unknown')
                     _sector_counts_h[_s] = _sector_counts_h.get(_s, 0) + 1
 
-                _reduce_floor = getattr(_config, 'SECTOR_REDUCE_MIN_SCORE', 45.0)
                 _overweight_sectors = {s: c for s, c in _sector_counts_h.items()
                                        if c > _config.SECTOR_CAP and s != 'Unknown'}
                 if _overweight_sectors:
                     print(f"\n   ⚠️  SECTOR OVERWEIGHT DETECTED:")
                     for _ow_sector, _ow_count in _overweight_sectors.items():
-                        _excess = _ow_count - _config.SECTOR_CAP
                         _sector_stocks = [a for a in allocation_data
                                           if a.get('sector') == _ow_sector and a.get('is_current_holding')]
                         _sector_stocks.sort(key=lambda x: x.get('risk_adjusted_score', x.get('overall_score', 0)))
+                        _to_reduce = max(0, len(_sector_stocks) - _config.SECTOR_CAP)
                         _reduced = 0
-                        _skipped_strong = 0
+                        _kept = 0
                         for _ss in _sector_stocks:
-                            if _reduced >= _excess:
-                                break
+                            if _reduced >= _to_reduce:
+                                _kept += 1
+                                continue
                             _ss_score = _ss.get('risk_adjusted_score', _ss.get('overall_score', 0))
                             if _ss.get('action_type', '') in ('HOLD CURRENT', 'KEEP'):
-                                if _ss_score >= _reduce_floor:
-                                    _skipped_strong += 1
-                                    continue
                                 _ss['action_type'] = 'REDUCE (SECTOR OVERWEIGHT)'
                                 _ss['priority'] = 'MEDIUM'
                                 _ss['profit_booking_reason'] = (
                                     f"Sector {_ow_sector} has {_ow_count} stocks (cap={_config.SECTOR_CAP}). "
-                                    f"Score {_ss_score:.1f} below {_reduce_floor} threshold — reduce weakest first."
+                                    f"Score {_ss_score:.1f} — reducing weakest to reach cap."
                                 )
                                 logging.warning(
                                     f"Sector overweight: marking {_ss['symbol']} for reduction "
-                                    f"(score={_ss_score:.1f} < {_reduce_floor}, "
+                                    f"(score={_ss_score:.1f}, "
                                     f"{_ow_sector} has {_ow_count} stocks, cap={_config.SECTOR_CAP})"
                                 )
                                 _reduced += 1
+                            else:
+                                _kept += 1
                         print(f"      {_ow_sector}: {_ow_count} stocks (cap={_config.SECTOR_CAP}) "
-                              f"→ {_reduced} weak REDUCE, {_skipped_strong} strong KEPT")
-                        if _skipped_strong > 0:
-                            print(f"      💡 {_skipped_strong} stocks scored ≥{_reduce_floor} — kept for ROI")
+                              f"→ {_reduced} REDUCE, {_kept} KEPT (top {_config.SECTOR_CAP} by score)")
 
             # STEP 2: Find new investment candidates (not currently held)
             holding_symbols = set()
             if current_holdings is not None and not current_holdings.empty:
-                holding_symbols = set(current_holdings['Instrument'].str.upper())
+                _hs_col = next((c for c in ['Instrument', 'Symbol', 'Stock', 'Ticker', 'symbol', 'instrument'] if c in current_holdings.columns), 'Instrument')
+                holding_symbols = set(current_holdings[_hs_col].str.upper())
             
             # Get BUY candidates not currently held
             # Convert scores to numeric to avoid comparison errors
-            results_df['overall_score_with_value'] = pd.to_numeric(results_df['overall_score_with_value'], errors='coerce').fillna(0)
+            results_df['overall_score_with_value'] = pd.to_numeric(results_df['overall_score_with_value'], errors='coerce').fillna(50)  # HI-04: neutral, not sell
             if 'overall_score' not in results_df.columns:
                 results_df['overall_score'] = results_df['overall_score_with_value']
-            results_df['overall_score'] = pd.to_numeric(results_df['overall_score'], errors='coerce').fillna(0)
-            results_df['undervaluation_score'] = pd.to_numeric(results_df['undervaluation_score'], errors='coerce').fillna(0)
+            results_df['overall_score'] = pd.to_numeric(results_df['overall_score'], errors='coerce').fillna(50)  # HI-04
+            results_df['undervaluation_score'] = pd.to_numeric(results_df['undervaluation_score'], errors='coerce').fillna(50)  # HI-04
             
             new_candidates = results_df[
                 (results_df['final_recommendation'].str.contains('BUY', na=False)) &
@@ -5857,7 +5543,7 @@ class EnhancedTop200StockAnalyzer:
             if remaining_slots > 0 and not new_candidates.empty:
                 # ✅ UPDATED: Sort by Hybrid V4 Score (hybrid_overall_score) instead of Risk-Adjusted
                 # First ensure hybrid_overall_score is numeric
-                new_candidates['hybrid_overall_score'] = pd.to_numeric(new_candidates.get('hybrid_overall_score', new_candidates['overall_score_with_value']), errors='coerce').fillna(0)
+                new_candidates['hybrid_overall_score'] = pd.to_numeric(new_candidates.get('hybrid_overall_score', new_candidates['overall_score_with_value']), errors='coerce').fillna(50)  # HI-04
                 new_candidates = new_candidates.sort_values('hybrid_overall_score', ascending=False).head(remaining_slots)
                 
                 for idx, stock in new_candidates.iterrows():
@@ -6056,6 +5742,10 @@ class EnhancedTop200StockAnalyzer:
                 allocation_df['exit_reason'] = ''
             if 'priority' not in allocation_df.columns:
                 allocation_df['priority'] = 'LOW'
+            if 'profit_booking_amount' not in allocation_df.columns:
+                allocation_df['profit_booking_amount'] = 0.0
+            if 'stop_loss_price' not in allocation_df.columns:
+                allocation_df['stop_loss_price'] = 0.0
             
             # 🔧 FIX #1: Calculate portfolio_weight for ALL EXISTING holdings (not just new ones)
             print(f"   📊 Calculating portfolio weights for existing holdings...")
@@ -6522,19 +6212,18 @@ class EnhancedTop200StockAnalyzer:
                 
                 # Second pass: Backfill if any category is short
                 current_keep_count = len(allocation_df[allocation_df['keep_stock'] == True])
+                _fill_floor = getattr(_config, 'SECTOR_REDUCE_MIN_SCORE', 45.0)
                 
                 if current_keep_count < target_stocks:
                     shortfall = target_stocks - current_keep_count
-                    print(f"\n      🔄 Portfolio shortfall: Need {shortfall} more stocks")
+                    print(f"\n      🔄 Portfolio shortfall: Need {shortfall} more stocks (min score: {_fill_floor})")
                     
-                    # Prioritize backfilling from CORE categories first (Value > Momentum)
                     backfill_priority = ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']
                     
                     for category in backfill_priority:
                         if shortfall <= 0:
                             break
                         
-                        # Get unselected stocks from this category
                         remaining_stocks = allocation_df[
                             (allocation_df['keep_stock'] == False) & 
                             (allocation_df['stock_type'] == category)
@@ -6543,24 +6232,27 @@ class EnhancedTop200StockAnalyzer:
                         if not remaining_stocks.empty:
                             remaining_stocks = remaining_stocks.sort_values('risk_adjusted_score', ascending=False)
                             
-                            # Add best remaining stocks from this category
                             added = 0
                             for idx, row in remaining_stocks.iterrows():
-                                if shortfall > 0:
-                                    allocation_df.at[idx, 'keep_stock'] = True
-                                    current_action = allocation_df.at[idx, 'action_recommendation']
-                                    has_special_action = ('REDUCE' in str(current_action).upper() or
-                                                         any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪', '🚀', '💰']))
-                                    if not has_special_action:
-                                        allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
-                                    print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
-                                    shortfall -= 1
-                                    added += 1
-                                else:
+                                if shortfall <= 0:
                                     break
+                                if row['risk_adjusted_score'] < _fill_floor:
+                                    continue
+                                allocation_df.at[idx, 'keep_stock'] = True
+                                current_action = allocation_df.at[idx, 'action_recommendation']
+                                has_special_action = ('REDUCE' in str(current_action).upper() or
+                                                     any(emoji in str(current_action) for emoji in ['⚠️', '🟡', '🟢', '⚪', '🚀', '💰']))
+                                if not has_special_action:
+                                    allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
+                                print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
+                                shortfall -= 1
+                                added += 1
                             
                             if added > 0:
                                 actual_counts[category] = actual_counts.get(category, 0) + added
+                    
+                    if shortfall > 0:
+                        print(f"      ℹ️  Accepting {target_stocks - shortfall} stocks (no more candidates above {_fill_floor} score floor)")
                 
                 # Show VALUE INVESTING allocation summary
                 print(f"\n   ✅ VALUE INVESTING Portfolio Allocation Complete:")
@@ -6803,13 +6495,20 @@ class EnhancedTop200StockAnalyzer:
                 
                 print(f"      ✅ Found {len(all_opportunities)} existing holdings eligible for INCREASE")
                 
+                # Check if OPPORTUNISTIC category is underweight — steer new capital toward defensive stocks
+                _opp_count = actual_counts.get('OPPORTUNISTIC', 0) if 'actual_counts' in dir() else 0
+                _total_alloc = sum(actual_counts.values()) if 'actual_counts' in dir() else 1
+                _opp_pct = (_opp_count / _total_alloc * 100) if _total_alloc > 0 else 0
+                _needs_opp = _opp_pct < 15
+                
                 # 2. NEW BUY OPPORTUNITIES
                 print(f"\n   🔍 Searching for NEW buy opportunities...")
                 
                 # Get current holdings symbols
                 actual_holdings_symbols = set()
                 if current_holdings is not None and not current_holdings.empty:
-                    actual_holdings_symbols = set(current_holdings['Instrument'].str.upper())
+                    _ah_col = next((c for c in ['Instrument', 'Symbol', 'Stock', 'Ticker', 'symbol', 'instrument'] if c in current_holdings.columns), 'Instrument')
+                    actual_holdings_symbols = set(current_holdings[_ah_col].str.upper())
                 
                 # 🔧 FIX: Load full analysis report to get ALL opportunities (not just current holdings)
                 all_analyzed_df = results_df.copy()
@@ -6846,6 +6545,17 @@ class EnhancedTop200StockAnalyzer:
                     (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
                     (all_analyzed_df['risk_adjusted_score'] >= 60)
                 ].copy()
+                
+                _curr_regime_alloc = str(getattr(self, 'current_market_regime', '') or '').upper()
+                if _curr_regime_alloc in ('BEAR', 'BEARISH'):
+                    _bear_vol_cap = getattr(_config, 'MAX_SAFE_VOLATILITY', 80.0) * 0.5
+                    _pre_count = len(new_opportunities_candidates)
+                    new_opportunities_candidates = new_opportunities_candidates[
+                        new_opportunities_candidates['volatility'].fillna(100) <= _bear_vol_cap  # HI-04: unknown vol = high risk
+                    ]
+                    _dropped = _pre_count - len(new_opportunities_candidates)
+                    if _dropped > 0:
+                        print(f"      🛡️ BEAR filter: Excluded {_dropped} high-volatility (>{_bear_vol_cap:.0f}%) candidates")
                 
                 print(f"      📊 Found {len(new_opportunities_candidates)} standard BUY candidates from analysis")
                 
@@ -6948,6 +6658,16 @@ class EnhancedTop200StockAnalyzer:
                             roi_label = "💎 Strong Fundamentals"
                         
                         adjusted_score = base_score + roi_boost
+                        
+                        if _needs_opp:
+                            _beta = _nv(analyzed_stock.get('beta', 1.0), 1.0)
+                            _sector = str(analyzed_stock.get('sector', '')).lower()
+                            _defensive_sectors = ('healthcare', 'pharma', 'fmcg', 'consumer defensive', 'utilities')
+                            if _beta < 0.9 or any(ds in _sector for ds in _defensive_sectors):
+                                _opp_boost = 3
+                                adjusted_score += _opp_boost
+                                roi_boost += _opp_boost
+                                roi_label = (roi_label + " + " if roi_label else "") + "🛡️ Defensive (rebalance)"
                         
                         if roi_boost > 0:
                             print(f"         {roi_label}: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f})")
@@ -7082,6 +6802,7 @@ class EnhancedTop200StockAnalyzer:
                         if _sw1_mask.any():
                             _sw1_idx = allocation_df.index[_sw1_mask][0]
                             allocation_df.loc[_sw1_idx, 'action_recommendation'] = action_rec
+                            allocation_df.loc[_sw1_idx, 'action_type'] = action_rec
                             allocation_df.loc[_sw1_idx, 'exit_reason'] = reason
                             allocation_df.loc[_sw1_idx, 'investment_amount'] = 0
                             allocation_df.loc[_sw1_idx, 'priority'] = 'HIGH'
@@ -7930,7 +7651,10 @@ class EnhancedTop200StockAnalyzer:
         if self.crisis_data is None:
             try:
                 self.crisis_data = self.crisis_detector.detect()
-                if self.crisis_data.get('crisis_detected'):
+                if self.crisis_data.get('detection_failed'):
+                    logging.warning("[CRISIS] All asset feeds failed — crisis detection unreliable, treating as no-crisis")
+                    print("\n⚠️  [CRISIS-DETECTOR] Detection failed — all data feeds unavailable")
+                elif self.crisis_data.get('crisis_detected'):
                     logging.warning(
                         f"[CRISIS] {self.crisis_data['description']} | "
                         f"Severity={self.crisis_data['severity_label']} ({self.crisis_data['severity']}/3)"
@@ -8326,6 +8050,16 @@ Trading Plan ({risk_tolerance} RISK):
             # Create DataFrame  (A-014: self.results is a dict keyed by symbol)
             df = pd.DataFrame(self.results.values())
             
+            # MI-07: Separate failed stocks into a different bucket
+            _failed_mask = df.get('scoring_failed', pd.Series(False, index=df.index)).fillna(False).astype(bool)
+            _failed_df = df[_failed_mask].copy()
+            df = df[~_failed_mask].copy()
+            if len(_failed_df) > 0:
+                print(f"   ⚠️  {len(_failed_df)} stocks with insufficient data moved to Skipped sheet")
+                self._skipped_stocks_df = _failed_df
+            else:
+                self._skipped_stocks_df = pd.DataFrame()
+            
             print("🔄 Applying enhancements...")
             
             # Apply all enhancements
@@ -8414,9 +8148,10 @@ Trading Plan ({risk_tolerance} RISK):
                 # Create minimal allocation_df to ensure sheet is always created
                 current_holdings = self._load_current_holdings()
                 if current_holdings is not None and not current_holdings.empty:
+                    _fb_inst_col = next((c for c in ['Instrument', 'Symbol', 'Stock', 'Ticker', 'symbol', 'instrument'] if c in current_holdings.columns), 'Instrument')
                     minimal_data = []
                     for _, holding in current_holdings.iterrows():
-                        symbol = holding['Instrument'].upper()
+                        symbol = holding[_fb_inst_col].upper()
                         stock_data = df[df['symbol'].str.upper() == symbol]
                         if not stock_data.empty:
                             stock = stock_data.iloc[0]
@@ -8690,7 +8425,7 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   📊 Trading Levels sheet created with {len(_tl_df)} stocks")
                 
                 # 2. Undervalued Stocks Sheet
-                undervalued = df[df.get('undervaluation_score', pd.Series()).fillna(0) >= 65].head(30)
+                undervalued = df[df.get('undervaluation_score', pd.Series()).fillna(50) >= 65].head(30)
                 if not undervalued.empty:
                     undervalued_cols = ['symbol', 'company_name', 'undervaluation_score', 
                                        'pe_ratio', 'pb_ratio', 'roe', 'dividend_yield', 
@@ -9451,32 +9186,54 @@ Trading Plan ({risk_tolerance} RISK):
             print(f"[FAIL] Enhanced Excel generation failed: {e}")
             return None
     
+    _SCORE_COLUMNS = {
+        'overall_score', 'overall_score_with_value', 'final_blended_score',
+        'hybrid_overall_score', 'improved_overall_score', 'corrected_overall_score',
+        'fundamental_score', 'technical_score', 'undervaluation_score',
+        'momentum_score', 'risk_adjusted_score', 'optimized_score',
+        'final_score_with_phase1', 'sentiment_composite_score',
+        'data_quality_score', 'portfolio_context_score', 'phase1_adjusted_score',
+        'breakout_score', 'raw_blended_score', 'pre_breakout_score', 'exhaustion_score',
+        'fundamental_score_final', 'enhanced_technical_score_final',
+    }
+    _VOLATILITY_COLUMNS = {'volatility', 'volatility_6m', 'volatility_20d'}
+
     def _clean_dataframe_for_excel(self, df):
-        """🔧 Clean DataFrame by replacing NaN/Inf values that Excel can't handle"""
+        """Clean DataFrame by replacing NaN/Inf values that Excel can't handle.
+        HI-04: Score columns fill with 50 (neutral), volatility columns fill with 100 (conservative).
+        """
         try:
-            # Replace NaN and infinity values with appropriate defaults
             for col in df.columns:
+                col_lower = col.lower() if isinstance(col, str) else ''
                 if df[col].dtype in ['float64', 'float32']:
-                    # Replace NaN with 0 for numeric columns
-                    df[col] = df[col].fillna(0)
-                    
-                    # Replace infinity values with reasonable limits
+                    if col in self._SCORE_COLUMNS or col_lower in self._SCORE_COLUMNS:
+                        df[col] = df[col].fillna(50)
+                    elif col in self._VOLATILITY_COLUMNS or col_lower in self._VOLATILITY_COLUMNS:
+                        df[col] = df[col].fillna(100)
+                    else:
+                        df[col] = df[col].fillna(0)
                     df[col] = df[col].replace([np.inf, -np.inf], [999999, -999999])
-                    
                 elif df[col].dtype in ['int64', 'int32']:
-                    # Replace NaN with 0 for integer columns
                     df[col] = df[col].fillna(0)
-                    
                 elif df[col].dtype == 'object':
-                    # Replace NaN with empty string for text columns
                     df[col] = df[col].fillna('')
-                    
             return df
-            
         except Exception as e:
-            print(f"   ⚠️  Warning: Data cleaning failed: {e}")
-            # Fallback: Basic cleaning
-            return df.fillna(0)
+            logging.error(f"Data cleaning failed, applying type-aware fallback: {e}")
+            try:
+                for col in df.select_dtypes(include='number').columns:
+                    col_lower = col.lower() if isinstance(col, str) else ''
+                    if col in self._SCORE_COLUMNS or col_lower in self._SCORE_COLUMNS:
+                        df[col] = df[col].fillna(50)
+                    elif col in self._VOLATILITY_COLUMNS or col_lower in self._VOLATILITY_COLUMNS:
+                        df[col] = df[col].fillna(100)
+                    else:
+                        df[col] = df[col].fillna(0)
+                for col in df.select_dtypes(include='object').columns:
+                    df[col] = df[col].fillna('')
+            except Exception:
+                pass
+            return df
     
     def _num_to_col_letter(self, n):
         """Convert column number to Excel column letter (0=A, 25=Z, 26=AA, etc.)"""
@@ -9578,7 +9335,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.write(f'G{row}', f'{buy_count/total_stocks*100:.1f}%', percent_format)
         
         row += 1
-        undervalued_count = len(df[df.get('undervaluation_score', pd.Series()).fillna(0) >= 65])
+        undervalued_count = len(df[df.get('undervaluation_score', pd.Series()).fillna(50) >= 65])
         
         worksheet.write(f'A{row}', 'Undervalued Stocks:', header_format)
         worksheet.write(f'B{row}', undervalued_count, metric_value_format)
@@ -11168,7 +10925,7 @@ Trading Plan ({risk_tolerance} RISK):
 
             portfolio_volatility = 0.15
             if _vol_col:
-                _vols = pd.to_numeric(df[_vol_col], errors='coerce').fillna(0)
+                _vols = pd.to_numeric(df[_vol_col], errors='coerce').fillna(100)
                 if _weights is not None:
                     _matched = _vols.copy()
                     _matched.index = df['symbol'] if 'symbol' in df.columns else _matched.index
@@ -11940,15 +11697,20 @@ def main():
                 
                 # Load Portfolio Allocation data (skip group-header row 0)
                 df_portfolio = pd.read_excel(report_file, sheet_name='Portfolio Allocation', header=1)
-                df_portfolio = df_portfolio.fillna(0)
+                _dash_score_cols = {'SCORE', 'ADJ SCORE', 'ML CONF %'}
+                for col in df_portfolio.select_dtypes(include='number').columns:
+                    _default = 50 if col in _dash_score_cols else 0
+                    df_portfolio[col] = df_portfolio[col].fillna(_default)
+                for col in df_portfolio.select_dtypes(include='object').columns:
+                    df_portfolio[col] = df_portfolio[col].fillna('')
                 
-                # Convert numeric columns (only if they exist)
                 numeric_cols = ['INVEST ₹', 'BUY QTY', 'MY QTY', 'MY VALUE ₹',
                                'P&L %', 'BOOK %', 'SCORE', 'PRICE',
                                'ADJ SCORE', 'ML CONF %']
                 for col in numeric_cols:
                     if col in df_portfolio.columns:
-                        df_portfolio[col] = pd.to_numeric(df_portfolio[col], errors='coerce').fillna(0)
+                        _fv = 50 if col in _dash_score_cols else 0
+                        df_portfolio[col] = pd.to_numeric(df_portfolio[col], errors='coerce').fillna(_fv)
 
                 # Ensure string columns are actual strings before .str accessor
                 for _str_col in ['ACTION', 'WHEN', 'TYPE', 'sector', 'symbol', 'company_name']:

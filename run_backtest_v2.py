@@ -1,3 +1,11 @@
+"""run_backtest_v2.py — Scoring accuracy validator and walk-forward backtest.
+
+M7 Known limitation: The stock universe used by this validator may differ from
+production (analyze_top200_stocks_enhanced.py). The BacktestValidator uses up to
+50 random stocks from the latest report (or 5 fallback blue-chips), while
+production analyzes up to 200 stocks. Backtest results should not be interpreted
+as a comprehensive validation of the full production universe.
+"""
 
 import pandas as pd
 import numpy as np
@@ -15,13 +23,7 @@ sys.path.append('.')
 
 warnings.filterwarnings('ignore')
 
-# Import scoring engines
-try:
-    from improved_scoring_engine import ImprovedScoringEngine
-except ImportError:
-    ImprovedScoringEngine = None
-    print("⚠️ Improved Scoring Engine not available")
-
+# HI-02: Only HybridOptimizedScoringEngine is active; ImprovedScoringEngine removed.
 try:
     from hybrid_optimized_scoring import HybridOptimizedScoringEngine
 except ImportError:
@@ -31,8 +33,6 @@ except ImportError:
 class BacktestValidator:
     def __init__(self):
         self.engines = {}
-        if ImprovedScoringEngine:
-            self.engines['Improved_V3'] = ImprovedScoringEngine()
         if HybridOptimizedScoringEngine:
             self.engines['Hybrid_V4'] = HybridOptimizedScoringEngine()
         reports = sorted(glob.glob('reports/Enhanced_Stock_Report_*.xlsx'))
@@ -172,14 +172,8 @@ class BacktestValidator:
                     # RUN ENGINES
                     for name, engine in self.engines.items():
                         try:
-                            if name == 'Improved_V3':
-                                res = engine.calculate_improved_overall_score(symbol, stock_data)
-                                score = res.get('improved_overall_score', 50)
-                            elif name == 'Hybrid_V4':
-                                res = engine.calculate_hybrid_score(symbol, stock_data)
-                                score = res.get('hybrid_score', 50)
-                            else:
-                                score = 50
+                            res = engine.calculate_hybrid_score(symbol, stock_data)
+                            score = res.get('hybrid_score', 50)
                                 
                             results.append({
                                 'period': p_days,
@@ -312,14 +306,8 @@ class WalkForwardBacktest:
 
                     for name, engine in self.validator.engines.items():
                         try:
-                            if name == 'Improved_V3':
-                                res = engine.calculate_improved_overall_score(symbol, stock_data)
-                                score = res.get('improved_overall_score', 50)
-                            elif name == 'Hybrid_V4':
-                                res = engine.calculate_hybrid_score(symbol, stock_data)
-                                score = res.get('hybrid_score', 50)
-                            else:
-                                score = 50
+                            res = engine.calculate_hybrid_score(symbol, stock_data)
+                            score = res.get('hybrid_score', 50)
 
                             all_results.append({
                                 'window': window_label,

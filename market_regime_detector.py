@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 class MarketRegimeDetector:
     """
+    Single source of truth for market regime detection (CB-06).
     Detects market regime (Bull, Bear, Sideways) using multiple indicators:
     - Price trends (moving averages)
     - Volatility (VIX equivalent for India)
@@ -19,6 +20,8 @@ class MarketRegimeDetector:
     - Momentum indicators
     """
     
+    _LAST_REGIME_PATH = 'data/last_known_regime.json'
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.nifty_symbol = "^NSEI"  # NSE Nifty 50 index
@@ -76,7 +79,11 @@ class MarketRegimeDetector:
                 breadth_signal * weights['breadth']
             )
             regime_score = max(-1.0, min(1.0, regime_score))
-            
+
+            if vix_level > 30:
+                regime_score = min(regime_score, 0.0)
+                self.logger.info(f"[H5] VIX={vix_level:.1f} > 30 — clamping regime_score to non-BULL (max 0)")
+
             # P4-01: Multi-index consensus — adjust confidence
             secondary_scores = self._get_secondary_index_scores(period_days)
             index_agreement = self._compute_index_agreement(regime_score, secondary_scores)
@@ -97,7 +104,7 @@ class MarketRegimeDetector:
             # Calculate regime stability (how long has this regime persisted)
             regime_stability = self._calculate_regime_stability(nifty_data, regime)
             
-            return {
+            result = {
                 'regime': regime,
                 'regime_strength': regime_strength,
                 'regime_score': regime_score,
@@ -117,10 +124,12 @@ class MarketRegimeDetector:
                 'nifty_change_3m': self._calculate_change(nifty_data, 60),
                 'analysis_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
+            self._cache_regime(result)
+            return result
             
         except Exception as e:
             self.logger.error(f"Error detecting market regime: {e}")
-            return self._get_default_regime()
+            return self._get_fallback_regime()
     
     def _get_index_data(self, symbol: str, period_days: int) -> Optional[pd.DataFrame]:
         """Fetch index data from yfinance with retry"""
@@ -399,6 +408,67 @@ class MarketRegimeDetector:
             return 0.0
         return ((current - past) / past) * 100
     
+    def _cache_regime(self, result: Dict) -> None:
+        """HI-05: Persist last successfully detected regime to disk.
+        Uses atomic write (temp file + os.replace) to avoid data loss on disk-full or crash.
+        """
+        import json, os, tempfile
+        try:
+            _dir = os.path.dirname(self._LAST_REGIME_PATH) or '.'
+            os.makedirs(_dir, exist_ok=True)
+            cache = {
+                'regime': result.get('regime'),
+                'regime_strength': result.get('regime_strength'),
+                'regime_score': result.get('regime_score'),
+                'vix_level': result.get('vix_level'),
+                'cached_at': datetime.now().isoformat(),
+            }
+            _fd, _tmp_path = tempfile.mkstemp(dir=_dir, suffix='.tmp')
+            try:
+                with os.fdopen(_fd, 'w') as f:
+                    json.dump(cache, f, indent=2)
+                os.replace(_tmp_path, self._LAST_REGIME_PATH)
+            except Exception:
+                try:
+                    os.unlink(_tmp_path)
+                except OSError:
+                    pass
+                raise
+        except Exception as e:
+            self.logger.debug(f"Could not cache regime: {e}")
+
+    def _get_fallback_regime(self) -> Dict:
+        """HI-05: On API failure, use last known regime (< 24h) or default to BEAR (conservative).
+        M2: Uses wall-clock time, not trading-day awareness. Over weekends/holidays the cache
+        may be accepted even though a new trading session has opened, or rejected even though
+        no new trading data exists. This is an accepted limitation — the BEAR default is safe.
+        """
+        import json, os
+        try:
+            if os.path.exists(self._LAST_REGIME_PATH):
+                with open(self._LAST_REGIME_PATH) as f:
+                    cache = json.load(f)
+                cached_at = datetime.fromisoformat(cache['cached_at'])
+                age_hours = (datetime.now() - cached_at).total_seconds() / 3600
+                if age_hours <= 24:
+                    self.logger.warning(f"[HI-05] Using cached regime '{cache['regime']}' (age={age_hours:.1f}h)")
+                    result = self._get_default_regime()
+                    result['regime'] = cache['regime']
+                    result['regime_strength'] = cache.get('regime_strength', 'MODERATE')
+                    result['regime_score'] = cache.get('regime_score', 0.0)
+                    result['regime_confidence'] = 0.3
+                    result['market_sentiment'] = 'CACHED'
+                    return result
+        except Exception as e:
+            self.logger.debug(f"Could not load cached regime: {e}")
+        self.logger.warning("[HI-05] No valid cached regime; defaulting to BEAR (conservative)")
+        result = self._get_default_regime()
+        result['regime'] = 'BEAR'
+        result['regime_strength'] = 'ASSUMED'
+        result['regime_confidence'] = 0.1
+        result['market_sentiment'] = 'ASSUMED_BEAR'
+        return result
+
     def _get_default_regime(self) -> Dict:
         """Return default regime when data unavailable"""
         return {

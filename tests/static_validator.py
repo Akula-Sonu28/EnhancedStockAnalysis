@@ -16,8 +16,6 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGET_FILES = [
     "analyze_top200_stocks_enhanced.py",
     "hybrid_optimized_scoring.py",
-    "improved_scoring_engine.py",
-    "corrected_scoring_engine.py",
     "ml_predictor.py",
     "sentiment_analyzer.py",
     "volume_analyzer.py",
@@ -28,10 +26,12 @@ TARGET_FILES = [
     "crisis_detector.py",
     "recommendation_history.py",
     "run_backtest_v2.py",
+    "backtest_engine.py",
     "config.py",
     "enhanced_technical_analyzer.py",
     "src/technical_analyzer.py",
     "src/enhanced_fundamental_analyzer.py",
+    "src/nse_scraper.py",
 ]
 
 Issue = Tuple[str, int, str, str]

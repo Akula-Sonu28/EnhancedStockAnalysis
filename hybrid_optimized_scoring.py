@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HYBRID OPTIMIZED SCORING SYSTEM V5.1
+HYBRID OPTIMIZED SCORING SYSTEM V5.2
 ====================================
 
 V5.1 Predictive Power Boost:
@@ -27,7 +27,7 @@ class HybridOptimizedScoringEngine:
     """
     
     def __init__(self):
-        self.version = "5.1 - PREDICTIVE BOOST"
+        self.version = "5.2 - REMEDIATED"
         self.target_correlation = 0.401
         
         # V5.0: All sector multipliers neutralized — validation showed 70% of IC
@@ -56,10 +56,10 @@ class HybridOptimizedScoringEngine:
         """
         try:
             import math
-            pe = self._safe_float(stock_data.get('pe_ratio'), 20)
-            roe = self._safe_float(stock_data.get('roe'), 10)
-            debt = self._safe_float(stock_data.get('debt_to_equity'), 50)
-            market_cap = self._safe_float(stock_data.get('market_cap'), 1e12)
+            pe = self._safe_float(stock_data.get('pe_ratio'), 25)
+            roe = self._safe_float(stock_data.get('roe'), 0)
+            debt = self._safe_float(stock_data.get('debt_to_equity'), 80)
+            market_cap = self._safe_float(stock_data.get('market_cap'), 1e10)
 
             # PE (25 pts): sweet spot around 14, penalty past 30 and below 5
             if pe <= 0:
@@ -82,8 +82,8 @@ class HybridOptimizedScoringEngine:
             return pe_score + roe_score + debt_score + size_score
 
         except Exception as _e:
-            logging.debug(f"Scoring component error: {_e}")
-            return 50.0
+            logging.debug(f"Scoring component error (fundamental): {_e}")
+            return None
     
     @staticmethod
     def _safe_float(val, default=0.0):
@@ -138,8 +138,8 @@ class HybridOptimizedScoringEngine:
             return rsi_score + mom_score + trend_score + macd_score + stoch_score
 
         except Exception as _e:
-            logging.debug(f"Scoring component error: {_e}")
-            return 50.0
+            logging.debug(f"Scoring component error (momentum): {_e}")
+            return None
     
     def calculate_volume_strength_score(self, stock_data):
         """
@@ -158,8 +158,8 @@ class HybridOptimizedScoringEngine:
                 vol_score *= 0.5
             return vol_score
         except Exception as _e:
-            logging.debug(f"Scoring component error: {_e}")
-            return 50.0
+            logging.debug(f"Scoring component error (volume): {_e}")
+            return None
     
     def calculate_sector_momentum_score(self, symbol, stock_data=None):
         """DEPRECATED (V5.0): Always returns neutral 50. Not called by any active code path."""
@@ -193,8 +193,8 @@ class HybridOptimizedScoringEngine:
             return agree_score + comp_score + tm_score
 
         except Exception as _e:
-            logging.debug(f"Scoring component error: {_e}")
-            return 50.0
+            logging.debug(f"Scoring component error (mtf): {_e}")
+            return None
 
     def calculate_ml_signal_score(self, stock_data):
         """
@@ -229,8 +229,8 @@ class HybridOptimizedScoringEngine:
             return float(np.clip(50.0 + (base - 50.0) * conf_scale, 0, 100))
 
         except Exception as _e:
-            logging.debug(f"Scoring component error: {_e}")
-            return 50.0
+            logging.debug(f"Scoring component error (ml): {_e}")
+            return None
     
     def calculate_risk_adjustment_score(self, stock_data):
         """
@@ -248,7 +248,7 @@ class HybridOptimizedScoringEngine:
 
             # 52-week drawdown (0-30): linear dd=0%→30, dd=50%→0
             current_price = self._safe_float(stock_data.get('current_price'), 0)
-            high_52w = self._safe_float(stock_data.get('52_week_high'), current_price)
+            high_52w = self._safe_float(stock_data.get('52_week_high'), 0)
             if high_52w > 0 and current_price > 0:
                 drawdown_pct = (high_52w - current_price) / high_52w * 100.0
                 dd_score = float(np.clip(30.0 - drawdown_pct * 0.6, 0, 30))
@@ -265,36 +265,10 @@ class HybridOptimizedScoringEngine:
             return vol_score + dd_score + beta_score + mdd_score
 
         except Exception as _e:
-            logging.debug(f"Scoring component error: {_e}")
-            return 50.0
+            logging.debug(f"Scoring component error (risk): {_e}")
+            return None
     
-    def detect_market_regime(self):
-        """
-        Simple market regime detection based on major indices
-        """
-        try:
-            # Get Nifty 50 recent performance as market proxy
-            nifty = yf.Ticker("^NSEI")
-            hist = nifty.history(period="1mo")
-            
-            if len(hist) > 5:
-                _denom = hist['Close'].iloc[-5]
-                if _denom == 0 or np.isnan(_denom):
-                    return 'neutral'
-                recent_change = ((hist['Close'].iloc[-1] - _denom) / _denom) * 100
-                
-                if recent_change > 5:
-                    return 'bullish'
-                elif recent_change < -5:
-                    return 'bearish'
-                else:
-                    return 'neutral'
-            else:
-                return 'neutral'
-                
-        except Exception:
-            return 'neutral'
-    
+    # CB-06: detect_market_regime() REMOVED — use MarketRegimeDetector as single source of truth.
     # ML model disabled (test accuracy 39% = random). Weight set to 0, redistributed to momentum.
     # Will be re-enabled when model is retrained with corrected feature pipeline.
     _REGIME_WEIGHTS_NO_ML = {
@@ -325,13 +299,57 @@ class HybridOptimizedScoringEngine:
     }
 
     def calculate_hybrid_score(self, symbol, stock_data, adaptive_weights=None):
-        """
-        V5.1: Hybrid score with 6 components (fundamental, momentum, volume, mtf, ml, risk).
+        """V5.1: Hybrid score with 6 components.
+
+        Weight resolution priority (HI-03):
+          1. adaptive_weights (from AdaptiveMarketRegimeStrategy) — if provided
+          2. calibrated weights (from data/calibrated_weights.json) — if valid & fresh
+          3. regime defaults (_REGIME_WEIGHTS_NO_ML) — fallback
+
         ML weight redistributes to momentum when ML model is not trained.
         """
         try:
             if stock_data is None:
-                return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': 'stock_data is None'}
+                return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': 'stock_data is None', 'scoring_failed': True}
+
+            def _has_real_value(sd, field):
+                v = sd.get(field)
+                if v is None:
+                    return False
+                try:
+                    fv = float(v)
+                    return not (np.isnan(fv) or np.isinf(fv))
+                except (TypeError, ValueError):
+                    return False
+
+            _REQUIRED_FIELDS = {
+                'current_price', 'pe_ratio', 'market_cap',
+            }
+            _SIGNAL_FIELDS = {
+                'rsi', 'real_rsi', 'enhanced_rsi_14',
+                'sma_50', 'ma_50',
+                'enhanced_volume_ratio', 'volume_ratio',
+                'mtf_timeframe_agreement', 'mtf_composite_score',
+            }
+            _present_required = sum(1 for f in _REQUIRED_FIELDS if _has_real_value(stock_data, f))
+            _present_signal = sum(1 for f in _SIGNAL_FIELDS if _has_real_value(stock_data, f))
+            if _present_required == 0 or (_present_required + _present_signal) < 3:
+                logging.warning(f"Ghost stock detected for {symbol}: only {_present_required} required + {_present_signal} signal fields present")
+                return {
+                    'hybrid_score': 0, 'components': {}, 'adjustments': {},
+                    'data_coverage': 0, 'scoring_failed': True,
+                    'error': f'Insufficient real data: {_present_required} required, {_present_signal} signal fields',
+                }
+
+            _cp = self._safe_float(stock_data.get('current_price'), 0)
+            _mc = self._safe_float(stock_data.get('market_cap'), 0)
+            if _cp < 1.0 or _mc < 1e8:
+                logging.warning(f"Ghost stock sanity fail for {symbol}: current_price={_cp}, market_cap={_mc}")
+                return {
+                    'hybrid_score': 0, 'components': {}, 'adjustments': {},
+                    'data_coverage': 0, 'scoring_failed': True,
+                    'error': f'Sanity check failed: price={_cp}, mcap={_mc}',
+                }
 
             _raw_regime = str(stock_data.get('market_regime') or '').upper()
             if _raw_regime in ('BULL', 'BULLISH'):
@@ -343,12 +361,42 @@ class HybridOptimizedScoringEngine:
             else:
                 market_regime = 'neutral'
 
-            fundamental_score = self.calculate_fundamental_quality_score(stock_data)
-            momentum_score = self.calculate_momentum_technical_score(stock_data, market_regime=market_regime)
-            volume_score = self.calculate_volume_strength_score(stock_data)
-            mtf_score = self.calculate_multi_timeframe_score(stock_data)
-            ml_score = self.calculate_ml_signal_score(stock_data)
-            risk_score = self.calculate_risk_adjustment_score(stock_data)
+            _raw_fundamental = self.calculate_fundamental_quality_score(stock_data)
+            _raw_momentum = self.calculate_momentum_technical_score(stock_data, market_regime=market_regime)
+            _raw_volume = self.calculate_volume_strength_score(stock_data)
+            _raw_mtf = self.calculate_multi_timeframe_score(stock_data)
+            _raw_ml = 50.0  # LO-06: ML weight=0, skip execution
+            _raw_risk = self.calculate_risk_adjustment_score(stock_data)
+
+            _component_results = {
+                'fundamental_quality': _raw_fundamental,
+                'momentum_technical': _raw_momentum,
+                'volume_strength': _raw_volume,
+                'multi_timeframe': _raw_mtf,
+                'ml_signal': _raw_ml,
+                'risk_adjustment': _raw_risk,
+            }
+            _real_count = sum(1 for v in _component_results.values() if v is not None)
+            _total_count = len(_component_results)
+            _data_coverage = _real_count / _total_count if _total_count > 0 else 0
+
+            if _data_coverage < 0.5:
+                logging.warning(f"Insufficient data coverage for {symbol}: {_real_count}/{_total_count} components")
+                return {
+                    'hybrid_score': 0,
+                    'components': {k: 0 for k in _component_results},
+                    'adjustments': {'market_regime': market_regime},
+                    'data_coverage': _data_coverage,
+                    'scoring_failed': True,
+                    'error': f'Only {_real_count}/{_total_count} scoring components had data',
+                }
+
+            fundamental_score = _raw_fundamental if _raw_fundamental is not None else 50.0
+            momentum_score = _raw_momentum if _raw_momentum is not None else 50.0
+            volume_score = _raw_volume if _raw_volume is not None else 50.0
+            mtf_score = _raw_mtf if _raw_mtf is not None else 50.0
+            ml_score = _raw_ml if _raw_ml is not None else 50.0
+            risk_score = _raw_risk if _raw_risk is not None else 50.0
 
             ml_active = False  # ML disabled: test accuracy 39% (random for 3-class). Re-enable after retraining.
             mtf_available = (stock_data.get('mtf_analysis_status') == 'success')
@@ -366,6 +414,9 @@ class HybridOptimizedScoringEngine:
             _using_calibrated = False
             if adaptive_weights and isinstance(adaptive_weights, dict):
                 weights = {k: adaptive_weights.get(k, _regime_defaults.get(k, 0)) for k in _regime_defaults}
+                if any(v < 0 for v in weights.values()) or sum(weights.values()) <= 0:
+                    logging.warning(f"Invalid adaptive_weights for {symbol}: negatives or zero-sum detected, falling back to regime defaults")
+                    weights = dict(_regime_defaults)
                 if not ml_active and weights.get('ml_signal', 0) > 0:
                     _leaked = weights['ml_signal']
                     weights['ml_signal'] = 0.0
@@ -429,12 +480,14 @@ class HybridOptimizedScoringEngine:
                     'ml_active': ml_active,
                     'using_calibrated_weights': _using_calibrated,
                 },
-                'raw_weighted_score': round(weighted_score, 1)
+                'raw_weighted_score': round(weighted_score, 1),
+                'data_coverage': _data_coverage,
+                'scoring_failed': False,
             }
 
         except Exception as e:
             print(f"Error calculating hybrid score for {symbol}: {e}")
-            return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': str(e)}
+            return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': str(e), 'scoring_failed': True}
     
     _CALIBRATED_WEIGHTS_PATH = 'data/calibrated_weights.json'
 
@@ -457,8 +510,9 @@ class HybridOptimizedScoringEngine:
         valid[ret_col] = pd.to_numeric(valid[ret_col], errors='coerce')
         valid = valid.dropna(subset=[ret_col])
 
-        if len(valid) < 30:
-            logging.info(f"calibrate_weights: only {len(valid)} rows with outcomes — need >=30")
+        _MIN_SAMPLES = 100  # HI-08: require meaningful sample size
+        if len(valid) < _MIN_SAMPLES:
+            logging.info(f"calibrate_weights: only {len(valid)} rows with outcomes — need >={_MIN_SAMPLES}")
             return None
 
         component_map = {
@@ -470,6 +524,9 @@ class HybridOptimizedScoringEngine:
             'risk_adjustment': 'risk_adjusted_score',
         }
 
+        _MIN_IC = 0.02  # HI-08: ignore components with IC below this
+        _MAX_SINGLE_WEIGHT = 0.50  # HI-08: cap any single component weight
+
         ics = {}
         for weight_key, col in component_map.items():
             if col in valid.columns:
@@ -477,7 +534,8 @@ class HybridOptimizedScoringEngine:
                 matched_ret = valid.loc[vals.index, ret_col]
                 if len(vals) >= 20:
                     corr, _ = spearmanr(vals, matched_ret)
-                    ics[weight_key] = max(0, corr) if not np.isnan(corr) else 0
+                    ic_val = max(0, corr) if not np.isnan(corr) else 0
+                    ics[weight_key] = ic_val if ic_val >= _MIN_IC else 0
                 else:
                     ics[weight_key] = 0
             else:
@@ -489,6 +547,18 @@ class HybridOptimizedScoringEngine:
             return None
 
         calibrated = {k: round(v / total_ic, 4) for k, v in ics.items()}
+        for _iter in range(5):
+            _any_capped = False
+            for k in calibrated:
+                if calibrated[k] > _MAX_SINGLE_WEIGHT:
+                    logging.warning(f"calibrate_weights: capping {k} from {calibrated[k]:.4f} to {_MAX_SINGLE_WEIGHT} (iter={_iter})")
+                    calibrated[k] = _MAX_SINGLE_WEIGHT
+                    _any_capped = True
+            _wsum = sum(calibrated.values())
+            if _wsum > 0 and abs(_wsum - 1.0) > 0.01:
+                calibrated = {k: round(v / _wsum, 4) for k, v in calibrated.items()}
+            if not _any_capped:
+                break
 
         result = {
             'weights': calibrated,
@@ -506,16 +576,20 @@ class HybridOptimizedScoringEngine:
         return calibrated
 
     def _load_calibrated_weights(self):
-        """Load calibrated weights if they exist and are < 7 days old."""
+        """Load calibrated weights if they exist and are < 3 days old (HI-08: reduced from 7)."""
         try:
             if not os.path.exists(self._CALIBRATED_WEIGHTS_PATH):
                 return None
             with open(self._CALIBRATED_WEIGHTS_PATH) as f:
                 data = json.load(f)
             updated = datetime.fromisoformat(data['updated'])
-            if (datetime.now() - updated).days > 7:
+            if (datetime.now() - updated).days > 3:
                 return None
-            return data.get('weights')
+            w = data.get('weights')
+            if w:
+                _src = 'calibrated'
+                logging.info(f"Weight source: {_src} (age={(datetime.now() - updated).days}d)")
+            return w
         except Exception:
             return None
 
@@ -544,8 +618,8 @@ class HybridOptimizedScoringEngine:
         return self.sector_multipliers['default']
     
     def generate_hybrid_recommendation(self, symbol, hybrid_scores):
-        """
-        Generate investment recommendation based on hybrid score
+        """DEPRECATED (HI-01): For debug/standalone use only.
+        Production uses config-driven thresholds in analyze_top200_stocks_enhanced.py.
         """
         if not hybrid_scores or not isinstance(hybrid_scores, dict):
             return {'recommendation': '🔴 AVOID', 'confidence': 'LOW', 'target_return': 'N/A',
@@ -608,7 +682,7 @@ class HybridOptimizedScoringEngine:
 # Test the hybrid system
 if __name__ == "__main__":
     print("=" * 60)
-    print("🚀 HYBRID OPTIMIZED SCORING SYSTEM V4.0")
+    print("🚀 HYBRID OPTIMIZED SCORING SYSTEM V5.2")
     print("=" * 60)
     print("Target: +0.401 correlation, +10.63% spread")
     print("Based on 500-stock backtest analysis")

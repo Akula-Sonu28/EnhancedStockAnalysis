@@ -33,8 +33,7 @@ logging.basicConfig(level=logging.WARNING)
 sys.path.append(".")
 
 from hybrid_optimized_scoring import HybridOptimizedScoringEngine
-from improved_scoring_engine import ImprovedScoringEngine
-from corrected_scoring_engine import CorrectedScoringEngine
+# HI-02: Dead engines removed — only Hybrid is active
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +284,6 @@ def score_stock(symbol, hist_slice, fundamentals, engines):
 def run_walk_forward(symbols, n_windows=6, forward_days=30, history_days=400):
     engines = {
         "hybrid": HybridOptimizedScoringEngine(),
-        "improved": ImprovedScoringEngine(),
-        "corrected": CorrectedScoringEngine(),
     }
 
     now = datetime.now()

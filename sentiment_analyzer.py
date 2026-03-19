@@ -92,7 +92,16 @@ class SentimentAnalyzer:
 
             if hist.empty:
                 return self._get_default_sentiment()
-            
+
+            _data_age_days = 0
+            _is_stale = False
+            try:
+                _last_date = pd.Timestamp(hist.index[-1])
+                _data_age_days = (pd.Timestamp.now(tz=_last_date.tz) - _last_date).days
+                _is_stale = _data_age_days > 3
+            except Exception:
+                pass
+
             # Calculate sentiment components
             news_sentiment = self._analyze_news_sentiment(hist, stock_data)
             analyst_sentiment = self._analyze_analyst_sentiment(ticker, stock_data)
@@ -135,6 +144,10 @@ class SentimentAnalyzer:
                 buzz_sentiment['signal']
             ])
             
+            _sub_results = [news_sentiment, analyst_sentiment, market_sentiment, earnings_sentiment, buzz_sentiment]
+            _fallback_count = sum(1 for s in _sub_results if s.get('is_fallback'))
+            _detection_failed = _fallback_count >= 3
+
             return {
                 'sentiment_composite_score': composite_score,
                 'composite_score': composite_score,
@@ -142,12 +155,16 @@ class SentimentAnalyzer:
                 'sentiment_signal': sentiment_signal,
                 'confidence': confidence,
                 'is_fallback': False,
+                'detection_failed': _detection_failed,
+                'fallback_count': _fallback_count,
                 'news_sentiment': news_sentiment,
                 'analyst_sentiment': analyst_sentiment,
                 'market_sentiment': market_sentiment,
                 'earnings_sentiment': earnings_sentiment,
                 'buzz_sentiment': buzz_sentiment,
-                'sentiment_strength': self._get_strength(composite_score)
+                'sentiment_strength': self._get_strength(composite_score),
+                'data_age_days': _data_age_days,
+                'is_stale': _is_stale,
             }
             
         except Exception as e:
@@ -220,9 +237,9 @@ class SentimentAnalyzer:
         mom_5  = float(r5.mean() * 100) if len(r5) > 0 else 0
         mom_10 = float(r10.mean() * 100) if len(r10) > 0 else 0
         mom_20 = float(r20.mean() * 100) if len(r20) > 0 else 0
-        for v in (mom_5, mom_10, mom_20):
-            if np.isnan(v):
-                v = 0
+        mom_5 = 0 if np.isnan(mom_5) else mom_5
+        mom_10 = 0 if np.isnan(mom_10) else mom_10
+        mom_20 = 0 if np.isnan(mom_20) else mom_20
         multi_mom = mom_5 * 0.5 + mom_10 * 0.3 + mom_20 * 0.2
 
         momentum_score = np.clip(multi_mom * 15, -30, 30)
@@ -334,54 +351,53 @@ class SentimentAnalyzer:
         """
         Analyze overall market sentiment from technical indicators
         """
-        # RSI-based sentiment (NaN guard: np.nan is not None, would leak into market_score)
-        _rsi = stock_data.get('real_rsi')
-        _ersi = stock_data.get('enhanced_rsi_14')
-        rsi = 50.0
-        for v in (_rsi, _ersi):
-            if v is not None and not (isinstance(v, (int, float)) and np.isnan(v)):
-                try:
-                    rsi = float(v)
-                    break
-                except (TypeError, ValueError):
-                    pass
-        
-        # Volume trend
-        recent_volume = hist['Volume'].tail(10).mean()
-        older_volume = hist['Volume'].tail(30).mean()
-        volume_trend = recent_volume / older_volume if older_volume > 0 else 1.0
-        
-        # Price trend
-        ma_20 = hist['Close'].rolling(20).mean().iloc[-1]
-        current_price = hist['Close'].iloc[-1]
-        price_vs_ma = (current_price - ma_20) / ma_20 * 100 if ma_20 > 0 else 0
-        
-        # Calculate market sentiment score
-        rsi_component = rsi  # Already 0-100
-        volume_component = min(volume_trend * 50, 100)
-        trend_component = np.clip(50 + price_vs_ma * 2, 0, 100)
-        
-        market_score = (rsi_component * 0.4 + volume_component * 0.3 + trend_component * 0.3)
-        
-        # Determine signal
-        if market_score >= 65:
-            signal = "BULLISH"
-            description = "Strong buying momentum"
-        elif market_score >= 35:
-            signal = "NEUTRAL"
-            description = "Balanced market sentiment"
-        else:
-            signal = "BEARISH"
-            description = "Weak market sentiment"
-        
-        return {
-            'score': market_score,
-            'signal': signal,
+        try:
+            _rsi = stock_data.get('real_rsi')
+            _ersi = stock_data.get('enhanced_rsi_14')
+            rsi = 50.0
+            for v in (_rsi, _ersi):
+                if v is not None and not (isinstance(v, (int, float)) and np.isnan(v)):
+                    try:
+                        rsi = float(v)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+
+            recent_volume = hist['Volume'].tail(10).mean()
+            older_volume = hist['Volume'].tail(30).mean()
+            volume_trend = recent_volume / older_volume if older_volume > 0 else 1.0
+
+            ma_20 = hist['Close'].rolling(20).mean().iloc[-1]
+            current_price = hist['Close'].iloc[-1]
+            price_vs_ma = (current_price - ma_20) / ma_20 * 100 if ma_20 > 0 else 0
+
+            rsi_component = rsi
+            volume_component = min(volume_trend * 50, 100)
+            trend_component = np.clip(50 + price_vs_ma * 2, 0, 100)
+
+            market_score = (rsi_component * 0.4 + volume_component * 0.3 + trend_component * 0.3)
+
+            if market_score >= 65:
+                signal = "BULLISH"
+                description = "Strong buying momentum"
+            elif market_score >= 35:
+                signal = "NEUTRAL"
+                description = "Balanced market sentiment"
+            else:
+                signal = "BEARISH"
+                description = "Weak market sentiment"
+
+            return {
+                'score': market_score,
+                'signal': signal,
             'rsi': rsi,
             'volume_trend': volume_trend,
             'price_vs_ma20': price_vs_ma,
             'description': description
         }
+        except Exception as _e:
+            logging.debug(f"_analyze_market_sentiment failed: {_e}")
+            return {'score': 50, 'signal': 'NEUTRAL', 'is_fallback': True, 'description': 'Market sentiment analysis failed'}
     
     def _analyze_earnings_sentiment(self, ticker: yf.Ticker, stock_data: Dict) -> Dict:
         """

@@ -48,7 +48,8 @@ def _safe(val, default=0.0):
 
 
 # ---------------------------------------------------------------------------
-# Sector index map (same as analyze_top200_stocks_enhanced._SECTOR_INDEX_MAP)
+# LO-04: Duplicated from analyze_top200_stocks_enhanced._SECTOR_INDEX_MAP.
+# TODO: Move to config.py in Phase 4 to eliminate duplication.
 # ---------------------------------------------------------------------------
 SECTOR_INDEX_MAP = {
     'banking': '^NSEBANK', 'bank': '^NSEBANK',
@@ -94,8 +95,10 @@ def build_stock_data_from_hist(symbol: str, hist: pd.DataFrame,
     rsi_14 = _compute_rsi(close, 14)
     macd_hist = _compute_macd_histogram(close)
 
-    pct_1m = ((cur / float(close.iloc[-21])) - 1) * 100 if len(close) > 21 else 0
-    pct_3m = ((cur / float(close.iloc[-63])) - 1) * 100 if len(close) > 63 else 0
+    _p21 = float(close.iloc[-21]) if len(close) > 21 else 0
+    _p63 = float(close.iloc[-63]) if len(close) > 63 else 0
+    pct_1m = ((cur / _p21) - 1) * 100 if _p21 != 0 else 0
+    pct_3m = ((cur / _p63) - 1) * 100 if _p63 != 0 else 0
 
     vol = hist['Volume'].tail(20)
     if isinstance(vol, pd.DataFrame):
@@ -169,7 +172,9 @@ def _compute_macd_histogram(close: pd.Series) -> float:
 
 def _compute_max_drawdown(close: pd.Series) -> float:
     peak = close.expanding().max()
+    peak = peak.replace(0, np.nan)
     dd = (close - peak) / peak
+    dd = dd.dropna()
     return abs(float(dd.min())) * 100 if not dd.empty else 0
 
 
@@ -197,13 +202,14 @@ def _compute_data_quality(sd: Dict) -> float:
     if sd.get('revenue_growth', 0) == 0 and sd.get('profit_margin', 0) == 0:
         score -= 5
 
+    score = 50.0 if (isinstance(score, float) and np.isnan(score)) else score
     return max(0, min(100, score))
 
 
 # ---------------------------------------------------------------------------
 # Transaction cost model (Zerodha delivery)
 # ---------------------------------------------------------------------------
-def _zerodha_cost(trade_value: float, is_sell: bool = False) -> float:
+def _zerodha_cost(trade_value: float, is_sell: bool = False, slippage_bps: int = 10) -> float:
     """Compute Zerodha delivery trade costs for a single leg.
 
     Components:
@@ -213,6 +219,7 @@ def _zerodha_cost(trade_value: float, is_sell: bool = False) -> float:
       - GST: 18% on (brokerage + exchange charges)
       - Stamp duty: 0.015% on buy side only
       - SEBI turnover fee: 0.0001%
+      - Slippage: configurable bps (default 10 = 0.10%), models bid-ask spread & market impact
     """
     brokerage = min(trade_value * 0.0003, 20.0)
     stt = trade_value * 0.001 if is_sell else 0.0
@@ -220,7 +227,8 @@ def _zerodha_cost(trade_value: float, is_sell: bool = False) -> float:
     gst = (brokerage + exchange) * 0.18
     stamp = trade_value * 0.00015 if not is_sell else 0.0
     sebi = trade_value * 0.000001
-    return brokerage + stt + exchange + gst + stamp + sebi
+    slippage = trade_value * (slippage_bps / 10000.0)
+    return brokerage + stt + exchange + gst + stamp + sebi + slippage
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +395,20 @@ class BacktestEngine:
     @staticmethod
     def _detect_regime_from_data(nifty_df: pd.DataFrame) -> str:
         """Detect market regime from historical Nifty OHLCV data.
+
+        MI-13/CB-06: This is the ONLY acceptable duplicate of MarketRegimeDetector
+        logic because backtests operate on historical data (no live API).
+        Thresholds and output labels are aligned with MarketRegimeDetector
+        (BULL/BEAR/SIDEWAYS).
+
+        Known divergences from production MarketRegimeDetector (H9):
+        - No VIX-adaptive weighting (production shifts +0.15 to volatility when VIX>25)
+        - No multi-index consensus (production uses BankNifty + Midcap agreement)
+        - No VIX>30 non-BULL clamp (production clamps regime_score to max 0)
+        These differences mean backtest regime labels may diverge from what
+        production would have assigned for the same date. Backtest results
+        for regime-dependent metrics (drawdown-by-regime, Sharpe-by-regime)
+        should be interpreted with this caveat.
 
         Replicates the MarketRegimeDetector signal logic (trend + momentum +
         volatility + breadth) so the backtest can classify regime at each
@@ -625,6 +647,10 @@ class BacktestEngine:
                         sd = build_stock_data_from_hist(sym, hist_slice, info_cache.get(sym))
                         if not sd:
                             continue
+                        _real_fields = sum(1 for k in ('current_price', 'pe_ratio', 'market_cap', 'rsi', 'sma_50')
+                                          if sd.get(k) is not None and sd.get(k) != 0)
+                        if _real_fields < 3:
+                            continue
                         sd['market_regime'] = regime
 
                         # Hybrid score
@@ -646,8 +672,9 @@ class BacktestEngine:
                         sector_adj = _compute_sector_adj(
                             sector_str, nifty_hist, sector_hist_cache, rebal_date)
 
-                        final_score = max(0, min(100,
-                            hybrid_score + crisis_adj + quality_adj + sector_adj))
+                        _raw = hybrid_score + crisis_adj + quality_adj + sector_adj
+                        _raw = 50.0 if (isinstance(_raw, float) and np.isnan(_raw)) else _raw
+                        final_score = max(0, min(100, _raw))
 
                         scores[sym] = final_score
                         stock_data_cache[sym] = {
@@ -765,7 +792,7 @@ class BacktestEngine:
 
                         for dt, price in daily_prices.items():
                             p = float(price) if not isinstance(price, pd.Series) else float(price.iloc[0])
-                            drawdown = (p - entry_price) / entry_price
+                            drawdown = (p - entry_price) / entry_price if entry_price != 0 else 0
                             if drawdown <= STOP_LOSS_PCT:
                                 exit_price = p
                                 was_stopped = True
@@ -782,7 +809,7 @@ class BacktestEngine:
                                 exit_price = float(end_prices.iloc[0])
 
                         if exit_price is not None:
-                            ret = (exit_price - entry_price) / entry_price
+                            ret = (exit_price - entry_price) / entry_price if entry_price != 0 else 0
                             pnl = alloc * ret - sl_sell_cost
                             period_pnl += pnl
                             weight = pos.get('weight', 1.0 / max(len(new_portfolio), 1))
@@ -855,7 +882,7 @@ class BacktestEngine:
 
         nifty_return = 0
         if result.benchmark_curve:
-            nifty_return = (result.benchmark_curve[-1]['nifty_value'] - initial_capital) / initial_capital * 100
+            nifty_return = ((result.benchmark_curve[-1]['nifty_value'] - initial_capital) / initial_capital * 100) if initial_capital != 0 else 0
 
         regime_counts = {}
         for entry in regime_log:

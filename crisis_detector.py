@@ -227,6 +227,10 @@ class CrisisDetector:
         """
         try:
             signals = self._fetch_signals()
+            _fetch_failures = signals.pop('_fetch_failures', 0)
+            _total_assets = len(self.ASSETS) + 1  # +1 for VIX
+            _all_failed = _fetch_failures >= _total_assets
+
             crisis_type = self._classify_event(signals)
             severity = self._calculate_severity(signals, crisis_type)
 
@@ -238,8 +242,15 @@ class CrisisDetector:
                 'description':        self.DESCRIPTIONS.get(crisis_type, 'Unknown event'),
                 'sector_adjustments': self.SECTOR_RULES.get(crisis_type, {}),
                 'signals':            signals,
+                'detection_failed':   _all_failed,
                 'timestamp':          datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             }
+
+            if _all_failed:
+                self.logger.error(
+                    f"[CRISIS-DETECTOR] ALL {_total_assets} asset feeds failed — "
+                    f"detection_failed=True, result is unreliable"
+                )
 
             if crisis_type != 'NONE':
                 sig = signals
@@ -260,7 +271,7 @@ class CrisisDetector:
 
         except Exception as e:
             self.logger.error(f"[CRISIS-DETECTOR] Detection failed: {e}")
-            return self._no_crisis()
+            return self._no_crisis(detection_failed=True)
 
     def get_stock_crisis_adjustment(self, symbol: str, sector: str, crisis_data: Dict) -> float:
         """
@@ -328,8 +339,11 @@ class CrisisDetector:
     # ─────────────────────────── Private helpers ────────────────────────────
 
     def _fetch_signals(self) -> Dict:
-        """Fetch 1-day % change for all cross-asset tickers."""
+        """Fetch 1-day % change for all cross-asset tickers.
+        Returns signals dict with `_fetch_failures` count for downstream failure detection.
+        """
         signals = {}
+        _fail_count = 0
 
         for name, sym in self.ASSETS.items():
             try:
@@ -341,9 +355,11 @@ class CrisisDetector:
                     signals[name] = {'value': round(today, 4), 'change_pct': round(pct, 3)}
                 else:
                     signals[name] = {'value': 0.0, 'change_pct': 0.0}
+                    _fail_count += 1
             except Exception as e:
                 self.logger.debug(f"[CRISIS] {name}/{sym} fetch error: {e}")
                 signals[name] = {'value': 0.0, 'change_pct': 0.0}
+                _fail_count += 1
 
         # VIX spike = today vs 5-day rolling average (more sensitive than raw 1-day change)
         try:
@@ -356,11 +372,14 @@ class CrisisDetector:
             else:
                 signals['vix_spike_pct'] = 0.0
                 signals['vix_absolute']  = 15.0
+                _fail_count += 1
         except Exception as e:
             self.logger.debug(f"[CRISIS] VIX fetch failed: {e}")
             signals['vix_spike_pct'] = 0.0
             signals['vix_absolute']  = 15.0
+            _fail_count += 1
 
+        signals['_fetch_failures'] = _fail_count
         return signals
 
     def _classify_event(self, signals: Dict) -> str:
@@ -439,16 +458,17 @@ class CrisisDetector:
         elif score >= 1: return 1   # MILD
         return 1  # Crisis was detected so at least MILD
 
-    def _no_crisis(self) -> Dict:
+    def _no_crisis(self, detection_failed: bool = False) -> Dict:
         """Safe fallback when detection throws an exception."""
         return {
             'crisis_detected':    False,
             'crisis_type':        'NONE',
             'severity':           0,
             'severity_label':     'NONE',
-            'description':        '✅ Normal — no crisis signals detected',
+            'description':        '⚠️ Detection failed — assuming no crisis (conservative)' if detection_failed else '✅ Normal — no crisis signals detected',
             'sector_adjustments': {},
             'signals':            {},
+            'detection_failed':   detection_failed,
             'timestamp':          datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         }
 

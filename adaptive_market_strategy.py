@@ -119,65 +119,16 @@ class AdaptiveMarketRegimeStrategy:
             }
         }
     
-    def detect_current_market_regime(self):
-        """Detect current market regime using Nifty 50 data"""
-        try:
-            nifty = yf.Ticker("^NSEI")
-            import time as _time
-            hist = pd.DataFrame()
-            for _attempt in range(3):
-                try:
-                    hist = nifty.history(period="2mo")
-                    break
-                except (ConnectionError, TimeoutError, OSError) as _e:
-                    _wait = (2 ** _attempt) * 2
-                    logging.warning(f"Nifty fetch retry {_attempt+1}/3: {_e}")
-                    _time.sleep(_wait)
-            
-            if len(hist) < 30:
-                return {'regime': 'CALM', 'confidence': 'LOW'}
-            
-            # Calculate metrics
-            current_price = hist['Close'].iloc[-1]
-            price_30d_ago = hist['Close'].iloc[-30] if len(hist) > 30 else hist['Close'].iloc[0]
-            if price_30d_ago == 0 or np.isnan(price_30d_ago):
-                price_30d_ago = current_price if current_price != 0 else 1.0
-            
-            return_30d = (current_price - price_30d_ago) / price_30d_ago
-            
-            # Calculate volatility
-            returns = hist['Close'].pct_change().dropna()
-            volatility = returns.std() * np.sqrt(252)  # Annualized
-            
-            # Calculate moving averages
-            sma_20 = hist['Close'].rolling(20).mean().iloc[-1]
-            if sma_20 == 0 or np.isnan(sma_20):
-                sma_20 = current_price if current_price != 0 else 1.0
-            sma_50 = hist['Close'].rolling(50).mean().iloc[-1] if len(hist) > 50 else sma_20
-            if sma_50 == 0 or np.isnan(sma_50):
-                sma_50 = sma_20
-            
-            # Classify market regime
-            if return_30d > 0.05 and current_price > sma_20 > sma_50:
-                regime = 'BULL_MODERATE'
-            elif return_30d < -0.05 and current_price < sma_20:
-                regime = 'BEAR_MODERATE'
-            elif volatility > 0.25:
-                regime = 'SIDEWAYS'  # High volatility = choppy/sideways
-            else:
-                regime = 'CALM'
-            
-            return {
-                'regime': regime,
-                'return_30d': return_30d * 100,
-                'volatility': volatility * 100,
-                'price_vs_sma20': (current_price / sma_20 - 1) * 100 if sma_20 != 0 else 0,
-                'confidence': self._calculate_regime_confidence(return_30d, volatility, current_price, sma_20)
-            }
-            
-        except Exception as e:
-            print(f"❌ Error detecting market regime: {e}")
-            return {'regime': 'CALM', 'confidence': 'LOW'}
+    def detect_current_market_regime(self, external_regime=None):
+        """CB-06: Delegates to MarketRegimeDetector (single source of truth).
+        Accepts external_regime string from MarketRegimeDetector and maps it
+        to the internal key space (BULL_MODERATE/BEAR_MODERATE/SIDEWAYS/CALM).
+        Falls back to CALM if no external regime is provided.
+        """
+        if external_regime:
+            mapped = self._map_regime(str(external_regime).upper())
+            return {'regime': mapped, 'confidence': 'HIGH'}
+        return {'regime': 'CALM', 'confidence': 'LOW'}
     
     def _calculate_regime_confidence(self, return_30d, volatility, price, sma_20):
         """Calculate confidence in market regime detection"""
@@ -212,7 +163,7 @@ class AdaptiveMarketRegimeStrategy:
 
     def _map_regime(self, regime_key):
         """Map detector regime keys (BULL/BEAR) to strategy keys (BULL_MODERATE/BEAR_MODERATE)"""
-        return self.REGIME_MAP.get(str(regime_key).upper(), 'CALM')
+        return self.REGIME_MAP.get(str(regime_key).upper(), 'BEAR_MODERATE')
 
     def get_adaptive_scoring_weights(self, current_regime):
         """Get scoring weights optimized for current market regime"""

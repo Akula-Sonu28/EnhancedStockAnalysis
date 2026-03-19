@@ -10,39 +10,50 @@ import pandas as pd
 import yfinance as yf
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from config import LOG_FILE, REQUEST_DELAY
+try:
+    from config import get_config as _get_config
+    _cfg = _get_config()
+    REQUEST_DELAY = getattr(_cfg, 'REQUEST_DELAY', 0.5)
+    _log_dir = getattr(_cfg, 'DATA_DIR', 'data')
+except ImportError:
+    REQUEST_DELAY = 0.5
+    _log_dir = 'data'
+
+import os as _os
+_os.makedirs(_log_dir, exist_ok=True)
+from datetime import datetime as _dt
+LOG_FILE = _os.path.join(_log_dir, f"analysis_{_dt.now().strftime('%Y%m%d_%H%M%S')}.log")
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(levelname)s:%(message)s")
 
 # Function to get stock info for a single stock
-def get_stock_info(symbol):
+def get_stock_info(symbol, _max_retries=3):
     """
-    Get stock information for a single stock
+    Get stock information for a single stock with retry and exponential backoff.
     Returns: stock info dict or None if not found
     """
-    try:
-        time.sleep(REQUEST_DELAY)
+    if not symbol.endswith('.NS'):
+        ticker_name = f"{symbol}.NS"
+    else:
+        ticker_name = symbol
+    if ticker_name in TICKER_CORRECTIONS:
+        ticker_name = TICKER_CORRECTIONS[ticker_name]
 
-        if not symbol.endswith('.NS'):
-            ticker_name = f"{symbol}.NS"
-        else:
-            ticker_name = symbol
-            
-        # Check for ticker corrections
-        if ticker_name in TICKER_CORRECTIONS:
-            ticker_name = TICKER_CORRECTIONS[ticker_name]
-            
-        stock = yf.Ticker(ticker_name)
-        info = stock.info
-        if info:
-            logging.info(f"Successfully fetched data for {symbol}")
-            return info
-        else:
-            logging.warning(f"No data available for {symbol}")
-            return None
-    except Exception as e:
-        logging.error(f"Error fetching data for {symbol}: {str(e)}")
-        return None
+    for _attempt in range(_max_retries):
+        try:
+            _delay = REQUEST_DELAY * (2 ** _attempt)
+            time.sleep(_delay)
+            stock = yf.Ticker(ticker_name)
+            info = stock.info
+            if info:
+                logging.info(f"Successfully fetched data for {symbol}")
+                return info
+            else:
+                logging.warning(f"No data available for {symbol} (attempt {_attempt + 1})")
+        except Exception as e:
+            logging.warning(f"Retry {_attempt + 1}/{_max_retries} for {symbol}: {e}")
+    logging.error(f"All {_max_retries} attempts failed for {symbol}")
+    return None
 
 # Ticker corrections mapping
 TICKER_CORRECTIONS = {

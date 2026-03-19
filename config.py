@@ -100,6 +100,18 @@ class AnalysisConfig:
     # Extreme Volatility
     MAX_SAFE_VOLATILITY: float = 80.0
 
+    # Rate Limiting (consolidated from src/config.py — CB-05)
+    REQUEST_DELAY: float = 0.5
+    REQUESTS_PER_MIN: int = 20
+    RETRY_LIMIT: int = 3
+    RETRY_BACKOFF: int = 2
+
+    # Market Cap Thresholds (consolidated from src/config.py — CB-05)
+    MARKET_CAP_MEGA: int = 200000
+    MARKET_CAP_LARGE: int = 50000
+    MARKET_CAP_MID: int = 10000
+    MARKET_CAP_SMALL: int = 2000
+
     # File Paths
     REPORTS_DIR: str = "reports"
     DATA_DIR: str = "data"
@@ -137,17 +149,81 @@ def get_config() -> AnalysisConfig:
     return CONFIG
 
 def update_config(**kwargs) -> None:
-    """Update configuration parameters (thread-safe)."""
+    """Update configuration parameters (thread-safe). Validates after mutation; rolls back on failure."""
     global CONFIG
     with _CONFIG_LOCK:
+        _snapshot = {k: getattr(CONFIG, k) for k in kwargs if hasattr(CONFIG, k)}
         for key, value in kwargs.items():
             if hasattr(CONFIG, key):
                 setattr(CONFIG, key, value)
             else:
                 print(f"Warning: Unknown configuration parameter: {key}")
+        try:
+            _validate_config(CONFIG)
+        except ValueError:
+            for k, v in _snapshot.items():
+                setattr(CONFIG, k, v)
+            raise
+
+_VALIDATION_RULES: dict = {
+    'STRONG_BUY_THRESHOLD': (float, 50, 100),
+    'BUY_THRESHOLD': (float, 30, 100),
+    'HOLD_THRESHOLD': (float, 10, 90),
+    'SECTOR_CAP': (int, 1, 50),
+    'CATEGORY_SECTOR_CAP': (int, 1, 20),
+    'MAX_WORKERS': (int, 1, 20),
+    'BATCH_SIZE': (int, 1, 50),
+    'TIMEOUT_SECONDS': (int, 10, 600),
+    'RETRY_ATTEMPTS': (int, 0, 10),
+    'CACHE_EXPIRY_HOURS': (int, 1, 168),
+    'CACHE_MAX_AGE_DAYS': (int, 1, 30),
+    'SCORE_SMOOTHING_WEIGHT': (float, 0.0, 1.0),
+    'SCORE_SMOOTHING_MAX_AGE_DAYS': (int, 1, 14),
+    'BEAR_EXPOSURE': (float, 0.0, 1.0),
+    'SIDEWAYS_EXPOSURE': (float, 0.0, 1.0),
+    'BULL_EXPOSURE': (float, 0.0, 1.0),
+    'FUNDAMENTAL_WEIGHT': (float, 0.0, 1.0),
+    'TECHNICAL_WEIGHT': (float, 0.0, 1.0),
+    'UNDERVALUATION_WEIGHT': (float, 0.0, 1.0),
+    'MAX_SINGLE_STOCK_WEIGHT': (float, 1.0, 100.0),
+    'MAX_ALLOCATION_PCT': (float, 0.01, 1.0),
+    'MIN_ALLOCATION_PERCENTAGE': (float, 0.0, 50.0),
+    'TARGET_PORTFOLIO_SIZE': (int, 1, 100),
+    'MAX_PORTFOLIO_POSITIONS': (int, 1, 100),
+    'DEFAULT_PORTFOLIO_AMOUNT': (float, 1000, 1e9),
+    'SECTOR_REDUCE_MIN_SCORE': (float, 0, 100),
+    'MAX_SAFE_VOLATILITY': (float, 10, 200),
+    'ILLIQUID_SCORE_PENALTY': (float, 0, 50),
+    'MIN_AVG_DAILY_VOLUME': (int, 10_000, 10_000_000),
+    'PROFIT_BOOKING_THRESHOLD': (float, 0.0, 1.0),
+    'REBALANCE_PROFIT_THRESHOLD': (float, 0.0, 1.0),
+}
+
+def _validate_config(cfg: 'AnalysisConfig') -> None:
+    """Validate config values are within acceptable ranges. Raises ValueError on failure."""
+    errors = []
+    for key, (expected_type, lo, hi) in _VALIDATION_RULES.items():
+        if not hasattr(cfg, key):
+            continue
+        val = getattr(cfg, key)
+        if not isinstance(val, (int, float)):
+            errors.append(f"{key}: expected numeric, got {type(val).__name__}")
+            continue
+        if val < lo or val > hi:
+            errors.append(f"{key}={val} out of range [{lo}, {hi}]")
+    thr_sb = getattr(cfg, 'STRONG_BUY_THRESHOLD', 70)
+    thr_b = getattr(cfg, 'BUY_THRESHOLD', 60)
+    thr_h = getattr(cfg, 'HOLD_THRESHOLD', 50)
+    if not (thr_sb > thr_b > thr_h):
+        errors.append(f"Thresholds must satisfy STRONG_BUY({thr_sb}) > BUY({thr_b}) > HOLD({thr_h})")
+    if errors:
+        raise ValueError("[CONFIG] Validation failed:\n  " + "\n  ".join(errors))
+
 
 def load_config_from_file(file_path: str = 'config.json') -> None:
-    """Load configuration from a JSON file and update the global CONFIG instance."""
+    """Load configuration from a JSON file and update the global CONFIG instance.
+    Validates inside the lock; rolls back to snapshot on validation failure.
+    """
     global CONFIG
     if not os.path.exists(file_path):
         return
@@ -156,10 +232,20 @@ def load_config_from_file(file_path: str = 'config.json') -> None:
             data = json.load(f)
         with _CONFIG_LOCK:
             valid_fields = {fld.name for fld in fields(CONFIG)}
+            _snapshot = {k: getattr(CONFIG, k) for k in valid_fields}
             for key, value in data.items():
                 if key in valid_fields:
                     setattr(CONFIG, key, value)
-        print(f"[CONFIG] Loaded settings from {file_path}")
+            try:
+                _validate_config(CONFIG)
+            except ValueError:
+                for k, v in _snapshot.items():
+                    setattr(CONFIG, k, v)
+                raise
+        print(f"[CONFIG] Loaded and validated settings from {file_path}")
+    except ValueError as ve:
+        print(f"[CONFIG] {ve}")
+        raise
     except Exception as e:
         print(f"[CONFIG] Warning: could not load {file_path}: {e}")
 

@@ -16,4 +16,6 @@ apscheduler>=3.7.0
 vaderSentiment>=3.3.0
 textblob>=0.15.0
 scikit-learn>=0.24.0
+filelock>=3.0.0
+xlsxwriter>=3.0.0
 # sqlite3 is part of Python's standard library
