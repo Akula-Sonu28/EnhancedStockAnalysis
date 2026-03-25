@@ -18,7 +18,6 @@ import pandas as pd
 import numpy as np
 import logging
 from typing import Dict, List, Tuple, Optional
-import yfinance as yf
 from datetime import datetime, timedelta
 
 
@@ -275,9 +274,14 @@ class EarlyBreakoutDetector:
                 signals.append("⚠️ Bearish divergence (price up, RSI down)")
                 exhaustion_score += 25
             
-            # Signal 5: Parabolic Move
-            _price_5d_ago = df['Close'].iloc[-6] if (len(df) > 6 and df['Close'].iloc[-6] != 0) else None
-            move_5d = ((current_price - _price_5d_ago) / _price_5d_ago) * 100 if _price_5d_ago else 0.0
+            # Signal 5: Parabolic Move (ignore NaN closes so mean/return does not propagate NaN)
+            _closes_6 = df['Close'].iloc[-6:].dropna()
+            if len(_closes_6) >= 2:
+                _p0 = float(_closes_6.iloc[0])
+                _p1 = float(_closes_6.iloc[-1])
+                move_5d = ((_p1 - _p0) / _p0) * 100 if _p0 != 0 else 0.0
+            else:
+                move_5d = 0.0
             if move_5d > 20:
                 signals.append(f"🚀 Parabolic: +{move_5d:.1f}% in 5 days")
                 exhaustion_score += 30
@@ -286,7 +290,7 @@ class EarlyBreakoutDetector:
                 exhaustion_score += 20
             
             # Signal 6: Distance from moving averages
-            ma_20 = df['Close'].tail(20).mean()
+            ma_20 = float(np.nanmean(df['Close'].tail(20).to_numpy(dtype=float)))
             ma_20 = ma_20 if pd.notna(ma_20) and ma_20 != 0 else 1.0
             distance_from_ma = ((current_price - ma_20) / ma_20) * 100
             if distance_from_ma > 15:

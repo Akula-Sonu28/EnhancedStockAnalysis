@@ -536,6 +536,21 @@ def build_dataset(stock_list: list, forward_days: int = 10,
     return X, y, groups
 
 
+def _verify_ml_pickle_roundtrip(path: Path, payload: dict, X_check: np.ndarray) -> None:
+    """Reload pickle and confirm model+scaler reproduce predictions on X_check."""
+    if X_check.size == 0:
+        raise ValueError('Integrity check needs at least one feature row')
+    with open(path, 'rb') as f:
+        loaded = pickle.load(f)
+    for key in ('model', 'scaler'):
+        if key not in loaded:
+            raise ValueError(f"Reloaded pickle missing '{key}'")
+    po = payload['model'].predict(payload['scaler'].transform(X_check))
+    pl = loaded['model'].predict(loaded['scaler'].transform(X_check))
+    if not np.array_equal(po, pl):
+        raise ValueError('Reloaded model predictions differ from in-memory model')
+
+
 # ── training ───────────────────────────────────────────────────────────────────
 def train(stock_list: list, forward_days: int, n_estimators: int, max_depth: int,
           learning_rate: float, test_size: float):
@@ -618,6 +633,15 @@ def train(stock_list: list, forward_days: int, n_estimators: int, max_depth: int
         pickle.dump(payload, f)
     logger.info(f"\nModel saved  -> {model_path.resolve()}")
 
+    _n_check = min(32, len(X_test) if len(X_test) > 0 else len(X_train))
+    X_integrity = (X_test if len(X_test) > 0 else X_train)[:_n_check]
+    try:
+        _verify_ml_pickle_roundtrip(model_path, payload, X_integrity)
+        logger.info("Post-save integrity check: reload OK, predictions match in-memory model")
+    except Exception as ver_err:
+        logger.error(f"Post-save model integrity check failed: {ver_err}")
+        raise
+
     # ── 5-fold GroupKFold CV (group-aware: no stock appears in both train & val) ──────
     try:
         # Use Pipeline so each fold fits its own scaler (no leakage across folds)
@@ -640,6 +664,12 @@ def train(stock_list: list, forward_days: int, n_estimators: int, max_depth: int
         with open(model_path, 'wb') as f:
             pickle.dump(payload, f)
         logger.info(f"Model updated with CV score -> {model_path.resolve()}")
+        try:
+            _verify_ml_pickle_roundtrip(model_path, payload, X_integrity)
+            logger.info("Post-CV-save integrity check: reload OK, predictions match")
+        except Exception as ver_err:
+            logger.error(f"Post-CV-save integrity check failed: {ver_err}")
+            raise
     except Exception as cv_err:
         logger.warning(f"5-fold CV skipped ({cv_err}). Model already saved above.")
 

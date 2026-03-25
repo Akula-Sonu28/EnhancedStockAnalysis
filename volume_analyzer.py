@@ -376,15 +376,18 @@ class VolumeAnalyzer:
                 val = min([bin.left for bin in value_area_bins])
             price_in_va = val <= current_price <= vah
             
-            # Profile shape analysis
+            # Profile shape analysis (need ≥2 bins with volume for skew/bimodal)
             profile_std = volume_profile.std()
             profile_mean = volume_profile.mean()
-            
-            if profile_mean == 0:
+            n_bins = len(volume_profile)
+
+            if n_bins < 2:
+                shape = 'NORMAL'
+            elif profile_mean == 0 or pd.isna(profile_std):
                 shape = 'NORMAL'
             elif profile_std / profile_mean < 0.5:
                 shape = 'NORMAL'  # Balanced distribution
-            elif len(volume_profile) >= 2 and volume_profile.iloc[0] > volume_profile.iloc[1] * 2:
+            elif volume_profile.iloc[0] > volume_profile.iloc[1] * 2:
                 shape = 'SKEWED'  # Heavily concentrated
             else:
                 shape = 'BIMODAL'  # Multiple peaks

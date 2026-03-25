@@ -28,24 +28,28 @@ class MLPricePredictor:
     """
     
     FEATURE_NAMES = [
+        # 1. Technical Indicators (20)
         'real_rsi', 'enhanced_rsi_14', 'enhanced_macd', 'enhanced_signal_line',
         'enhanced_bb_position', 'enhanced_bb_width', 'enhanced_atr_14', 'enhanced_adx',
         'enhanced_cci', 'enhanced_stoch_k', 'enhanced_stoch_d', 'enhanced_williams_r',
         'enhanced_roc', 'enhanced_mfi', 'enhanced_obv_trend', 'enhanced_vwap_distance',
         'ma_20', 'ma_50', 'ma_200', 'enhanced_price_vs_ma20',
-        'price_change_1d', 'price_change_5d', 'price_change_20d', 'price_change_50d',
-        'price_momentum_5d', 'price_momentum_10d', 'price_momentum_20d',
-        'price_vs_52wk_high', 'price_vs_52wk_low', 'price_range_position',
-        'volume_ratio_5d', 'volume_ratio_10d', 'volume_ratio_20d',
-        'obv_trend', 'volume_strength', 'volume_price_corr',
-        'avg_daily_range', 'volume_momentum', 'volume_expansion', 'vwap_distance',
-        'pe_ratio', 'pb_ratio', 'roe', 'debt_to_equity',
-        'revenue_growth', 'earnings_growth', 'profit_margin',
-        'operating_margin', 'dividend_yield', 'current_ratio',
-        'fundamental_score', 'undervaluation_score', 'peg_ratio', 'ev_ebitda', 'price_to_sales',
-        'news_sentiment', 'analyst_sentiment', 'market_sentiment',
-        'earnings_sentiment', 'buzz_sentiment',
-        'volatility', 'beta', 'drawdown', 'sharpe_approx', 'downside_risk',
+        # 2. Price Momentum (10)
+        'enhanced_price_change_1d', 'enhanced_price_change_5d', 'enhanced_price_change_20d',
+        'enhanced_price_change_50d', 'price_momentum_5d', 'price_momentum_20d',
+        'volatility_20d', 'volatility_6m', 'enhanced_high_low_range', 'price_vs_52wk_high_ratio',
+        # 3. Volume Patterns (8)
+        'enhanced_volume_ratio', 'enhanced_volume_trend', 'enhanced_volume_volatility',
+        'volume_spike', 'avg_volume', 'volume_ma_ratio', 'enhanced_obv', 'enhanced_mfi_vol',
+        # 4. Fundamental Metrics (15)
+        'pe_ratio', 'pb_ratio', 'debt_to_equity', 'current_ratio', 'roe',
+        'roa', 'profit_margin', 'operating_margin', 'revenue_growth', 'earnings_growth',
+        'dividend_yield', 'free_cash_flow', 'book_value_per_share', 'price_to_sales', 'enterprise_value',
+        # 5. Sentiment & Flow (7)
+        'institutional_score', 'fii_activity', 'dii_activity',
+        'mtf_trend_strength', 'mtf_momentum_strength', 'mtf_timeframe_agreement', 'real_technical_score',
+        # 6. Multi-Timeframe (5)
+        'daily_trend', 'weekly_trend', 'monthly_trend', 'mtf_composite_score', 'advanced_technical_score_final',
     ]
     MODEL_DIR = Path('models')
 
@@ -62,8 +66,17 @@ class MLPricePredictor:
     def _load_trained_model(self):
         """Load pre-trained model if available"""
         try:
-            model_path = Path('models/ml_predictor_latest.pkl')
+            model_path = (self.MODEL_DIR / 'ml_predictor_latest.pkl').resolve()
+            models_root = self.MODEL_DIR.resolve()
+            try:
+                model_path.relative_to(models_root)
+            except ValueError:
+                logging.warning("ML model path escapes MODEL_DIR — refusing to load")
+                self.is_trained = False
+                return
             if model_path.exists():
+                # SECURITY: pickle can execute arbitrary code on load. Only read files under
+                # MODEL_DIR (validated above); never load pickles from untrusted paths.
                 with open(model_path, 'rb') as f:
                     data = pickle.load(f)
                     if not isinstance(data, dict) or 'model' not in data or 'scaler' not in data:

@@ -5,7 +5,12 @@ Detects classic chart patterns for enhanced trading signals
 
 import pandas as pd
 import numpy as np
-from scipy.signal import argrelextrema
+try:
+    from scipy.signal import argrelextrema
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
+    argrelextrema = None
 from typing import Dict, List, Tuple, Optional
 import logging
 
@@ -38,6 +43,8 @@ class PatternRecognizer:
         Returns:
             Tuple of (peak_indices, trough_indices)
         """
+        if not _HAS_SCIPY or argrelextrema is None:
+            return np.array([], dtype=int), np.array([], dtype=int)
         # Find local maxima (peaks)
         peaks = argrelextrema(prices.values, np.greater, order=order)[0]
         
@@ -218,7 +225,9 @@ class PatternRecognizer:
                     
                     # Pattern confirmed if price breaks below support
                     if current_price < support:
-                        confidence = min(0.85, 0.6 + (1 - peak_diff) * 5)
+                        # Gradate by price alignment: 0.02 cap → 0.55–0.88 (old formula always hit 0.85)
+                        align = max(0.0, 1.0 - peak_diff / 0.02)
+                        confidence = float(np.clip(0.55 + 0.33 * align, 0.5, 0.88))
                         
                         # Target: Distance from peaks to support projected down
                         target_distance = first_peak - support
@@ -276,7 +285,8 @@ class PatternRecognizer:
                     
                     # Pattern confirmed if price breaks above resistance
                     if current_price > resistance:
-                        confidence = min(0.85, 0.6 + (1 - trough_diff) * 5)
+                        align = max(0.0, 1.0 - trough_diff / 0.02)
+                        confidence = float(np.clip(0.55 + 0.33 * align, 0.5, 0.88))
                         
                         target_distance = resistance - first_trough
                         target_price = resistance + target_distance
