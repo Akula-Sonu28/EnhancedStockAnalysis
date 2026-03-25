@@ -535,7 +535,11 @@ class BacktestEngine:
             return result
 
         # ── 2. Fetch fundamentals (ticker.info) once per symbol ──────────────
-        print("  Fetching fundamentals (ticker.info)...")
+        # KNOWN LIMITATION: yfinance returns CURRENT-DATE fundamentals.
+        # These are reused for ALL historical rebalance periods, which introduces
+        # look-ahead bias for fundamental features (PE, ROE, margins, etc.).
+        # Backtest accuracy for fundamental-heavy strategies will be overstated.
+        print("  Fetching fundamentals (ticker.info) [WARNING: current-date only, introduces look-ahead bias]...")
         info_cache: Dict[str, dict] = {}
         for sym in symbols:
             ns = sym + '.NS' if not sym.endswith('.NS') else sym
@@ -692,7 +696,7 @@ class BacktestEngine:
             LOYALTY_BONUS = 3.0
             for sym in scores:
                 if sym in prev_portfolio_symbols:
-                    scores[sym] += LOYALTY_BONUS
+                    scores[sym] = min(100, scores[sym] + LOYALTY_BONUS)
 
             # --- Fix 3: Sector concentration cap ---
             MAX_PER_SECTOR = 5

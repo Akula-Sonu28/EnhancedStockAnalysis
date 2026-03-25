@@ -284,7 +284,7 @@ class SentimentAnalyzer:
                 # Count recommendations
                 _grade_col = 'To Grade' if 'To Grade' in recent_recs.columns else ('ToGrade' if 'ToGrade' in recent_recs.columns else None)
                 if _grade_col is None:
-                    return {'score': 50, 'signal': 'NEUTRAL', 'count': 0, 'buy_pct': 0}
+                    return {'score': 50, 'signal': 'NEUTRAL', 'count': 0, 'buy_pct': 0, 'is_fallback': True}
                 buy_count = recent_recs[_grade_col].str.contains('Buy|Outperform', case=False, na=False).sum()
                 sell_count = recent_recs[_grade_col].str.contains('Sell|Underperform', case=False, na=False).sum()
                 hold_count = recent_recs[_grade_col].str.contains('Hold|Neutral', case=False, na=False).sum()
@@ -332,7 +332,8 @@ class SentimentAnalyzer:
                 'hold_count': 0,
                 'sell_count': 0,
                 'total_recommendations': 0,
-                'description': f"PE-based proxy ({signal})"
+                'description': f"PE-based proxy ({signal})",
+                'is_fallback': True
             }
             
         except Exception as e:
@@ -344,7 +345,8 @@ class SentimentAnalyzer:
                 'hold_count': 0,
                 'sell_count': 0,
                 'total_recommendations': 0,
-                'description': "No analyst data"
+                'description': "No analyst data",
+                'is_fallback': True
             }
     
     def _analyze_market_sentiment(self, hist: pd.DataFrame, stock_data: Dict) -> Dict:
@@ -464,7 +466,8 @@ class SentimentAnalyzer:
                 'signal': signal,
                 'earnings_growth': 0,
                 'recent_earnings': 0,
-                'description': f"Margin-based proxy: {profit_margin:.1f}%"
+                'description': f"Margin-based proxy: {profit_margin:.1f}%",
+                'is_fallback': True
             }
             
         except Exception as e:
@@ -474,7 +477,8 @@ class SentimentAnalyzer:
                 'signal': "NEUTRAL",
                 'earnings_growth': 0,
                 'recent_earnings': 0,
-                'description': "No earnings data"
+                'description': "No earnings data",
+                'is_fallback': True
             }
     
     def _analyze_social_buzz(self, hist: pd.DataFrame, stock_data: Dict) -> Dict:

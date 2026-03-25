@@ -41,6 +41,9 @@ class MarketRegimeDetector:
             'breadth': 0.20,
         }
         
+        # F-02 FIX: Load previous regime from disk so hysteresis works across runs
+        self._last_regime = self._load_last_regime()
+        
     def detect_regime(self, period_days: int = 180) -> Dict:
         """
         Detect current market regime using multiple indicators
@@ -91,15 +94,20 @@ class MarketRegimeDetector:
             # Classify regime — modulate confidence by index agreement
             effective_score = regime_score * (0.6 + 0.4 * index_agreement)
             
-            if effective_score > self.bull_threshold:
+            _regime_hyst = 0.1
+            _prev_regime = getattr(self, '_last_regime', None)
+            _bull_thr = self.bull_threshold - (_regime_hyst if _prev_regime == 'BULL' else 0)
+            _bear_thr = self.bear_threshold + (_regime_hyst if _prev_regime == 'BEAR' else 0)
+            if effective_score > _bull_thr:
                 regime = 'BULL'
                 regime_strength = 'STRONG' if effective_score > 0.8 else 'MODERATE'
-            elif effective_score < self.bear_threshold:
+            elif effective_score < _bear_thr:
                 regime = 'BEAR'
                 regime_strength = 'STRONG' if effective_score < -0.8 else 'MODERATE'
             else:
                 regime = 'SIDEWAYS'
                 regime_strength = 'CHOPPY'
+            self._last_regime = regime
             
             # Calculate regime stability (how long has this regime persisted)
             regime_stability = self._calculate_regime_stability(nifty_data, regime)
@@ -300,7 +308,7 @@ class MarketRegimeDetector:
         """Return 0-1 agreement ratio between primary and secondary indices."""
         valid = [s for s in secondary_scores if s is not None]
         if not valid:
-            return 1.0
+            return 0.5
         if abs(primary_score) < 1e-9:
             return 0.5
         primary_dir = 1 if primary_score > 0 else -1
@@ -314,12 +322,13 @@ class MarketRegimeDetector:
             if vix_data is not None and not vix_data.empty:
                 _vix_val = vix_data['Close'].iloc[-1]
                 if pd.isna(_vix_val) or np.isinf(_vix_val):
-                    return 15.0
+                    logging.warning("VIX value is NaN/inf — using cautious default (22.0)")
+                    return 22.0
                 return float(_vix_val)
         except Exception as e:
-            logging.debug(f"VIX fetch failed: {e}")
+            logging.warning(f"VIX fetch failed: {e} — using cautious default (22.0)")
         
-        return 15.0
+        return 22.0
     
     def _calculate_regime_stability(self, df: pd.DataFrame, current_regime: str) -> str:
         """
@@ -337,7 +346,7 @@ class MarketRegimeDetector:
         recent_trend = []
         for i in range(0, 60, 20):
             idx = -(i + 10)
-            if abs(idx) < len(close):
+            if abs(idx) <= len(close):
                 price = close.iloc[idx]
                 ma = ma_50.iloc[idx]
                 if pd.isna(price) or pd.isna(ma):
@@ -408,6 +417,22 @@ class MarketRegimeDetector:
             return 0.0
         return ((current - past) / past) * 100
     
+    def _load_last_regime(self):
+        """F-02: Load previous regime from disk for hysteresis across runs."""
+        import json, os
+        try:
+            if os.path.exists(self._LAST_REGIME_PATH):
+                with open(self._LAST_REGIME_PATH) as f:
+                    cache = json.load(f)
+                cached_at = datetime.fromisoformat(cache['cached_at'])
+                age_hours = (datetime.now() - cached_at).total_seconds() / 3600
+                if age_hours <= 48:
+                    self.logger.info(f"[F-02] Loaded previous regime '{cache['regime']}' for hysteresis (age={age_hours:.1f}h)")
+                    return cache['regime']
+        except Exception as e:
+            self.logger.debug(f"Could not load last regime for hysteresis: {e}")
+        return None
+
     def _cache_regime(self, result: Dict) -> None:
         """HI-05: Persist last successfully detected regime to disk.
         Uses atomic write (temp file + os.replace) to avoid data loss on disk-full or crash.
@@ -555,6 +580,11 @@ class MarketRegimeDetector:
         elif regime == 'BEAR':
             adjustment -= 5.0
             adjustments.append("Bear market base penalty (-5)")
+
+            if vix > 15:
+                _vix_addon = min(3.0, (vix - 15.0) / 5.0)
+                adjustment -= _vix_addon
+                adjustments.append(f"VIX-scaled bear penalty (-{_vix_addon:.1f}, VIX={vix:.1f})")
 
             _bear_bonus = 0.0
             if is_value:

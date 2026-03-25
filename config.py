@@ -28,12 +28,12 @@ class AnalysisConfig:
     CACHE_EXPIRY_HOURS: int = 4
     CACHE_DIR: str = "data/cache"
     
-    # Scoring Weights
+    # Scoring Weights (validation-only; hybrid_optimized_scoring.py uses regime-adaptive weights)
     FUNDAMENTAL_WEIGHT: float = 0.4
     TECHNICAL_WEIGHT: float = 0.3
     UNDERVALUATION_WEIGHT: float = 0.3
     
-    # Undervaluation Thresholds
+    # Undervaluation Thresholds (reserved for future per-metric scoring; not consumed at runtime)
     PE_EXCELLENT: float = 10
     PE_GOOD: float = 15
     PE_AVERAGE: float = 20
@@ -41,7 +41,7 @@ class AnalysisConfig:
     PB_GOOD: float = 1.5
     DIVIDEND_EXCELLENT: float = 4.0
     
-    # Risk Categories
+    # Risk Categories (reserved for future risk bucketing; not consumed at runtime)
     VOLATILITY_LOW: float = 15
     VOLATILITY_MODERATE: float = 25
     VOLATILITY_HIGH: float = 35
@@ -50,22 +50,23 @@ class AnalysisConfig:
     STRONG_BUY_THRESHOLD: float = 70
     BUY_THRESHOLD: float = 60
     HOLD_THRESHOLD: float = 50
+    SELL_THRESHOLD: float = 40
     UNDERVALUED_THRESHOLD: float = 65
     
     # Data Sources
     NSE_SUFFIX: str = ".NS"
-    BSE_SUFFIX: str = ".BO"
-    DEFAULT_EXCHANGE: str = "NSE"
+    BSE_SUFFIX: str = ".BO"  # reserved for BSE support
+    DEFAULT_EXCHANGE: str = "NSE"  # reserved for multi-exchange support
     
     # Portfolio Settings
     DEFAULT_PORTFOLIO_AMOUNT: float = 100000
     MAX_PORTFOLIO_POSITIONS: int = 15
     MIN_ALLOCATION_PERCENTAGE: float = 2.0
-    MAX_SINGLE_STOCK_WEIGHT: float = 20.0
+    MAX_SINGLE_STOCK_WEIGHT: float = 20.0  # NOT WIRED: allocation engine uses per-cap-tier limits instead
 
     # Allocation Thresholds
     MIN_INVESTMENT_PER_STOCK: float = 3000
-    MAX_ALLOCATION_PCT: float = 0.05
+    MAX_ALLOCATION_PCT: float = 0.05  # NOT WIRED: allocation engine uses per-cap-tier limits instead
     TARGET_PORTFOLIO_SIZE: int = 23
     SECTOR_CAP: int = 10
     CATEGORY_SECTOR_CAP: int = 5
@@ -77,6 +78,8 @@ class AnalysisConfig:
     EXIT_BOTTOM_PCT: float = 0.20
     REBALANCE_PROFIT_THRESHOLD: float = 0.05
     PROFIT_BOOKING_THRESHOLD: float = 0.20
+    EMERGENCY_EXIT_LOSS: float = -0.30
+    EMERGENCY_EXIT_SCORE: float = 45.0
 
     # Regime Exposure
     BEAR_EXPOSURE: float = 0.50
@@ -84,8 +87,16 @@ class AnalysisConfig:
     BULL_EXPOSURE: float = 1.00
 
     # Score Smoothing
-    SCORE_SMOOTHING_WEIGHT: float = 0.70
+    SCORE_SMOOTHING_WEIGHT: float = 0.55
+    SCORE_SMOOTHING_WEIGHT_BEAR: float = 0.80
     SCORE_SMOOTHING_MAX_AGE_DAYS: int = 3
+
+    # Recommendation Hysteresis (prevents flip-flops at threshold boundaries)
+    HYSTERESIS_BUFFER: float = 3.0
+    HYSTERESIS_PROXIMITY_BOOST: float = 1.5
+
+    # ML Tag Control (disabled until model accuracy > 60%)
+    ML_TAG_IN_RECOMMENDATION: bool = False
 
     # Sector Cap Enforcement
     SECTOR_CAP_ENFORCE_HOLDINGS: bool = True
@@ -100,13 +111,13 @@ class AnalysisConfig:
     # Extreme Volatility
     MAX_SAFE_VOLATILITY: float = 80.0
 
-    # Rate Limiting (consolidated from src/config.py — CB-05)
+    # Rate Limiting (consolidated from src/config.py — CB-05; REQUEST_DELAY used by nse_scraper)
     REQUEST_DELAY: float = 0.5
-    REQUESTS_PER_MIN: int = 20
-    RETRY_LIMIT: int = 3
-    RETRY_BACKOFF: int = 2
+    REQUESTS_PER_MIN: int = 20  # reserved; yfinance wrapper uses internal rate control
+    RETRY_LIMIT: int = 3  # reserved; analyzer uses RETRY_ATTEMPTS
+    RETRY_BACKOFF: int = 2  # reserved
 
-    # Market Cap Thresholds (consolidated from src/config.py — CB-05)
+    # Market Cap Thresholds in INR crores (consolidated from src/config.py — CB-05)
     MARKET_CAP_MEGA: int = 200000
     MARKET_CAP_LARGE: int = 50000
     MARKET_CAP_MID: int = 10000
@@ -179,6 +190,7 @@ _VALIDATION_RULES: dict = {
     'CACHE_MAX_AGE_DAYS': (int, 1, 30),
     'SCORE_SMOOTHING_WEIGHT': (float, 0.0, 1.0),
     'SCORE_SMOOTHING_MAX_AGE_DAYS': (int, 1, 14),
+    'HYSTERESIS_BUFFER': (float, 0.0, 10.0),
     'BEAR_EXPOSURE': (float, 0.0, 1.0),
     'SIDEWAYS_EXPOSURE': (float, 0.0, 1.0),
     'BULL_EXPOSURE': (float, 0.0, 1.0),
@@ -197,6 +209,9 @@ _VALIDATION_RULES: dict = {
     'MIN_AVG_DAILY_VOLUME': (int, 10_000, 10_000_000),
     'PROFIT_BOOKING_THRESHOLD': (float, 0.0, 1.0),
     'REBALANCE_PROFIT_THRESHOLD': (float, 0.0, 1.0),
+    'SELL_THRESHOLD': (float, 0, 100),
+    'EMERGENCY_EXIT_LOSS': (float, -1.0, 0.0),
+    'EMERGENCY_EXIT_SCORE': (float, 0, 100),
 }
 
 def _validate_config(cfg: 'AnalysisConfig') -> None:
@@ -206,7 +221,7 @@ def _validate_config(cfg: 'AnalysisConfig') -> None:
         if not hasattr(cfg, key):
             continue
         val = getattr(cfg, key)
-        if not isinstance(val, (int, float)):
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
             errors.append(f"{key}: expected numeric, got {type(val).__name__}")
             continue
         if val < lo or val > hi:
@@ -214,8 +229,17 @@ def _validate_config(cfg: 'AnalysisConfig') -> None:
     thr_sb = getattr(cfg, 'STRONG_BUY_THRESHOLD', 70)
     thr_b = getattr(cfg, 'BUY_THRESHOLD', 60)
     thr_h = getattr(cfg, 'HOLD_THRESHOLD', 50)
-    if not (thr_sb > thr_b > thr_h):
-        errors.append(f"Thresholds must satisfy STRONG_BUY({thr_sb}) > BUY({thr_b}) > HOLD({thr_h})")
+    thr_s = getattr(cfg, 'SELL_THRESHOLD', 40)
+    if not (thr_sb > thr_b > thr_h > thr_s):
+        errors.append(f"Thresholds must satisfy STRONG_BUY({thr_sb}) > BUY({thr_b}) > HOLD({thr_h}) > SELL({thr_s})")
+    _fw = getattr(cfg, 'FUNDAMENTAL_WEIGHT', 0.4)
+    _tw = getattr(cfg, 'TECHNICAL_WEIGHT', 0.3)
+    _uw = getattr(cfg, 'UNDERVALUATION_WEIGHT', 0.3)
+    if _fw < 0 or _tw < 0 or _uw < 0:
+        errors.append(f"Scoring weights must be non-negative: F={_fw}, T={_tw}, U={_uw}")
+    _w_sum = _fw + _tw + _uw
+    if abs(_w_sum - 1.0) > 0.01:
+        errors.append(f"Scoring weights must sum to 1.0, got {_w_sum:.3f} (FUNDAMENTAL+TECHNICAL+UNDERVALUATION)")
     if errors:
         raise ValueError("[CONFIG] Validation failed:\n  " + "\n  ".join(errors))
 

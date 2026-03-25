@@ -106,7 +106,8 @@ def _calculate_piotroski(data: dict, info: dict, bundle=None) -> int:
         ocf = data.get('operating_cashflow', 0)
         net_margin = data.get('net_margin', 0) / 100 if data.get('net_margin') else 0
         fcf = data.get('free_cashflow', 0)
-        d2e = data.get('debt_to_equity', 0)
+        _d2e_raw = data.get('debt_to_equity')
+        d2e = 0 if _d2e_raw is None or (isinstance(_d2e_raw, float) and _d2e_raw != _d2e_raw) else _d2e_raw
         cr = data.get('current_ratio', 0)
         shares = data.get('shares_outstanding', 0)
         gross_margin = data.get('gross_margin', 0) / 100 if data.get('gross_margin') else 0
@@ -125,8 +126,8 @@ def _calculate_piotroski(data: dict, info: dict, bundle=None) -> int:
         net_income = info.get('netIncomeToCommon', 0) or 0
         if ocf and ocf > net_income:
             score += 1
-        # 5. Long-term debt decreasing (use D/E as proxy — lower is better)
-        if d2e < 50:
+        # 5. Long-term debt decreasing (use D/E as proxy — lower is better; skip if unknown)
+        if d2e and d2e > 0 and d2e < 50:
             score += 1
         # 6. Current ratio improving (> 1 is healthy)
         if cr > 1:
@@ -447,19 +448,19 @@ def calculate_comprehensive_fundamental_score(data):
             score -= 10
         
         # Financial Health Score (25 points)
-        debt_to_equity = data.get('debt_to_equity', 0)
-        if isinstance(debt_to_equity, (int, float)) and 0 < debt_to_equity < 5:
-            debt_to_equity = debt_to_equity * 100  # normalize ratio to percentage
+        debt_to_equity = data.get('debt_to_equity')
         current_ratio = data.get('current_ratio', 0)
         
-        if debt_to_equity < 30:
-            score += 15
-            analysis_points.append("Low debt levels")
-        elif debt_to_equity < 60:
-            score += 8
-        elif debt_to_equity > 100:
-            score -= 10
-            analysis_points.append("High debt levels")
+        if debt_to_equity is not None and isinstance(debt_to_equity, (int, float)) and debt_to_equity > 0:
+            if debt_to_equity < 30:
+                score += 15
+                analysis_points.append("Low debt levels")
+            elif debt_to_equity < 60:
+                score += 8
+            elif debt_to_equity > 100:
+                score -= 10
+                analysis_points.append("High debt levels")
+        # debt_to_equity is None, 0, or non-numeric (no data) — no score adjustment
         
         if current_ratio > 2:
             score += 10

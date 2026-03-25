@@ -289,7 +289,7 @@ class HoldingsOrdersMerger:
         Note: Only shows TODAY's orders, not historical holdings
         """
         try:
-            if self.orders_data.empty:
+            if self.orders_data is None or self.orders_data.empty:
                 return None
             
             # Prepare orders data
@@ -370,7 +370,7 @@ class HoldingsOrdersMerger:
             merged = self.holdings_data.copy()
             
             # Process orders data if available
-            if not self.orders_data.empty:
+            if self.orders_data is not None and not self.orders_data.empty:
                 # Clean orders data columns
                 self.orders_data.columns = self.orders_data.columns.str.strip().str.replace('"', '')
                 
@@ -405,7 +405,7 @@ class HoldingsOrdersMerger:
             merged['Position_Size'] = merged['Cur. val'].round(2)
             
             # Add order statistics if orders data exists
-            if not self.orders_data.empty:
+            if self.orders_data is not None and not self.orders_data.empty:
                 # Calculate order statistics for each stock (today's orders only)
                 order_stats = self._calculate_order_statistics()
                 if order_stats is not None:

@@ -234,6 +234,13 @@ class CrisisDetector:
             crisis_type = self._classify_event(signals)
             severity = self._calculate_severity(signals, crisis_type)
 
+            # F-01 FIX: Removed 2-confirmation hysteresis. The system creates a fresh
+            # CrisisDetector instance per run and calls detect() exactly once, so the
+            # counter could never reach 2 — effectively suppressing all crises.
+            # Crisis classification now relies on the multi-signal threshold logic in
+            # _classify_event and _calculate_severity, which already require multiple
+            # concurrent signals to declare a crisis.
+
             result = {
                 'crisis_detected':    crisis_type != 'NONE',
                 'crisis_type':        crisis_type,
@@ -351,14 +358,15 @@ class CrisisDetector:
                 if len(hist) >= 2:
                     today     = float(hist['Close'].iloc[-1])
                     yesterday = float(hist['Close'].iloc[-2])
-                    pct = (today - yesterday) / yesterday * 100 if pd.notna(yesterday) and yesterday != 0 else 0.0
+                    pct = (today - yesterday) / yesterday * 100 if (pd.notna(today) and pd.notna(yesterday) and yesterday != 0) else 0.0
                     signals[name] = {'value': round(today, 4), 'change_pct': round(pct, 3)}
                 else:
-                    signals[name] = {'value': 0.0, 'change_pct': 0.0}
+                    self.logger.warning(f"[CRISIS] {name}/{sym}: insufficient data — crisis type may be masked")
+                    signals[name] = {'value': 0.0, 'change_pct': 0.0, '_is_fallback': True}
                     _fail_count += 1
             except Exception as e:
-                self.logger.debug(f"[CRISIS] {name}/{sym} fetch error: {e}")
-                signals[name] = {'value': 0.0, 'change_pct': 0.0}
+                self.logger.warning(f"[CRISIS] {name}/{sym} fetch failed: {e} — crisis type may be masked")
+                signals[name] = {'value': 0.0, 'change_pct': 0.0, '_is_fallback': True}
                 _fail_count += 1
 
         # VIX spike = today vs 5-day rolling average (more sensitive than raw 1-day change)
@@ -370,13 +378,16 @@ class CrisisDetector:
                 signals['vix_spike_pct'] = round((now - avg5) / avg5 * 100 if avg5 > 0 else 0.0, 1)
                 signals['vix_absolute']  = round(now, 2)
             else:
+                self.logger.warning("[CRISIS] VIX data insufficient — using cautious default (22.0)")
                 signals['vix_spike_pct'] = 0.0
-                signals['vix_absolute']  = 15.0
+                signals['vix_absolute']  = 22.0
+                signals['_vix_is_fallback'] = True
                 _fail_count += 1
         except Exception as e:
-            self.logger.debug(f"[CRISIS] VIX fetch failed: {e}")
+            self.logger.warning(f"[CRISIS] VIX fetch failed: {e} — using cautious default (22.0)")
             signals['vix_spike_pct'] = 0.0
-            signals['vix_absolute']  = 15.0
+            signals['vix_absolute']  = 22.0
+            signals['_vix_is_fallback'] = True
             _fail_count += 1
 
         signals['_fetch_failures'] = _fail_count

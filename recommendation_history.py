@@ -19,6 +19,40 @@ from typing import Dict, List, Optional, Tuple
 import logging
 import threading
 
+import re as _re
+
+def _strip_annotation(raw: str) -> str:
+    """Remove parenthesised annotations like '(was BUY)' and pipe-delimited suffixes
+    so keyword matching operates only on the effective action token."""
+    s = str(_re.sub(r'\(.*?\)', '', str(raw)))
+    s = str(s.split('|')[0])
+    return s.strip()
+
+
+def _normalize_action(action: str) -> str:
+    """Strip emojis/annotations and normalize to canonical action names."""
+    if not action:
+        return 'HOLD'
+    cleaned = _re.sub(r'[^\w\s\->()/]', '', str(action)).strip()
+    effective = _strip_annotation(cleaned).upper()
+    if 'EMERGENCY' in effective or ('SELL' in effective and 'CONSIDER' not in effective and 'WEAK' not in effective):
+        return 'SELL'
+    if 'SWAP' in effective:
+        return 'SWAP'
+    if 'INCREASE' in effective:
+        return 'INCREASE'
+    if 'STRONG BUY' in effective or 'STRONG_BUY' in effective:
+        return 'STRONG BUY'
+    if 'BUY' in effective and 'WEAK' not in effective:
+        return 'BUY'
+    if 'REDUCE' in effective:
+        return 'REDUCE'
+    if 'WEAK SELL' in effective or 'CONSIDER SELLING' in effective:
+        return 'WEAK SELL'
+    if 'HOLD' in effective or 'KEEP' in effective:
+        return 'HOLD'
+    return cleaned
+
 class RecommendationHistory:
     """Manages historical recommendations and enforces consistency rules"""
     
@@ -31,13 +65,15 @@ class RecommendationHistory:
         """
         self.history_file = history_file
         self._lock = threading.Lock()
+        
+        # Configuration — must be set BEFORE _load_history() which references them
+        self.MIN_HOLD_DAYS = 7
+        self.SCORE_CHANGE_THRESHOLD = 10
+        self.FUNDAMENTAL_CHANGE_THRESHOLD = 0.2
+        self.HISTORY_TTL_DAYS = 90
+        
         self.history_df = self._load_history()
-        
-        # Configuration
-        self.MIN_HOLD_DAYS = 7  # Minimum days before allowing SELL after BUY
-        self.SCORE_CHANGE_THRESHOLD = 10  # Minimum score change to override cooldown
-        self.FUNDAMENTAL_CHANGE_THRESHOLD = 0.2  # 20% change in fundamentals
-        
+
     def _load_history(self) -> pd.DataFrame:
         """Load recommendation history from CSV, ensuring outcome columns exist."""
         if os.path.exists(self.history_file):
@@ -47,12 +83,46 @@ class RecommendationHistory:
                 for col in self.OUTCOME_COLUMNS:
                     if col not in df.columns:
                         df[col] = np.nan
+                cutoff = datetime.now() - timedelta(days=self.HISTORY_TTL_DAYS)
+                before = len(df)
+                df = df[df['date'] >= cutoff].copy()
+                dropped = before - len(df)
+                if dropped > 0:
+                    logging.info(
+                        f"Recommendation history TTL ({self.HISTORY_TTL_DAYS}d): removed {dropped} stale rows"
+                    )
                 logging.info(f"Loaded recommendation history: {len(df)} records")
                 return df
             except Exception as e:
                 logging.warning(f"Error loading recommendation history: {e}")
+                _backup = self.history_file.replace('.csv', '_backup.csv')
+                if os.path.exists(_backup):
+                    try:
+                        logging.info("Attempting recovery from backup history file")
+                        df = pd.read_csv(_backup)
+                        df['date'] = pd.to_datetime(df['date'])
+                        for col in self.OUTCOME_COLUMNS:
+                            if col not in df.columns:
+                                df[col] = np.nan
+                        logging.info(f"Recovered recommendation history from backup: {len(df)} records")
+                        return df
+                    except Exception:
+                        pass
                 return self._create_empty_history()
         else:
+            _backup = self.history_file.replace('.csv', '_backup.csv')
+            if os.path.exists(_backup):
+                try:
+                    logging.info("Primary history missing, attempting backup recovery")
+                    df = pd.read_csv(_backup)
+                    df['date'] = pd.to_datetime(df['date'])
+                    for col in self.OUTCOME_COLUMNS:
+                        if col not in df.columns:
+                            df[col] = np.nan
+                    logging.info(f"Recovered recommendation history from backup: {len(df)} records")
+                    return df
+                except Exception:
+                    pass
             logging.info("No recommendation history found, creating new")
             return self._create_empty_history()
     
@@ -74,6 +144,13 @@ class RecommendationHistory:
             _dir = os.path.dirname(self.history_file)
             if _dir:
                 os.makedirs(_dir, exist_ok=True)
+            if os.path.exists(self.history_file):
+                import shutil
+                _backup = self.history_file.replace('.csv', '_backup.csv')
+                try:
+                    shutil.copy2(self.history_file, _backup)
+                except OSError:
+                    pass
             tmp_path = self.history_file + '.tmp'
             if fcntl is not None:
                 lock_path = self.history_file + '.lock'
@@ -258,6 +335,21 @@ class RecommendationHistory:
             last_rec = symbol_history.sort_values('date', ascending=False).iloc[0]
             return last_rec.to_dict()
     
+    def get_previous_recommendation_tier(self, symbol: str) -> str:
+        """Return the recommendation tier (BUY/HOLD/WEAK_SELL/SELL) from the last run.
+        Used by hysteresis logic to prevent flip-flopping at threshold boundaries."""
+        last = self.get_last_recommendation(symbol)
+        if not last:
+            return ''
+        action = str(last.get('action', ''))
+        if 'STRONG BUY' in action or 'BUY' in action:
+            return 'BUY'
+        elif 'SELL' in action and 'WEAK' not in action:
+            return 'SELL'
+        elif 'WEAK' in action:
+            return 'WEAK_SELL'
+        return 'HOLD'
+
     def check_cooldown_period(self, symbol: str, proposed_action: str) -> Tuple[bool, str]:
         """
         Check if stock is within cooldown period
@@ -283,7 +375,7 @@ class RecommendationHistory:
         days_since = (datetime.now() - last_date).days
         
         # Check for flip-flops
-        if last_action in ['BUY', 'INCREASE'] and proposed_action == 'SELL':
+        if last_action in ['BUY', 'STRONG BUY', 'INCREASE'] and proposed_action == 'SELL':
             if days_since < self.MIN_HOLD_DAYS:
                 warning = (
                     f"⚠️ COOLDOWN ACTIVE: Last action was {last_action} "
@@ -450,8 +542,12 @@ class RecommendationHistory:
             result['warnings'].append(f"⚠️ FUNDAMENTAL CHANGES DETECTED: {', '.join(fundamental_changes)}")
             result['reasons'].extend(fundamental_changes)
         
-        # Override SELL if score change is minor and fundamentals unchanged
-        if proposed_action == 'SELL' and not score_significant and not fundamental_changed:
+        # Override SELL-like actions if score change is minor and fundamentals unchanged.
+        # NEVER override EMERGENCY or STOP LOSS with significant score change.
+        _is_sell_like = proposed_action in ('SELL', 'STOP LOSS', 'REDUCE 25%')
+        _is_emergency = 'EMERGENCY' in str(proposed_action).upper()
+        _is_stop_with_evidence = 'STOP LOSS' in str(proposed_action).upper() and score_significant
+        if _is_sell_like and not _is_emergency and not _is_stop_with_evidence and not score_significant and not fundamental_changed:
             last_rec = self.get_last_recommendation(symbol)
             if last_rec and last_rec.get('action') in ['BUY', 'INCREASE', 'HOLD']:
                 result['final_action'] = 'HOLD'
@@ -514,6 +610,7 @@ class RecommendationHistory:
         if price <= 0:
             logging.warning(f"Skipping recommendation for {symbol}: invalid price {price}")
             return
+        action = _normalize_action(action)
         new_rec = pd.DataFrame([{
             'date': datetime.now(),
             'symbol': symbol,
