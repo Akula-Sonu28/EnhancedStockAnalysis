@@ -31,6 +31,23 @@ data/nse_top150_*.csv
 data/*.pkl
 data/*.db
 data/recommendation_history.csv
+data/recommendation_history_backup.csv
+
+# Runtime cache and snapshots
+data/cache/
+data/snapshots/
+data/last_known_regime.json
+data/*.lock
+*.lock
+
+# Generated HTML dashboards
+Portfolio_Allocation_Dashboard.html
+
+# Runtime config state
+config.json
+
+# Generated Excel reports in root
+data/nse_top150_*.xlsx
 
 # Debug / one-off run output files
 critical_debug.txt
