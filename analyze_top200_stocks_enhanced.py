@@ -5647,10 +5647,22 @@ class EnhancedTop200StockAnalyzer:
                                 continue
                             _ss['action_type'] = 'REDUCE (SECTOR OVERWEIGHT)'
                             _ss['priority'] = 'MEDIUM'
+                            _ss_qty = _ss.get('current_quantity', 0) or 0
+                            _ss_price_raw = _ss.get('current_price') or _ss.get('enhanced_current_price')
+                            _ss_price = float(_ss_price_raw) if _ss_price_raw is not None and _ss_price_raw == _ss_price_raw else 0
+                            _red_qty = max(1, int(_ss_qty * 0.30)) if _ss_qty > 0 else 0
+                            _red_val = _red_qty * _ss_price
+                            _reduce_detail = f" | Reduce ~{_red_qty} shares (~₹{_red_val:,.0f})" if _red_qty > 0 else ""
                             _ss['profit_booking_reason'] = (
                                 f"Sector {_ow_sector} has {_ow_count} stocks (cap={_config.SECTOR_CAP}). "
                                 f"Score {_ss_score:.1f} — reducing weakest to reach cap."
                             )
+                            _ss['exit_reason'] = (
+                                f"⚖️ SECTOR OVERWEIGHT | {_ow_sector}: {_ow_count} stocks (cap={_config.SECTOR_CAP})"
+                                f"{_reduce_detail}"
+                            )
+                            _ss['profit_booking_timing'] = 'Within 2 weeks'
+                            _ss['profit_booking_pct'] = 0.30
                             logging.warning(
                                 f"Sector overweight: marking {_ss['symbol']} for reduction "
                                 f"(score={_ss_score:.1f}, "
@@ -5937,9 +5949,17 @@ class EnhancedTop200StockAnalyzer:
                     allocation_df.at[idx, 'market_cap_category'] = 'UNKNOWN'
                     allocation_df.at[idx, 'max_allocation_pct'] = 5.0  # Default 5%
             
-            # Initialize profit booking and timing columns
-            allocation_df['profit_booking_pct'] = None
-            allocation_df['profit_booking_timing'] = None
+            # Initialize profit booking and timing columns — preserve values already set (e.g. REDUCE from sector cap)
+            if 'profit_booking_pct' not in allocation_df.columns:
+                allocation_df['profit_booking_pct'] = None
+            else:
+                allocation_df['profit_booking_pct'] = allocation_df['profit_booking_pct'].where(
+                    allocation_df['profit_booking_pct'].notna(), None)
+            if 'profit_booking_timing' not in allocation_df.columns:
+                allocation_df['profit_booking_timing'] = None
+            else:
+                allocation_df['profit_booking_timing'] = allocation_df['profit_booking_timing'].where(
+                    allocation_df['profit_booking_timing'].notna(), None)
             
             # 🔧 FIX #3: Rank ALL current holdings by performance (for exit strategy)
             print(f"   📊 Ranking current holdings by performance...")
@@ -6087,8 +6107,13 @@ class EnhancedTop200StockAnalyzer:
                     _preserve = any(kw in _ca_upper for kw in _PRESERVE_KW)
                     if not _preserve:
                         allocation_df.at[idx, 'action_recommendation'] = action
-                    allocation_df.at[idx, 'exit_reason'] = reason
-                    allocation_df.at[idx, 'priority'] = priority
+                        allocation_df.at[idx, 'exit_reason'] = reason
+                        allocation_df.at[idx, 'priority'] = priority
+                    else:
+                        _existing_reason = str(allocation_df.at[idx, 'exit_reason'])
+                        if not _existing_reason or _existing_reason in ('', 'nan', 'None'):
+                            allocation_df.at[idx, 'exit_reason'] = reason
+                            allocation_df.at[idx, 'priority'] = priority
                 
                 # Summary of exit strategy
                 _exit_sell_count = len(current_holdings_df[current_holdings_df['holdings_rank'] > (total_holdings - bottom_20_pct)])
@@ -8419,6 +8444,22 @@ Trading Plan ({risk_tolerance} RISK):
             
             if portfolio_allocation and 'allocation_df' in portfolio_allocation:
                 portfolio_allocation['allocation_df'] = self._clean_dataframe_for_excel(portfolio_allocation['allocation_df'].copy())
+
+            # [D-04/D-06/D-07] Shared rounding pass for all investor-facing sheets
+            _score_round = ['final_blended_score', 'risk_adjusted_score', 'overall_score',
+                            'overall_score_with_value', 'undervaluation_score', 'fundamental_score',
+                            'growth_score', 'momentum_score', 'technical_score',
+                            'hybrid_fundamental_quality', 'hybrid_momentum_technical',
+                            'hybrid_volume_strength', 'hybrid_multi_timeframe',
+                            'hybrid_risk_adjustment', 'breakout_score']
+            _ratio_round = ['pe_ratio', 'pb_ratio', 'roe', 'dividend_yield', 'debt_to_equity',
+                            'revenue_growth', 'profit_growth']
+            for _rc in _score_round:
+                if _rc in df.columns:
+                    df[_rc] = pd.to_numeric(df[_rc], errors='coerce').round(1)
+            for _rc in _ratio_round:
+                if _rc in df.columns:
+                    df[_rc] = pd.to_numeric(df[_rc], errors='coerce').round(2)
             
             print("   🔄 Calculating Support & Resistance levels for top stocks...")
             
@@ -8570,7 +8611,9 @@ Trading Plan ({risk_tolerance} RISK):
                                'undervaluation_score', 'risk_adjusted_score', 'risk_category',
                                'final_recommendation', 'current_price']
                 available_cols = [col for col in summary_cols if col in df.columns]
-                summary_df = df[available_cols].head(50)
+                # [D-05] Sort Top Picks by final_blended_score (consistent with Dashboard Top 10)
+                _tp_col = 'final_blended_score' if 'final_blended_score' in df.columns else 'risk_adjusted_score'
+                summary_df = df[available_cols].nlargest(50, _tp_col)
                 summary_df.to_excel(writer, sheet_name='Top Picks', index=False)
                 
                 # 🎨 Apply conditional formatting to Top Picks sheet
@@ -8602,8 +8645,9 @@ Trading Plan ({risk_tolerance} RISK):
                     self._auto_resize_columns(_tl_ws, _tl_df)
                     print(f"   📊 Trading Levels sheet created with {len(_tl_df)} stocks")
                 
-                # 2. Undervalued Stocks Sheet
-                undervalued = df[df.get('undervaluation_score', pd.Series()).fillna(50) >= 65].head(30)
+                # 2. Undervalued Stocks Sheet — [D-03] sorted by undervaluation_score desc
+                _uv_all = df[df.get('undervaluation_score', pd.Series()).fillna(50) >= 65]
+                undervalued = _uv_all.sort_values('undervaluation_score', ascending=False).head(30)
                 if not undervalued.empty:
                     undervalued_cols = ['symbol', 'company_name', 'undervaluation_score', 
                                        'pe_ratio', 'pb_ratio', 'roe', 'dividend_yield', 
@@ -8902,7 +8946,7 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   🔧 [RT-10] Auto-populating WHEN_TO_ACT for actionable stocks...")
                     _rsi_c10 = 'enhanced_rsi_14' if 'enhanced_rsi_14' in alloc_df_simple.columns else 'RSI'
                     _exit_c10 = 'exhaustion_score' if 'exhaustion_score' in alloc_df_simple.columns else 'EXIT_SCORE'
-                    _actionable_kw = ['SELL', 'SWAP', 'INCREASE', 'PRE-BREAKOUT', 'BUY', 'NEW POSITION', 'BREAKOUT']
+                    _actionable_kw = ['SELL', 'SWAP', 'INCREASE', 'REDUCE', 'PRE-BREAKOUT', 'BUY', 'NEW POSITION', 'BREAKOUT']
                     for _idx10, _row10 in alloc_df_simple.iterrows():
                         _act10 = str(_row10.get('action_recommendation', ''))
                         if not any(kw in _act10 for kw in _actionable_kw): continue
@@ -8966,6 +9010,25 @@ Trading Plan ({risk_tolerance} RISK):
                         alloc_df_simple.loc[book_profit_mask, 'profit_booking_pct']
                     )
                     print(f"      ✅ Calculated booking amounts for {book_profit_mask.sum()} stocks")
+
+                    # [D-02 + E-02 FIX] Enforce invariant: NET₹ = BOOK₹ - TAX₹ for ALL booked rows.
+                    # Tax was computed at build time from broker price; BOOK₹ from analysis price.
+                    # For partial bookings, also scale tax proportionally.
+                    if book_profit_mask.any():
+                        alloc_df_simple['estimated_tax'] = pd.to_numeric(alloc_df_simple['estimated_tax'], errors='coerce').fillna(0)
+                        alloc_df_simple['post_tax_proceeds'] = pd.to_numeric(alloc_df_simple['post_tax_proceeds'], errors='coerce').fillna(0)
+                        _partial_mask = book_profit_mask & (alloc_df_simple['profit_booking_pct'] < 1.0)
+                        if _partial_mask.any():
+                            _pct = alloc_df_simple.loc[_partial_mask, 'profit_booking_pct']
+                            alloc_df_simple.loc[_partial_mask, 'estimated_tax'] = (
+                                alloc_df_simple.loc[_partial_mask, 'estimated_tax'] * _pct
+                            ).round(0)
+                        # For ALL booked rows (partial AND full): NET = BOOK - TAX
+                        alloc_df_simple.loc[book_profit_mask, 'post_tax_proceeds'] = (
+                            alloc_df_simple.loc[book_profit_mask, 'profit_booking_amount'] -
+                            alloc_df_simple.loc[book_profit_mask, 'estimated_tax']
+                        ).round(0)
+                        print(f"      ✅ [E-02] Reconciled NET₹=BOOK₹-TAX₹ for {book_profit_mask.sum()} booked rows ({_partial_mask.sum()} partial)")
                     
                     # [RT-09 FIX] Add ROTATION_TARGET — maps each SELL/SWAP stock to best rotation destination
                     # [RT-07 FIX] Add ROTATION_TRIGGER_PRICE — auto-exit price (97% of support) for loser HOLD positions
@@ -9147,13 +9210,48 @@ Trading Plan ({risk_tolerance} RISK):
                             lambda x: 'YES' if x is True or str(x).strip().upper() in ('TRUE', 'YES', '1') else 'NO'
                         )
 
-                    # A6: Convert ML/RISK text to numeric helper columns for icon sets
-                    if 'ML' in alloc_df_simple.columns:
-                        _ml_map = {'BUY': 3, 'STRONG_BUY': 3, 'STRONG BUY': 3, 'HOLD': 2, 'SELL': 1}
-                        alloc_df_simple['_ML_N'] = alloc_df_simple['ML'].astype(str).str.upper().map(_ml_map).fillna(2).astype(int)
-                    if 'RISK' in alloc_df_simple.columns:
-                        _risk_map = {'LOW': 3, 'MODERATE': 2, 'MEDIUM': 2, 'HIGH': 1, 'VERY HIGH': 1}
-                        alloc_df_simple['_RISK_N'] = alloc_df_simple['RISK'].astype(str).str.upper().map(_risk_map).fillna(2).astype(int)
+                    # [R-07/R-08] Round numeric columns for clean presentation
+                    for _rc in ('SCORE', 'ADJ SCORE', 'FUND', 'MOM', 'VOL', 'MTF', 'RISK SC', 'VALUE',
+                                'RSI', 'VOLATILITY %', 'ML CONF %', '20D CHG %'):
+                        if _rc in alloc_df_simple.columns:
+                            alloc_df_simple[_rc] = pd.to_numeric(alloc_df_simple[_rc], errors='coerce').round(1)
+                    if 'P&L %' in alloc_df_simple.columns:
+                        alloc_df_simple['P&L %'] = pd.to_numeric(alloc_df_simple['P&L %'], errors='coerce').round(2)
+                    for _rc2 in ('PRICE', '52W HIGH', '52W LOW', 'SUPPORT', 'RESIST', 'STOP LOSS',
+                                 'MY VALUE ₹', 'INVEST ₹', 'BOOK ₹', 'TAX ₹', 'NET ₹'):
+                        if _rc2 in alloc_df_simple.columns:
+                            alloc_df_simple[_rc2] = pd.to_numeric(alloc_df_simple[_rc2], errors='coerce').round(2)
+
+                    # [R-04] Label non-universe holdings (ETFs with score=0) clearly
+                    if 'SCORE' in alloc_df_simple.columns and 'REASON' in alloc_df_simple.columns:
+                        _zero_mask = (alloc_df_simple['SCORE'] == 0) | alloc_df_simple['SCORE'].isna()
+                        _owned_mask = alloc_df_simple.get('OWNED?', pd.Series(dtype=str)).astype(str).str.upper() == 'YES'
+                        _etf_mask = _zero_mask & _owned_mask
+                        for _etf_idx in alloc_df_simple[_etf_mask].index:
+                            _cur_reason = str(alloc_df_simple.at[_etf_idx, 'REASON'])
+                            if 'Score: 0.0' in _cur_reason or 'Score: 0' in _cur_reason:
+                                alloc_df_simple.at[_etf_idx, 'REASON'] = _cur_reason.replace(
+                                    'Score: 0.0', 'Score: N/A (ETF — not in analysis universe)'
+                                ).replace('Score: 0', 'Score: N/A (ETF — not in analysis universe)')
+
+                    # [R-14] Set WHEN for non-actionable rows
+                    if 'WHEN' in alloc_df_simple.columns and 'ACTION' in alloc_df_simple.columns:
+                        for _w_idx, _w_row in alloc_df_simple.iterrows():
+                            _w_val = str(_w_row.get('WHEN', ''))
+                            _w_act = str(_w_row.get('ACTION', ''))
+                            if str(_w_val).strip() in ('', 'nan', 'None', '0', '0.0'):
+                                _w_act_u = str(_w_act).upper()
+                                if any(kw in _w_act_u for kw in ('HOLD', 'KEEP')):
+                                    alloc_df_simple.at[_w_idx, 'WHEN'] = 'No action needed'
+                                elif 'WATCHLIST' in _w_act_u:
+                                    alloc_df_simple.at[_w_idx, 'WHEN'] = 'Monitor'
+                                elif 'CONSIDER' in _w_act_u:
+                                    alloc_df_simple.at[_w_idx, 'WHEN'] = 'When profitable'
+
+                    # [R-10] Drop internal debug columns before writing
+                    _internal_cols = [c for c in alloc_df_simple.columns if c.startswith('_')]
+                    if _internal_cols:
+                        alloc_df_simple.drop(columns=_internal_cols, inplace=True)
 
                     # Export simplified sheet (row 0=group headers, row 1=col headers, row 2+=data)
                     alloc_df_simple.to_excel(writer, sheet_name='Portfolio Allocation', index=False, startrow=1)
@@ -9163,9 +9261,15 @@ Trading Plan ({risk_tolerance} RISK):
                                                                hold_format, sell_format, low_risk_format, 
                                                                medium_risk_format, high_risk_format)
                     
-                    # Portfolio summary with enhanced formatting
+                    # [D-07] Round Portfolio Summary metrics for clean presentation
                     summary_data = portfolio_allocation['summary']
-                    summary_sheet = pd.DataFrame([summary_data])
+                    _rounded_summary = {}
+                    for _sk, _sv in summary_data.items():
+                        if isinstance(_sv, float):
+                            _rounded_summary[_sk] = round(_sv, 2)
+                        else:
+                            _rounded_summary[_sk] = _sv
+                    summary_sheet = pd.DataFrame([_rounded_summary])
                     summary_sheet.to_excel(writer, sheet_name='Portfolio Summary', index=False)
                     
                     # Format Portfolio Summary
@@ -9235,7 +9339,17 @@ Trading Plan ({risk_tolerance} RISK):
                     logging.warning(f"Past Accuracy sheet skipped: {_pa_err}")
 
                 # 7. Complete Data Sheet (Keep as last sheet)
-                df.to_excel(writer, sheet_name='Complete Data', index=False)
+                # [R-12] Remove constant columns (same value for all rows — adds noise)
+                # [R-13] Remove internal underscore-prefixed columns
+                _cd_df = df.copy()
+                _internal_cd = [c for c in _cd_df.columns if c.startswith('_')]
+                _constant_cd = [c for c in _cd_df.columns
+                                if _cd_df[c].dropna().nunique() <= 1 and len(_cd_df[c].dropna()) > 0
+                                and c not in ('symbol', 'company_name', 'sector')]
+                _drop_cd = list(set(_internal_cd + _constant_cd))
+                if _drop_cd:
+                    _cd_df.drop(columns=[c for c in _drop_cd if c in _cd_df.columns], inplace=True)
+                _cd_df.to_excel(writer, sheet_name='Complete Data', index=False)
                 
                 # Auto-resize non-portfolio sheets (Portfolio Allocation has custom widths + hidden cols)
                 for sheet_name, worksheet in writer.sheets.items():
@@ -9247,7 +9361,7 @@ Trading Plan ({risk_tolerance} RISK):
                         elif sheet_name == 'Risk Analysis' and not risk_df.empty:
                             self._auto_resize_columns(worksheet, risk_df)
                         elif sheet_name == 'Complete Data':
-                            self._auto_resize_columns(worksheet, df)
+                            self._auto_resize_columns(worksheet, _cd_df)
                         else:
                             self._auto_resize_columns(worksheet)
                 
@@ -9323,11 +9437,20 @@ Trading Plan ({risk_tolerance} RISK):
                     if hasattr(self, 'recommendation_history') and self.recommendation_history is not None:
                         _perf_df = self.recommendation_history.get_performance_summary_df()
                         if not _perf_df.empty:
+                            _has_outcomes = _perf_df['Recommendations'].sum() > 0 if 'Recommendations' in _perf_df.columns else False
                             _perf_df.to_excel(writer, sheet_name='Rec Performance', index=False)
                             _perf_ws = writer.sheets['Rec Performance']
                             for ci, col in enumerate(_perf_df.columns):
                                 _perf_ws.write(0, ci, col, header_format)
                             self._auto_resize_columns(_perf_ws, _perf_df)
+
+                            if not _has_outcomes:
+                                _note_row = len(_perf_df) + 2
+                                _perf_ws.write(_note_row, 0,
+                                    'Note: No forward-return data available yet. Performance tracking requires '
+                                    'recommendations to age past their evaluation horizon (7d/30d/90d) before '
+                                    'outcomes can be measured. Data will populate automatically over time.',
+                                    data_format)
 
                             _m30 = self.recommendation_history.get_performance_metrics('30d')
                             _detail_start = len(_perf_df) + 3
@@ -9565,38 +9688,49 @@ Trading Plan ({risk_tolerance} RISK):
         
         row += 1
         total_stocks = max(len(df), 1)
-        buy_count = len(df[df['final_recommendation'].str.contains('BUY', na=False)])
-        strong_buy_count = len(df[df['final_recommendation'].str.contains('STRONG BUY', na=False)])
-        hold_count = len(df[df['final_recommendation'].str.contains('HOLD', na=False)])
-        
+        # [E-03 FIX] Exact match counts — no double-counting via .contains()
+        _rec = df['final_recommendation'].fillna('')
+        strong_buy_count = int(_rec.str.contains('STRONG BUY', na=False).sum())
+        buy_count = int(_rec.str.contains('BUY', na=False).sum()) - strong_buy_count
+        hold_count = int(_rec.str.contains('HOLD', na=False).sum())
+        sell_count = int(_rec.str.upper().str.contains('SELL', na=False).sum())
+        _other_count = total_stocks - strong_buy_count - buy_count - hold_count - sell_count
+
         # Left side metrics
         worksheet.write(f'A{row}', 'Total Stocks Analyzed:', header_format)
         worksheet.write(f'B{row}', total_stocks, metric_value_format)
-        
+
         worksheet.write(f'E{row}', 'Strong Buy:', header_format)
         worksheet.write(f'F{row}', strong_buy_count, metric_value_format)
         worksheet.write(f'G{row}', f'{strong_buy_count/total_stocks*100:.1f}%', percent_format)
-        
+
         row += 1
-        avg_score = df['overall_score_with_value'].mean() if 'overall_score_with_value' in df.columns else 0
-        
+        _avg_col = 'final_blended_score' if 'final_blended_score' in df.columns else 'overall_score_with_value'
+        avg_score = round(float(df[_avg_col].mean()), 1) if _avg_col in df.columns else 0
+
         worksheet.write(f'A{row}', 'Average Score:', header_format)
         worksheet.write(f'B{row}', avg_score, score_format)
-        
+
         worksheet.write(f'E{row}', 'Buy:', header_format)
         worksheet.write(f'F{row}', buy_count, metric_value_format)
         worksheet.write(f'G{row}', f'{buy_count/total_stocks*100:.1f}%', percent_format)
-        
+
         row += 1
         undervalued_count = len(df[df.get('undervaluation_score', pd.Series()).fillna(50) >= 65])
-        
+
         worksheet.write(f'A{row}', 'Undervalued Stocks:', header_format)
         worksheet.write(f'B{row}', undervalued_count, metric_value_format)
         worksheet.write(f'C{row}', f'{undervalued_count/total_stocks*100:.1f}%', percent_format)
-        
+
         worksheet.write(f'E{row}', 'Hold:', header_format)
         worksheet.write(f'F{row}', hold_count, metric_value_format)
         worksheet.write(f'G{row}', f'{hold_count/total_stocks*100:.1f}%', percent_format)
+
+        # [E-03 FIX] Add sell-side categories so all stocks are accounted for
+        row += 1
+        worksheet.write(f'E{row}', 'Sell / Weak Sell:', header_format)
+        worksheet.write(f'F{row}', sell_count, metric_value_format)
+        worksheet.write(f'G{row}', f'{sell_count/total_stocks*100:.1f}%', percent_format)
         
         # Risk Analysis Section
         row += 2
@@ -9604,39 +9738,39 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.merge_range(f'E{row}:G{row}', 'PORTFOLIO METRICS', metric_title_format)
         
         row += 1
-        low_risk = len(df[df.get('risk_category', '') == 'LOW'])
-        medium_risk = len(df[df.get('risk_category', '') == 'MEDIUM'])
-        high_risk = len(df[df.get('risk_category', '') == 'HIGH'])
+        # [E-01 FIX] Actual risk_category values: LOW, MODERATE, HIGH, VERY HIGH
+        _rc = df.get('risk_category', pd.Series(dtype=str)).fillna('')
+        low_risk = int((_rc == 'LOW').sum())
+        medium_risk = int((_rc == 'MODERATE').sum())
+        high_risk = int((_rc.isin(['HIGH', 'VERY HIGH'])).sum())
         
         worksheet.write(f'A{row}', 'Low Risk:', header_format)
         worksheet.write(f'B{row}', low_risk, metric_value_format)
         worksheet.write(f'C{row}', f'{low_risk/total_stocks*100:.1f}%', percent_format)
         
         # Portfolio metrics
-        if portfolio_allocation:
-            total_investment = portfolio_allocation.get('summary', {}).get('total_investment', 0)
-            worksheet.write(f'E{row}', 'Total Investment:', header_format)
-            worksheet.write(f'F{row}', total_investment, price_format)
+        _pa_summary = portfolio_allocation.get('summary', {}) if portfolio_allocation else {}
+        _total_inv = _pa_summary.get('current_portfolio_value', _pa_summary.get('total_investment', 0))
+        worksheet.write(f'E{row}', 'Total Investment:', header_format)
+        worksheet.write(f'F{row}', round(float(_total_inv), 0), price_format)
         
         row += 1
         worksheet.write(f'A{row}', 'Medium Risk:', header_format)
         worksheet.write(f'B{row}', medium_risk, metric_value_format)
         worksheet.write(f'C{row}', f'{medium_risk/total_stocks*100:.1f}%', percent_format)
         
-        if portfolio_allocation:
-            utilized_amount = portfolio_allocation.get('summary', {}).get('utilized_amount', 0)
-            worksheet.write(f'E{row}', 'Amount Utilized:', header_format)
-            worksheet.write(f'F{row}', utilized_amount, price_format)
+        _utilized = _pa_summary.get('total_available_capital', _pa_summary.get('utilized_amount', 0))
+        worksheet.write(f'E{row}', 'Amount Utilized:', header_format)
+        worksheet.write(f'F{row}', round(float(_utilized), 0), price_format)
         
         row += 1
         worksheet.write(f'A{row}', 'High Risk:', header_format)
         worksheet.write(f'B{row}', high_risk, metric_value_format)
         worksheet.write(f'C{row}', f'{high_risk/total_stocks*100:.1f}%', percent_format)
         
-        if portfolio_allocation:
-            utilization_pct = portfolio_allocation.get('summary', {}).get('utilization_percentage', 0)
-            worksheet.write(f'E{row}', 'Utilization %:', header_format)
-            worksheet.write(f'F{row}', f'{utilization_pct:.1f}%', percent_format)
+        _util_pct = _pa_summary.get('funds_utilization', _pa_summary.get('utilization_percentage', 0))
+        worksheet.write(f'E{row}', 'Utilization %:', header_format)
+        worksheet.write(f'F{row}', f'{float(_util_pct):.1f}%', percent_format)
         
         # Top Performers Section
         row += 2
@@ -9647,14 +9781,16 @@ Trading Plan ({risk_tolerance} RISK):
         for col, header in enumerate(headers):
             worksheet.write(row, col, header, header_format)
         
-        # Top 10 stocks
-        top_10 = df.head(10)
+        # Top 10 stocks — sorted by final_blended_score descending
+        _score_col_top10 = 'final_blended_score' if 'final_blended_score' in df.columns else 'risk_adjusted_score'
+        top_10 = df.nlargest(10, _score_col_top10)
         for i, (_, stock) in enumerate(top_10.iterrows()):
             row += 1
             worksheet.write(row, 0, i+1, data_format)
             worksheet.write(row, 1, stock['symbol'], data_format)
             worksheet.write(row, 2, str(stock.get('company_name', stock['symbol']))[:30], data_format)
-            worksheet.write(row, 3, stock.get('overall_score_with_value', 0), score_format)
+            _t10_score = pd.to_numeric(stock.get(_score_col_top10, 0), errors='coerce')
+            worksheet.write(row, 3, round(float(_t10_score if pd.notna(_t10_score) else 0), 1), score_format)
             worksheet.write(row, 4, stock.get('current_price', 0), price_format)
             worksheet.write(row, 5, str(stock.get('final_recommendation', '')), data_format)
             worksheet.write(row, 6, str(stock.get('risk_category', '')), data_format)
@@ -10302,12 +10438,12 @@ Trading Plan ({risk_tolerance} RISK):
             # High quality signals count
             high_quality_count = len(mtf_stocks[mtf_stocks['mtf_signal_quality'] == 'HIGH']) if 'mtf_signal_quality' in mtf_stocks.columns else 0
             
-            # Add summary section
-            summary_row = len(mtf_stocks) + 3
-            worksheet.write(summary_row, 0, 'MULTI-TIMEFRAME SUMMARY', header_format)
-            worksheet.write(summary_row + 1, 0, f'Average Agreement: {avg_agreement:.1f}%', data_format)
-            worksheet.write(summary_row + 2, 0, f'Average MTF Score: {avg_mtf_score:.1f}', data_format)
-            worksheet.write(summary_row + 3, 0, f'High Quality Signals: {high_quality_count}', data_format)
+            # [E-06 FIX] Embed summary metrics in the sheet header row instead of
+            # appending below data (which creates NaN/text rows read by pandas).
+            _hdr_summary = (f"MTF Summary: Avg Agreement {avg_agreement:.1f}% | "
+                            f"Avg Score {avg_mtf_score:.1f} | "
+                            f"High Quality Signals {high_quality_count}")
+            worksheet.set_header(f'&L{_hdr_summary}')
             
         except Exception as e:
             logging.warning(f"Error adding MTF summary: {e}")
@@ -10822,22 +10958,19 @@ Trading Plan ({risk_tolerance} RISK):
             
             # Simple prediction model based on score and volatility
             if current_price > 0:
-                # Base prediction on score
-                growth_factor = (score - 50) / 100  # Convert score to growth factor
-                
-                # Monthly targets with increasing uncertainty
-                target_1m = current_price * (1 + growth_factor * 0.05)
-                target_3m = current_price * (1 + growth_factor * 0.15)
-                target_6m = current_price * (1 + growth_factor * 0.30)
-                
-                # Bull and bear cases
-                bull_case = target_6m * (1 + volatility)
-                bear_case = target_6m * (1 - volatility)
-                
-                # Probability calculations
+                growth_factor = (score - 50) / 100
+
+                target_1m = round(current_price * (1 + growth_factor * 0.05), 2)
+                target_3m = round(current_price * (1 + growth_factor * 0.15), 2)
+                target_6m = round(current_price * (1 + growth_factor * 0.30), 2)
+
+                # [E-04 FIX] volatility_6m is stored as % (e.g., 25 means 25%), convert to fraction
+                _vol_frac = max(0.05, min(volatility / 100.0, 0.80))
+                bull_case = round(target_6m * (1 + _vol_frac), 2)
+                bear_case = round(max(target_6m * (1 - _vol_frac), current_price * 0.30), 2)
+
                 prob_up = min(0.9, max(0.1, score / 100))
-                
-                # Prediction model and confidence
+
                 if score > 80:
                     model = 'AI-Optimistic'
                     confidence = 85
@@ -10847,8 +10980,8 @@ Trading Plan ({risk_tolerance} RISK):
                 else:
                     model = 'Conservative'
                     confidence = 55
-                
-                risk_level = stock.get('risk_category', 'MEDIUM')
+
+                risk_level = stock.get('risk_category', 'MODERATE')
             else:
                 target_1m = target_3m = target_6m = bull_case = bear_case = 0
                 prob_up = 0.5
@@ -11668,7 +11801,8 @@ def merge_holdings_and_orders():
         if orders_file:
             print(f"[FOUND] Orders file: {orders_file}")
         else:
-            print("[INFO] No orders file found - merging holdings only")
+            print("[INFO] No orders file found — holdings will be used directly (skipping merge)")
+            return
         
         # Import and run the merger
         import importlib.util as _ilu
@@ -11684,9 +11818,8 @@ def merge_holdings_and_orders():
             print(f"[ERROR] Failed to load holdings from {holdings_file}")
             return
         
-        # Load orders data if available
-        if orders_file:
-            merger.load_orders_data(orders_file)
+        # Load orders data
+        merger.load_orders_data(orders_file)
         
         # Merge data
         if merger.merge_data():
@@ -12225,14 +12358,32 @@ def main():
                         swap_total += row[_V]
                     print()
 
-                # PRIORITY 2: SELL
-                sells = allocation_df[allocation_df['ACTION'].str.contains('SELL', na=False) & ~allocation_df['ACTION'].str.contains('SWAP', na=False)].sort_values(_V, ascending=False)
+                # PRIORITY 2: SELL (hard sells only — exclude CONSIDER SELLING)
+                _sell_mask = (allocation_df['ACTION'].str.upper().str.strip() == 'SELL')
+                sells = allocation_df[_sell_mask].sort_values(_V, ascending=False)
                 sell_total = 0
                 if len(sells) > 0:
                     print('PRIORITY 2: SELL 🔴')
                     for _, row in sells.iterrows():
                         print(f"{row['symbol']}: Sell ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}")
                         sell_total += row[_V]
+                    print()
+
+                # PRIORITY 2.5: CONSIDER SELLING (softer — evaluate and decide)
+                _consider_mask = allocation_df['ACTION'].str.contains('CONSIDER', na=False)
+                considers = allocation_df[_consider_mask].sort_values(_V, ascending=False)
+                consider_total = 0
+                if len(considers) > 0:
+                    print('PRIORITY 2.5: CONSIDER SELLING 🟠 (evaluate before acting)')
+                    for _, row in considers.iterrows():
+                        _cs_bk = row.get('BOOK %', 1.0)
+                        _cs_bk = float(_cs_bk) if pd.notna(_cs_bk) and float(_cs_bk) > 0 else 1.0
+                        if _cs_bk < 1.0:
+                            _cs_qty = max(1, int(row[_Q] * _cs_bk))
+                            print(f"{row['symbol']}: Consider selling ~{_cs_qty} of {row[_Q]:.0f} shares ({_cs_bk*100:.0f}%) → ~₹{row[_V]*_cs_bk:,.0f}")
+                        else:
+                            print(f"{row['symbol']}: Consider selling ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}")
+                        consider_total += row[_V] * _cs_bk
                     print()
 
                 # PRIORITY 3: BOOK PARTIAL PROFITS
