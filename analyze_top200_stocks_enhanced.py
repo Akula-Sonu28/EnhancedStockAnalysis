@@ -8996,19 +8996,25 @@ Trading Plan ({risk_tolerance} RISK):
                                         alloc_df_simple.at[_ei, _etf_col] = _fallback_fn(_ep)
                                     print(f"      ✅ Filled {_zero_mask.sum()} zero {_etf_col} with price-based defaults")
 
-                    # 💰 NEW: Calculate profit booking amount in rupees
+                    # 💰 NEW: Calculate profit booking amount in rupees (discrete shares)
                     print(f"   💰 Calculating BOOK_PROFIT amounts in rupees...")
                     alloc_df_simple['profit_booking_amount'] = 0.0
                     
-                    # Convert to numeric to handle any string values
                     alloc_df_simple['profit_booking_pct'] = pd.to_numeric(alloc_df_simple['profit_booking_pct'], errors='coerce')
                     alloc_df_simple['current_value'] = pd.to_numeric(alloc_df_simple['current_value'], errors='coerce')
+                    alloc_df_simple['current_quantity'] = pd.to_numeric(alloc_df_simple['current_quantity'], errors='coerce').fillna(0)
+                    alloc_df_simple['current_price'] = pd.to_numeric(alloc_df_simple['current_price'], errors='coerce').fillna(0)
                     
                     book_profit_mask = alloc_df_simple['profit_booking_pct'].notna() & (alloc_df_simple['profit_booking_pct'] > 0)
-                    alloc_df_simple.loc[book_profit_mask, 'profit_booking_amount'] = (
-                        alloc_df_simple.loc[book_profit_mask, 'current_value'] * 
-                        alloc_df_simple.loc[book_profit_mask, 'profit_booking_pct']
-                    )
+                    for _bp_idx in alloc_df_simple[book_profit_mask].index:
+                        _bp_pct = alloc_df_simple.at[_bp_idx, 'profit_booking_pct']
+                        _bp_qty = alloc_df_simple.at[_bp_idx, 'current_quantity']
+                        _bp_price = alloc_df_simple.at[_bp_idx, 'current_price']
+                        if _bp_pct >= 1.0:
+                            _bp_sell_qty = int(_bp_qty)
+                        else:
+                            _bp_sell_qty = max(1, int(_bp_qty * _bp_pct)) if _bp_qty > 0 else 0
+                        alloc_df_simple.at[_bp_idx, 'profit_booking_amount'] = _bp_sell_qty * _bp_price
                     print(f"      ✅ Calculated booking amounts for {book_profit_mask.sum()} stocks")
 
                     # [D-02 + E-02 FIX] Enforce invariant: NET₹ = BOOK₹ - TAX₹ for ALL booked rows.
@@ -9483,6 +9489,9 @@ Trading Plan ({risk_tolerance} RISK):
                             _wc_rows.append({**_e, 'direction': 'DETERIORATED'})
                         _wc_df = pd.DataFrame(_wc_rows)
                         if not _wc_df.empty:
+                            for _wc_sc in ('current_score', 'previous_score'):
+                                if _wc_sc in _wc_df.columns:
+                                    _wc_df[_wc_sc] = pd.to_numeric(_wc_df[_wc_sc], errors='coerce').round(1)
                             _wc_df.to_excel(writer, sheet_name='Weekly Changes', index=False)
                             _wc_ws = writer.sheets['Weekly Changes']
                             for ci, col in enumerate(_wc_df.columns):
@@ -11524,7 +11533,7 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   {category}: {count} stocks")
                     for _, stock in category_stocks.head(3).iterrows():  # Show top 3 per category
                         value = stock.get('current_value', 0)
-                        print(f"      • {stock['symbol']}: ₹{value:,.0f} (Score: {stock.get('risk_adjusted_score', 0):.1f})")
+                        print(f"      • {stock['symbol']}: ₹{value:,.0f} (Score: {stock.get('overall_score', 0):.1f})")
                     if len(category_stocks) > 3:
                         print(f"      ... and {len(category_stocks) - 3} more {category} stocks")
                         

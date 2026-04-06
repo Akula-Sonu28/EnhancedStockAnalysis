@@ -731,14 +731,23 @@ class RecommendationHistory:
         if valid.empty:
             return self._empty_performance()
 
-        wins = valid[valid[ret_col] > 0]
-        losses = valid[valid[ret_col] <= 0]
+        _SELL_SIDE = {'SELL', 'CONSIDER SELLING', 'WEAK SELL', 'REDUCE', 'REDUCE (SECTOR OVERWEIGHT)'}
+        _action_upper = valid['action'].astype(str).str.upper().str.strip()
+        _is_sell_side = _action_upper.isin(_SELL_SIDE) | _action_upper.str.contains('REDUCE', na=False)
+
+        _effective_ret = valid[ret_col].copy()
+        _effective_ret.loc[_is_sell_side] = -_effective_ret.loc[_is_sell_side]
+
+        wins = valid[_effective_ret > 0]
+        losses = valid[_effective_ret <= 0]
 
         win_rate = len(wins) / len(valid) * 100 if len(valid) else 0
-        avg_win = float(wins[ret_col].mean()) if not wins.empty else 0
-        avg_loss = float(losses[ret_col].mean()) if not losses.empty else 0
-        loss_sum = abs(losses[ret_col].sum()) if not losses.empty else 0
-        win_sum = float(wins[ret_col].sum()) if not wins.empty else 0
+        _win_rets = _effective_ret[_effective_ret > 0]
+        _loss_rets = _effective_ret[_effective_ret <= 0]
+        avg_win = float(_win_rets.mean()) if not _win_rets.empty else 0
+        avg_loss = float(_loss_rets.mean()) if not _loss_rets.empty else 0
+        loss_sum = abs(_loss_rets.sum()) if not _loss_rets.empty else 0
+        win_sum = float(_win_rets.sum()) if not _win_rets.empty else 0
         profit_factor = win_sum / loss_sum if loss_sum > 0 else float('inf')
         loss_rate = 100 - win_rate
         expectancy = (win_rate / 100) * avg_win - (loss_rate / 100) * abs(avg_loss)
