@@ -858,10 +858,12 @@ class TestRV01HistoryInitOrdering(unittest.TestCase):
 
     def test_load_history_does_not_crash(self):
         from recommendation_history import RecommendationHistory
+        from datetime import datetime, timedelta
         import tempfile, os
+        recent_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
         tmp = tempfile.NamedTemporaryFile(suffix='.csv', delete=False)
         tmp.write(b'date,symbol,action,score,price,reason,rank,sector\n')
-        tmp.write(b'2026-01-01,TCS,BUY,75,3500,test,1,IT\n')
+        tmp.write(f'{recent_date},TCS,BUY,75,3500,test,1,IT\n'.encode())
         tmp.close()
         try:
             rh = RecommendationHistory(history_file=tmp.name)

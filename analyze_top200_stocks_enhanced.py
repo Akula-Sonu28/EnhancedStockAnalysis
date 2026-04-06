@@ -5011,6 +5011,7 @@ class EnhancedTop200StockAnalyzer:
                                 print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
                         
                         self._warn_if_stale(latest_merged)
+                        self._holdings_source_path = latest_merged
                         return holdings_df
                     except Exception as e:
                         print(f"   ⚠️  Could not read merged file {latest_merged}: {e}")
@@ -5053,6 +5054,7 @@ class EnhancedTop200StockAnalyzer:
                         print(f"   🧹 Filtered out {initial_count - len(holdings_df)} zero quantity stocks")
                 
                 self._warn_if_stale(latest_holdings)
+                self._holdings_source_path = latest_holdings
                 return holdings_df
             
             # Fallback: Try multiple possible locations and names for holdings file
@@ -9124,13 +9126,17 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"      ✅ [RT-07/09/MI-C01/R01] Rotation targets, trigger prices and stop losses populated")
 
                     # Sort rows: actionable items first, watchlist last
-                    _action_priority = {
-                        'SELL': 0, 'SWAP': 1, 'REDUCE': 2, 'INCREASE': 3, 'NEW POSITION': 4,
-                        'BUY': 5, 'MOMENTUM': 6, 'KEEP': 7, 'HOLD': 8, 'WATCHLIST': 9
+                    _action_priority_exact = {
+                        'SELL': 0, 'SWAP': 1, 'CONSIDER SELLING': 2,
+                        'REDUCE (SECTOR OVERWEIGHT)': 3, 'REDUCE': 3,
+                        'INCREASE': 4, 'NEW POSITION': 5,
+                        'BUY': 6, 'MOMENTUM': 7, 'KEEP': 8, 'HOLD': 9, 'WATCHLIST': 10
                     }
                     def _sort_key(action_str):
-                        s = str(action_str).upper()
-                        for k, v in _action_priority.items():
+                        s = str(action_str).upper().strip()
+                        if s in _action_priority_exact:
+                            return _action_priority_exact[s]
+                        for k, v in _action_priority_exact.items():
                             if k in s:
                                 return v
                         return 99
@@ -9505,6 +9511,9 @@ Trading Plan ({risk_tolerance} RISK):
                 try:
                     _bt_files = sorted(glob.glob('data/backtest_result_*.xlsx'), reverse=True)
                     if _bt_files:
+                        _bt_age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(_bt_files[0]))).days
+                        if _bt_age > 30:
+                            print(f"   ⚠️  Backtest file is {_bt_age} days old — results may not reflect current scoring")
                         _bt_xl = pd.ExcelFile(_bt_files[0])
                         for _bt_sheet in _bt_xl.sheet_names[:3]:
                             _bt_df = pd.read_excel(_bt_xl, sheet_name=_bt_sheet)
@@ -9531,10 +9540,12 @@ Trading Plan ({risk_tolerance} RISK):
                     _meta_ws.write(0, 0, 'Parameter', _meta_hdr)
                     _meta_ws.write(0, 1, 'Value', _meta_hdr)
 
+                    _holdings_src = getattr(self, '_holdings_source_path', 'unknown')
                     _meta_data = [
                         ('Report Generated', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
                         ('Scoring Engine Version', getattr(self.hybrid_scoring_engine, 'version', 'unknown')),
                         ('Market Regime', str(getattr(self, 'current_market_regime', 'unknown'))),
+                        ('Holdings Source', str(_holdings_src)),
                         ('Stocks Analyzed', str(len(self.results))),
                         ('Stocks Failed', str(len(self.failed_stocks))),
                         ('Stocks Skipped (data_invalid)', str(sum(1 for r in self.results.values() if r.get('status') == 'data_invalid'))),
