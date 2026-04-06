@@ -132,19 +132,39 @@ class SmartProfitBookingAdvisor:
             return False
     
     def load_merged_portfolio(self):
-        """Load merged portfolio with current holdings"""
+        """Load merged portfolio with current holdings, with staleness fallback"""
         try:
             merged_files = glob.glob('reports/merged_portfolio_*.xlsx')
             if merged_files:
                 latest_portfolio = max(merged_files, key=os.path.getmtime)
+                age_days = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(latest_portfolio))).days
+                if age_days > 2:
+                    print(f"⚠️  Merged portfolio is {age_days} days old: {os.path.basename(latest_portfolio)}")
+                    print(f"   Falling back to fresh holdings CSV...")
+                    return self._load_holdings_csv_fallback()
                 self.portfolio_df = pd.read_excel(latest_portfolio)
                 print(f"✅ Loaded Current Holdings: {os.path.basename(latest_portfolio)}")
                 return True
             else:
-                print("⚠️  No merged portfolio found - using report quantities")
-                return False
+                print("⚠️  No merged portfolio found - trying holdings CSV...")
+                return self._load_holdings_csv_fallback()
         except Exception as e:
             print(f"⚠️  Could not load portfolio: {e}")
+            return False
+
+    def _load_holdings_csv_fallback(self):
+        """Fall back to loading directly from holdings CSV"""
+        try:
+            csv_files = glob.glob('Holding/holdings*.csv')
+            if csv_files:
+                latest_csv = max(csv_files, key=os.path.getmtime)
+                self.portfolio_df = pd.read_csv(latest_csv)
+                print(f"✅ Loaded Current Holdings (CSV fallback): {os.path.basename(latest_csv)}")
+                return True
+            print("⚠️  No holdings CSV found - using report quantities")
+            return False
+        except Exception as e:
+            print(f"⚠️  Could not load holdings CSV: {e}")
             return False
     
     def get_profit_booking_stocks(self):

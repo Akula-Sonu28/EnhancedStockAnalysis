@@ -611,6 +611,15 @@ class RecommendationHistory:
             logging.warning(f"Skipping recommendation for {symbol}: invalid price {price}")
             return
         action = _normalize_action(action)
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        with self._lock:
+            if not self.history_df.empty:
+                _existing = self.history_df[
+                    (self.history_df['symbol'] == symbol) &
+                    (self.history_df['date'].astype(str).str[:10] == today_str)
+                ]
+                if not _existing.empty:
+                    return
         new_rec = pd.DataFrame([{
             'date': datetime.now(),
             'symbol': symbol,
