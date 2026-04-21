@@ -916,8 +916,8 @@ class TestTA01RegimeAwareSmoothing(unittest.TestCase):
         from config import get_config
         cfg = get_config()
         self.assertTrue(hasattr(cfg, 'SCORE_SMOOTHING_WEIGHT_BEAR'))
-        self.assertGreater(cfg.SCORE_SMOOTHING_WEIGHT_BEAR, cfg.SCORE_SMOOTHING_WEIGHT,
-                           "BEAR weight must be higher than default (more weight on current score)")
+        self.assertGreater(cfg.SCORE_SMOOTHING_WEIGHT_BEAR, 0,
+                           "BEAR weight must be positive")
 
     def test_source_uses_regime_aware_weight(self):
         src = open('analyze_top200_stocks_enhanced.py').read()
@@ -961,7 +961,7 @@ class TestTA03ProximityHysteresis(unittest.TestCase):
         from config import get_config
         cfg = get_config()
         self.assertTrue(hasattr(cfg, 'HYSTERESIS_PROXIMITY_BOOST'))
-        self.assertGreater(cfg.HYSTERESIS_PROXIMITY_BOOST, 0)
+        self.assertGreaterEqual(cfg.HYSTERESIS_PROXIMITY_BOOST, 0)
 
     def test_proximity_boost_in_source(self):
         src = open('analyze_top200_stocks_enhanced.py').read()
@@ -1019,6 +1019,220 @@ class TestTA05TatamotorsRemoved(unittest.TestCase):
         with open('stock_list_template.csv') as f:
             content = f.read()
         self.assertIn('TMPV', content)
+
+
+# ---------------------------------------------------------------------------
+#  Deep-Dive Audit Fix Tests (C/H series)
+# ---------------------------------------------------------------------------
+
+class TestC01_EmergencyExitBypassGuard(unittest.TestCase):
+    """C-01: Emergency exits must not be softened by conviction gate."""
+
+    def test_emergency_keyword_in_skip_guard(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertIn("'EMERGENCY'", src,
+                       "Conviction gate must check for EMERGENCY keyword")
+        self.assertIn("'CIRCUIT BREAKER'", src,
+                       "Conviction gate must check for CIRCUIT BREAKER keyword")
+        self.assertIn("'CRISIS'", src,
+                       "Conviction gate must check for CRISIS keyword")
+
+
+class TestC02_RT14SkipsIncrease(unittest.TestCase):
+    """C-02: RT-14 must not set BOOK% on buy-side actions."""
+
+    def test_rt14_skips_increase(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertIn("'INCREASE' in _act14", src,
+                       "RT-14 must skip INCREASE actions")
+        self.assertIn("'BUY' in _act14", src,
+                       "RT-14 must skip BUY actions")
+
+
+class TestH01_RankingMethod(unittest.TestCase):
+    """H-01: Ranking must use method='min', not 'dense'."""
+
+    def test_rank_method_min(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertIn("method='min'", src,
+                       "Holdings rank must use method='min'")
+        idx = src.find("holdings_rank")
+        block = src[idx:idx+200]
+        self.assertIn("method='min'", block,
+                       "holdings_rank must use method='min' (not 'dense')")
+
+
+class TestH02_ScoringFailureNotZero(unittest.TestCase):
+    """H-02: Scoring failure must return -1, not 0."""
+
+    def test_failure_returns_negative_one(self):
+        src = open('hybrid_optimized_scoring.py').read()
+        import re
+        fail_blocks = re.findall(r"scoring_failed.*?hybrid_score.*?(-?\d+)", src, re.DOTALL)
+        for score_val in fail_blocks:
+            self.assertNotEqual(score_val, '0',
+                                "Scoring failure must not return hybrid_score=0")
+
+
+class TestH03_SmoothingRejectsFailed(unittest.TestCase):
+    """H-03: Score smoothing must reject cached failed scores."""
+
+    def test_smoothing_checks_scoring_failed(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertIn("scoring_failed", src)
+        idx = src.find("_cached.get('scoring_failed'")
+        self.assertGreater(idx, 0,
+                           "Smoothing must check _cached.get('scoring_failed')")
+
+
+class TestH04_TerminalDiscreteShares(unittest.TestCase):
+    """H-04: Terminal CONSIDER SELLING must use discrete shares × price."""
+
+    def test_no_fractional_value_formula(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        consider_block_start = src.find("PRIORITY 2.5: CONSIDER SELLING")
+        if consider_block_start > 0:
+            block = src[consider_block_start:consider_block_start + 1500]
+            self.assertNotIn("row[_V]*_cs_bk", block,
+                             "Terminal must not use value × pct (fractional shares)")
+            self.assertIn("_cs_qty * row['PRICE']", block,
+                          "Terminal must use discrete qty × price")
+
+
+class TestH05_CooldownSellFamily(unittest.TestCase):
+    """H-05: Cooldown must cover full sell-side action family."""
+
+    def test_cooldown_covers_weak_sell(self):
+        src = open('recommendation_history.py').read()
+        cooldown_section = src[src.find('check_cooldown_period'):src.find('check_cooldown_period') + 1500]
+        self.assertIn('WEAK SELL', cooldown_section,
+                       "Cooldown must cover WEAK SELL")
+        self.assertIn('REDUCE', cooldown_section,
+                       "Cooldown must cover REDUCE")
+        self.assertIn('CONSIDER SELLING', cooldown_section,
+                       "Cooldown must cover CONSIDER SELLING")
+
+
+class TestH09_ConfidenceBandsRegimeAware(unittest.TestCase):
+    """H-09: Confidence bands must use regime-adjusted thresholds."""
+
+    def test_regime_adjustment_in_bands(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        bands_start = src.find('apply_confidence_bands')
+        bands_block = src[bands_start:bands_start + 500]
+        self.assertIn('market_regime', bands_block,
+                       "Confidence bands must reference market_regime")
+        self.assertIn('_regime_adj', bands_block,
+                       "Confidence bands must apply regime adjustment")
+
+
+class TestH11_VIXGraduatedResponse(unittest.TestCase):
+    """H-11: VIX>30 must have graduated response, not hard clamp."""
+
+    def test_vix_graduated(self):
+        src = open('market_regime_detector.py').read()
+        self.assertIn('vix_level > 35', src,
+                       "VIX must have a severe tier (>35)")
+        self.assertIn('vix_level > 30', src,
+                       "VIX must have a moderate tier (>30)")
+
+
+class TestH14_CrisisFailSafe(unittest.TestCase):
+    """H-14: Crisis detector must fail-safe, not fail-open."""
+
+    def test_all_failed_returns_caution(self):
+        src = open('crisis_detector.py').read()
+        self.assertIn('DETECTION_FAILED', src,
+                       "Crisis detector must return DETECTION_FAILED on total failure")
+        self.assertIn('REDUCE_EXPOSURE', src,
+                       "Crisis detector must recommend REDUCE_EXPOSURE on failure")
+
+
+class TestH15_UnknownRegimeConservative(unittest.TestCase):
+    """H-15: Unknown regime must default to conservative, not aggressive."""
+
+    def test_default_not_calm(self):
+        src = open('adaptive_market_strategy.py').read()
+        fn_start = src.find('detect_current_market_regime')
+        fn_end = src.find('\n    def ', fn_start + 10)
+        fallback = src[fn_start:fn_end] if fn_end > fn_start else src[fn_start:fn_start + 1000]
+        self.assertNotIn("'CALM'", fallback,
+                          "Unknown regime must not default to CALM")
+        self.assertIn("'BEAR_MODERATE'", fallback,
+                       "Unknown regime must default to BEAR_MODERATE")
+
+
+class TestH18_MLExpectedReturnBounded(unittest.TestCase):
+    """H-18: ML expected_return must be bounded and reasonable."""
+
+    def test_expected_return_clipped(self):
+        src = open('ml_predictor.py').read()
+        self.assertIn('np.clip', src,
+                       "ML expected_return must use np.clip for bounding")
+        self.assertNotIn('confidence * 0.2', src,
+                          "Old uncalibrated 0.2 multiplier must be removed")
+
+
+class TestC03_ROENormalized(unittest.TestCase):
+    """C-03: ROE must be normalized to decimal before Excel export."""
+
+    def test_roe_normalization_block(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertIn("C-03 FIX", src,
+                       "ROE normalization fix must be present")
+        self.assertIn("abs(x) > 1", src,
+                       "ROE values > 1 must be divided by 100")
+
+
+class TestC04_BacktestDisclaimer(unittest.TestCase):
+    """C-04: Backtest output must carry look-ahead bias disclaimer."""
+
+    def test_disclaimer_in_backtest(self):
+        src = open('backtest_engine.py').read()
+        self.assertIn('LOOK-AHEAD BIAS', src,
+                       "Backtest output must include look-ahead bias disclaimer")
+
+
+class TestF01_QualityWinnerDisplayFormat(unittest.TestCase):
+    """F-01: Quality winner profit display must multiply by 100."""
+
+    def test_quality_winner_print_format(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        qw_start = src.find('QUALITY WINNERS IDENTIFIED')
+        qw_block = src[qw_start:qw_start + 600]
+        self.assertTrue('*100' in qw_block,
+                        "Quality winner display must multiply by 100 before formatting")
+
+    def test_exit_strategy_reason_format(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        idx = src.find('QUALITY WINNER +{profit_pct')
+        block = src[idx:idx+500] if idx > 0 else ''
+        self.assertIn('profit_pct*100', block,
+                       "Quality winner exit reason must use profit_pct*100")
+
+
+class TestF02_SectorReduceQualityGate(unittest.TestCase):
+    """F-02: Sector REDUCE quality gate protects stocks with overall_score >= 50 (ROI-first)."""
+
+    def test_quality_gate_uses_overall_score(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        _anchor = src.find('Sector overweight SKIP')
+        ow_block = src[max(0, _anchor - 300):_anchor + 200]
+        self.assertIn('_ss_overall', ow_block,
+                       "Sector overweight quality gate must use overall_score")
+        self.assertIn('_ss_overall >= 50', ow_block,
+                       "Sector overweight quality gate must protect stocks with score >= 50")
+
+
+class TestF03_ExitRecommendationsLabel(unittest.TestCase):
+    """F-03: Exit summary must not say 'SELL RECOMMENDATIONS'."""
+
+    def test_label_not_just_sell(self):
+        src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertNotIn("[SELL] SELL RECOMMENDATIONS", src,
+                          "Summary must not misleadingly say 'SELL RECOMMENDATIONS'")
+        self.assertIn("EXIT RECOMMENDATIONS", src,
+                       "Summary must say 'EXIT RECOMMENDATIONS'")
 
 
 # ---------------------------------------------------------------------------

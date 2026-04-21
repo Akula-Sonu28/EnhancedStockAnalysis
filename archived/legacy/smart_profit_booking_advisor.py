@@ -76,29 +76,31 @@ class SmartProfitBookingAdvisor:
             }
             print(f"📝 Initialized tracking for {symbol}: {current_qty} shares")
         else:
-            # Update current quantity
-            old_qty = self.booking_history[symbol]['current_qty']
-            self.booking_history[symbol]['current_qty'] = current_qty
-            self.booking_history[symbol]['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            entry = self.booking_history[symbol]
+            old_qty = entry['current_qty']
+            entry['current_qty'] = current_qty
+            entry['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            if entry['original_qty'] < current_qty and entry['total_booked_qty'] == 0:
+                entry['original_qty'] = current_qty
             
-            # If quantity decreased, calculate what was booked
             if current_qty < old_qty:
                 booked_this_session = old_qty - current_qty
-                self.booking_history[symbol]['total_booked_qty'] += booked_this_session
-                original = self.booking_history[symbol]['original_qty']
-                self.booking_history[symbol]['total_booked_pct'] = (
-                    self.booking_history[symbol]['total_booked_qty'] / original * 100
-                )
+                entry['total_booked_qty'] += booked_this_session
+                original = entry['original_qty']
+                entry['total_booked_pct'] = (
+                    entry['total_booked_qty'] / original * 100
+                ) if original > 0 else 0
                 
-                self.booking_history[symbol]['booking_sessions'].append({
+                entry['booking_sessions'].append({
                     'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'qty_booked': booked_this_session,
                     'qty_remaining': current_qty,
-                    'pct_booked': (booked_this_session / original * 100)
+                    'pct_booked': (booked_this_session / original * 100) if original > 0 else 0
                 })
                 
                 print(f"📉 Detected booking for {symbol}: -{booked_this_session} shares "
-                      f"(Total booked: {self.booking_history[symbol]['total_booked_pct']:.1f}%)")
+                      f"(Total booked: {entry['total_booked_pct']:.1f}%)")
     
     def get_remaining_booking_target(self, symbol, target_pct):
         """Calculate how much more to book to reach target percentage"""

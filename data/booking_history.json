@@ -219,5 +219,23 @@
     "booking_sessions": [],
     "first_tracked": "2025-10-16 10:17:31",
     "last_updated": "2025-10-16 10:52:54"
+  },
+  "UNIONBANK": {
+    "original_qty": 255,
+    "current_qty": 192,
+    "original_price": 0,
+    "avg_cost": 155.89,
+    "total_booked_qty": 63,
+    "total_booked_pct": 24.705882352941178,
+    "booking_sessions": [
+      {
+        "date": "2026-04-16 13:53:05",
+        "qty_booked": 63,
+        "qty_remaining": 192,
+        "pct_booked": 24.705882352941178
+      }
+    ],
+    "first_tracked": "2026-04-10 17:12:02",
+    "last_updated": "2026-04-18 03:38:30"
   }
 }

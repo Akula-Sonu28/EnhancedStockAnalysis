@@ -135,7 +135,20 @@ class HybridOptimizedScoringEngine:
             # Stochastic %K (0-6 pts): confirmation
             stoch_score = float(np.clip((stoch_k - 20.0) / 60.0 * 6.0, 0, 6))
 
-            return rsi_score + mom_score + trend_score + macd_score + stoch_score
+            _total = rsi_score + mom_score + trend_score + macd_score + stoch_score
+
+            # Mean-reversion adjustment for bear/sideways regimes:
+            # Oversold stocks have rebound potential; overbought stocks carry reversal risk.
+            if market_regime in ('bearish', 'neutral'):
+                if rsi < 35:
+                    _mr_bonus = float(np.clip((35.0 - rsi) / 15.0 * 8.0, 0, 8))
+                elif rsi > 65:
+                    _mr_bonus = -float(np.clip((rsi - 65.0) / 15.0 * 8.0, 0, 8))
+                else:
+                    _mr_bonus = 0.0
+                _total += _mr_bonus
+
+            return float(np.clip(_total, 0, 100))
 
         except Exception as _e:
             logging.debug(f"Scoring component error (momentum): {_e}")
@@ -282,11 +295,11 @@ class HybridOptimizedScoringEngine:
         },
         'bearish': {
             'fundamental_quality': 0.15,
-            'momentum_technical':  0.25,
+            'momentum_technical':  0.35,
             'volume_strength':     0.05,
             'multi_timeframe':     0.15,
             'ml_signal':           0.00,
-            'risk_adjustment':     0.40,
+            'risk_adjustment':     0.30,
         },
         'neutral': {
             'fundamental_quality': 0.15,
@@ -310,7 +323,7 @@ class HybridOptimizedScoringEngine:
         """
         try:
             if stock_data is None:
-                return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': 'stock_data is None', 'scoring_failed': True}
+                return {'hybrid_score': -1, 'components': {}, 'adjustments': {}, 'error': 'stock_data is None', 'scoring_failed': True}
 
             def _has_real_value(sd, field):
                 v = sd.get(field)
@@ -336,7 +349,7 @@ class HybridOptimizedScoringEngine:
             if _present_required == 0 or (_present_required + _present_signal) < 3:
                 logging.warning(f"Ghost stock detected for {symbol}: only {_present_required} required + {_present_signal} signal fields present")
                 return {
-                    'hybrid_score': 0, 'components': {}, 'adjustments': {},
+                    'hybrid_score': -1, 'components': {}, 'adjustments': {},
                     'data_coverage': 0, 'scoring_failed': True,
                     'error': f'Insufficient real data: {_present_required} required, {_present_signal} signal fields',
                 }
@@ -346,7 +359,7 @@ class HybridOptimizedScoringEngine:
             if _cp < 1.0 or _mc < 1e8:
                 logging.warning(f"Ghost stock sanity fail for {symbol}: current_price={_cp}, market_cap={_mc}")
                 return {
-                    'hybrid_score': 0, 'components': {}, 'adjustments': {},
+                    'hybrid_score': -1, 'components': {}, 'adjustments': {},
                     'data_coverage': 0, 'scoring_failed': True,
                     'error': f'Sanity check failed: price={_cp}, mcap={_mc}',
                 }
@@ -383,7 +396,7 @@ class HybridOptimizedScoringEngine:
             if _data_coverage < 0.5:
                 logging.warning(f"Insufficient data coverage for {symbol}: {_real_count}/{_total_count} components")
                 return {
-                    'hybrid_score': 0,
+                    'hybrid_score': -1,
                     'components': {k: 0 for k in _component_results},
                     'adjustments': {'market_regime': market_regime},
                     'data_coverage': _data_coverage,
@@ -487,7 +500,7 @@ class HybridOptimizedScoringEngine:
 
         except Exception as e:
             print(f"Error calculating hybrid score for {symbol}: {e}")
-            return {'hybrid_score': 0, 'components': {}, 'adjustments': {}, 'error': str(e), 'scoring_failed': True}
+            return {'hybrid_score': -1, 'components': {}, 'adjustments': {}, 'error': str(e), 'scoring_failed': True}
     
     _CALIBRATED_WEIGHTS_PATH = 'data/calibrated_weights.json'
 

@@ -985,7 +985,14 @@ def main():
         out_file = f'data/backtest_result_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
         try:
             with pd.ExcelWriter(out_file, engine='xlsxwriter') as writer:
-                result.to_summary_df().to_excel(writer, sheet_name='Summary', index=False)
+                _summary_df = result.to_summary_df()
+                _disclaimer = pd.DataFrame([{
+                    'DISCLAIMER': '⚠️ LOOK-AHEAD BIAS: Current-date fundamentals (PE, ROE, margins) '
+                    'are used for ALL historical periods. Backtest results may be overstated. '
+                    'Treat as directional, not precise.'
+                }])
+                _summary_with_disclaimer = pd.concat([_disclaimer, _summary_df], ignore_index=True)
+                _summary_with_disclaimer.to_excel(writer, sheet_name='Summary', index=False)
                 result.to_equity_df().to_excel(writer, sheet_name='Equity Curve', index=False)
                 pd.DataFrame(result.trades).to_excel(writer, sheet_name='Trades', index=False)
                 if result.benchmark_curve:

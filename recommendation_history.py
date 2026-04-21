@@ -91,7 +91,7 @@ class RecommendationHistory:
                     logging.info(
                         f"Recommendation history TTL ({self.HISTORY_TTL_DAYS}d): removed {dropped} stale rows"
                     )
-                logging.info(f"Loaded recommendation history: {len(df)} records")
+                logging.debug(f"Loaded recommendation history: {len(df)} records")
                 return df
             except Exception as e:
                 logging.warning(f"Error loading recommendation history: {e}")
@@ -350,6 +350,31 @@ class RecommendationHistory:
             return 'WEAK_SELL'
         return 'HOLD'
 
+    def get_sell_signal_streak(self, symbol: str) -> int:
+        """Return number of consecutive sessions with sell-side signals for a symbol.
+        Counts backward from the most recent recommendation. SELL, WEAK SELL,
+        CONSIDER SELLING, and REDUCE all count as sell-side. Stops at the first
+        non-sell-side action or when history is exhausted."""
+        with self._lock:
+            sym_hist = self.history_df[self.history_df['symbol'] == symbol].copy()
+            if sym_hist.empty:
+                return 0
+            sym_hist = sym_hist.sort_values('date', ascending=False)
+            seen_dates = set()
+            streak = 0
+            _sell_kw = ('SELL', 'WEAK', 'CONSIDER', 'REDUCE', 'EXIT', 'STOP')
+            for _, row in sym_hist.iterrows():
+                d = str(row.get('date', ''))[:10]
+                if d in seen_dates:
+                    continue
+                seen_dates.add(d)
+                action = str(row.get('action', '')).upper()
+                if any(kw in action for kw in _sell_kw):
+                    streak += 1
+                else:
+                    break
+            return streak
+
     def check_cooldown_period(self, symbol: str, proposed_action: str) -> Tuple[bool, str]:
         """
         Check if stock is within cooldown period
@@ -375,7 +400,8 @@ class RecommendationHistory:
         days_since = (datetime.now() - last_date).days
         
         # Check for flip-flops
-        if last_action in ['BUY', 'STRONG BUY', 'INCREASE'] and proposed_action == 'SELL':
+        _SELL_SIDE = ('SELL', 'WEAK SELL', 'REDUCE', 'CONSIDER SELLING', 'SWAP', 'EXIT')
+        if last_action in ['BUY', 'STRONG BUY', 'INCREASE'] and (proposed_action in _SELL_SIDE or any(kw in str(proposed_action).upper() for kw in ('SELL', 'REDUCE', 'SWAP', 'EXIT'))):
             if days_since < self.MIN_HOLD_DAYS:
                 warning = (
                     f"⚠️ COOLDOWN ACTIVE: Last action was {last_action} "
@@ -384,7 +410,8 @@ class RecommendationHistory:
                 )
                 return False, warning
         
-        if last_action == 'SELL' and proposed_action in ['BUY', 'INCREASE']:
+        _SELL_ACTIONS = ('SELL', 'WEAK SELL', 'REDUCE', 'CONSIDER SELLING', 'SWAP', 'EXIT')
+        if last_action in _SELL_ACTIONS and proposed_action in ['BUY', 'STRONG BUY', 'INCREASE']:
             if days_since < self.MIN_HOLD_DAYS:
                 warning = (
                     f"⚠️ COOLDOWN ACTIVE: Last action was {last_action} "
@@ -796,19 +823,21 @@ class RecommendationHistory:
     def get_performance_summary_df(self) -> pd.DataFrame:
         """Return a DataFrame summarising performance across all horizons."""
         rows = []
+        _no_data = 'INSUFFICIENT DATA'
         for h in ('7d', '30d', '90d'):
             m = self.get_performance_metrics(h)
+            has_data = m['total_with_outcomes'] > 0
             rows.append({
                 'Horizon': h,
-                'Recommendations': m['total_with_outcomes'],
-                'Wins': m['wins'],
-                'Losses': m['losses'],
-                'Win Rate %': m['win_rate'],
-                'Avg Win %': m['avg_win'],
-                'Avg Loss %': m['avg_loss'],
-                'Win/Loss Ratio': m['avg_win_loss_ratio'],
-                'Profit Factor': m['profit_factor'],
-                'Expectancy %': m['expectancy'],
+                'Recommendations': m['total_with_outcomes'] if has_data else _no_data,
+                'Wins': m['wins'] if has_data else _no_data,
+                'Losses': m['losses'] if has_data else _no_data,
+                'Win Rate %': m['win_rate'] if has_data else _no_data,
+                'Avg Win %': m['avg_win'] if has_data else _no_data,
+                'Avg Loss %': m['avg_loss'] if has_data else _no_data,
+                'Win/Loss Ratio': m['avg_win_loss_ratio'] if has_data else _no_data,
+                'Profit Factor': m['profit_factor'] if has_data else _no_data,
+                'Expectancy %': m['expectancy'] if has_data else _no_data,
             })
         return pd.DataFrame(rows)
 

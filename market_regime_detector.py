@@ -83,9 +83,12 @@ class MarketRegimeDetector:
             )
             regime_score = max(-1.0, min(1.0, regime_score))
 
-            if vix_level > 30:
+            if vix_level > 35:
                 regime_score = min(regime_score, 0.0)
-                self.logger.info(f"[H5] VIX={vix_level:.1f} > 30 — clamping regime_score to non-BULL (max 0)")
+                self.logger.info(f"[H5] VIX={vix_level:.1f} > 35 — clamping regime_score to non-BULL (max 0)")
+            elif vix_level > 30:
+                regime_score = min(regime_score, 0.3)
+                self.logger.info(f"[H5] VIX={vix_level:.1f} > 30 — softening regime_score (max 0.3, was {regime_score:.2f})")
 
             # P4-01: Multi-index consensus — adjust confidence
             secondary_scores = self._get_secondary_index_scores(period_days)
@@ -94,10 +97,11 @@ class MarketRegimeDetector:
             # Classify regime — modulate confidence by index agreement
             effective_score = regime_score * (0.6 + 0.4 * index_agreement)
             
-            _regime_hyst = 0.1
             _prev_regime = getattr(self, '_last_regime', None)
-            _bull_thr = self.bull_threshold - (_regime_hyst if _prev_regime == 'BULL' else 0)
-            _bear_thr = self.bear_threshold + (_regime_hyst if _prev_regime == 'BEAR' else 0)
+            _bull_hyst = 0.1
+            _bear_hyst = 0.05
+            _bull_thr = self.bull_threshold - (_bull_hyst if _prev_regime == 'BULL' else 0)
+            _bear_thr = self.bear_threshold + (_bear_hyst if _prev_regime == 'BEAR' else 0)
             if effective_score > _bull_thr:
                 regime = 'BULL'
                 regime_strength = 'STRONG' if effective_score > 0.8 else 'MODERATE'
@@ -578,8 +582,15 @@ class MarketRegimeDetector:
                 adjustments.append("Momentum advantage in bull market (+2)")
         
         elif regime == 'BEAR':
-            adjustment -= 5.0
-            adjustments.append("Bear market base penalty (-5)")
+            _bear_magnitude = abs(_sv(regime_data.get('regime_score'), -0.6))
+            if _bear_magnitude < 0.6:
+                _bear_base = -2.0
+            elif _bear_magnitude < 0.75:
+                _bear_base = -3.5
+            else:
+                _bear_base = -5.0
+            adjustment += _bear_base
+            adjustments.append(f"Bear market scaled penalty ({_bear_base:+.1f}, magnitude={_bear_magnitude:.2f})")
 
             if vix > 15:
                 _vix_addon = min(3.0, (vix - 15.0) / 5.0)
@@ -604,6 +615,12 @@ class MarketRegimeDetector:
             if _rsi < 30:
                 adjustment += 2.0
                 adjustments.append("Oversold partial opportunity in bear (+2)")
+
+            _pchg_20d = _sv(stock_data.get('enhanced_price_change_20d'), 0)
+            if _pchg_20d < -10:
+                _mom_penalty = min(5.0, 3.0 + 2.0 * (abs(_pchg_20d) - 10) / 10)
+                adjustment -= _mom_penalty
+                adjustments.append(f"Declining momentum penalty (-{_mom_penalty:.1f}, 20d chg={_pchg_20d:.1f}%)")
         
         else:
             roe = _sv(stock_data.get('roe'), 0)
@@ -629,8 +646,9 @@ class MarketRegimeDetector:
                 adjustment -= 2.0
                 adjustments.append("Overbought market caution (-2)")
         
-        # Apply adjustment (limit to ±10 points)
-        adjustment = np.clip(adjustment, -10.0, 10.0)
+        # Apply adjustment (BEAR can go deeper to differentiate declining stocks)
+        _adj_floor = -8.0 if regime == 'BEAR' else -6.0
+        adjustment = np.clip(adjustment, _adj_floor, 10.0)
         adjusted_score = np.clip(stock_score + adjustment, 0, 100)
         
         return {

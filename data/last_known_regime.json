@@ -1,7 +1,7 @@
 {
-  "regime": "BEAR",
-  "regime_strength": "STRONG",
-  "regime_score": -0.8503206384767026,
-  "vix_level": 25.764999389648438,
-  "cached_at": "2026-04-06T13:57:26.004536"
+  "regime": "SIDEWAYS",
+  "regime_strength": "CHOPPY",
+  "regime_score": -0.24254432012399407,
+  "vix_level": 17.71500015258789,
+  "cached_at": "2026-04-21T11:39:19.894446"
 }

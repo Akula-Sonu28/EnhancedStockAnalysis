@@ -123,7 +123,7 @@ class StockDataBundle:
                 self.hist_5y = self.ticker.history(period='5y', interval='1d',
                                                     timeout=_config.TIMEOUT_SECONDS)
                 if len(self.hist_5y) >= _MIN_ROWS_ACCEPTABLE:
-                    break
+                break
                 logging.warning(f"Insufficient data for {symbol}: got {len(self.hist_5y)} rows (need {_MIN_ROWS_ACCEPTABLE}), retrying...")
                 time.sleep(2)
                 continue
@@ -330,7 +330,7 @@ class EnhancedTop200StockAnalyzer:
         
         # Take first 200 stocks
         # Dynamic limit - use all stocks from CSV or default list
-
+    
     @staticmethod
     def _safe_yf_ticker(symbol, retries=3, timeout=15):
         """Shared yfinance Ticker wrapper with retries and timeout."""
@@ -446,16 +446,16 @@ class EnhancedTop200StockAnalyzer:
                         with open(cache_path, 'r', encoding='utf-8') as f:
                             data = json.load(f)
                 else:
-                    with open(cache_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                self.performance_metrics['cache_hits'] += 1
-                logging.info(f"Cache hit for {symbol} ({analysis_type})")
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    self.performance_metrics['cache_hits'] += 1
+                    logging.info(f"Cache hit for {symbol} ({analysis_type})")
                 if not getattr(_config, 'ML_TAG_IN_RECOMMENDATION', False):
                     _ml_pat = re.compile(r'\s*\(ML:.*?\)')
                     for _fld in ('phase2_recommendation', 'final_recommendation'):
                         if _fld in data and isinstance(data[_fld], str):
                             data[_fld] = _ml_pat.sub('', data[_fld])
-                return data
+                    return data
             except Exception as e:
                 logging.warning(f"Failed to load cache for {symbol}: {e}")
         
@@ -516,7 +516,7 @@ class EnhancedTop200StockAnalyzer:
             _tmp_fd, _tmp_path = tempfile.mkstemp(dir=self.cache_dir, suffix='.json.tmp')
             try:
                 with os.fdopen(_tmp_fd, 'w', encoding='utf-8') as f:
-                    json.dump(serializable_data, f, ensure_ascii=False, indent=2)
+                json.dump(serializable_data, f, ensure_ascii=False, indent=2)
                 if _HAS_FILELOCK:
                     with FileLock(cache_path + ".lock", timeout=10):
                         os.replace(_tmp_path, cache_path)
@@ -549,7 +549,7 @@ class EnhancedTop200StockAnalyzer:
                 logging.info(f"Cleared {removed_count} old cache files")
         except Exception as e:
             logging.warning(f"Error clearing cache: {e}")
-
+        
     def cleanup_cache(self, max_age_days=7, max_files=500):
         """Auto-cleanup: remove cache files older than max_age_days, cap at max_files."""
         try:
@@ -674,7 +674,7 @@ class EnhancedTop200StockAnalyzer:
     # ========================================================================
     
     _IQR_HISTORY = {}
-
+    
     def enhanced_data_validation(self, stock_data: dict) -> dict:
         """
         PHASE 1 - IMPROVEMENT #1: Enhanced Data Validation
@@ -683,7 +683,7 @@ class EnhancedTop200StockAnalyzer:
         - Reasonable bounds for all ratios
         """
         validated_data = stock_data.copy()
-
+        
         # 0. IQR-BASED OUTLIER DETECTION
         _iqr_fields = ['pe_ratio', 'pb_ratio', 'roe', 'debt_to_equity', 'dividend_yield']
         for _fld in _iqr_fields:
@@ -845,7 +845,7 @@ class EnhancedTop200StockAnalyzer:
             quality_score -= 10
         if _rev_g is not None and _rev_g == 0:
             quality_score -= 5
-
+        
         # Penalty for data quality warnings
         if stock_data.get('data_quality_flag'):
             quality_score -= 10
@@ -864,12 +864,14 @@ class EnhancedTop200StockAnalyzer:
         return stock_data.get('final_blended_score', 50.0)
     
     def apply_confidence_bands(self, score: float, stock_data: dict) -> dict:
-        """HI-01: Confidence bands aligned with config thresholds (single source)."""
+        """HI-01: Confidence bands aligned with regime-adjusted thresholds."""
         from config import get_config as _gc
         _cfg = _gc()
-        _sb = getattr(_cfg, 'STRONG_BUY_THRESHOLD', 70)
-        _b = getattr(_cfg, 'BUY_THRESHOLD', 60)
-        _h = getattr(_cfg, 'HOLD_THRESHOLD', 50)
+        _regime = stock_data.get('market_regime', 'SIDEWAYS')
+        _regime_adj = 5 if _regime == 'BEAR' else (-2 if _regime == 'BULL' else 0)
+        _sb = getattr(_cfg, 'STRONG_BUY_THRESHOLD', 70) + _regime_adj
+        _b = getattr(_cfg, 'BUY_THRESHOLD', 60) + _regime_adj
+        _h = getattr(_cfg, 'HOLD_THRESHOLD', 50) + _regime_adj
         if score >= _sb:
             return {
                 'confidence_level': 'STRONG BUY',
@@ -901,7 +903,7 @@ class EnhancedTop200StockAnalyzer:
     
     # CB-06: detect_market_regime() REMOVED — use self.market_regime_detector.detect_regime()
     # (MarketRegimeDetector) as single source of truth.
-
+    
     def calculate_portfolio_context_score(self, symbol: str, stock_data: dict, 
                                          current_holdings: dict = None) -> dict:
         """
@@ -937,11 +939,11 @@ class EnhancedTop200StockAnalyzer:
 
             sector_concentration = 0.0
             if total_holdings > 0 and holdings_have_sector:
-                sector_holdings = [h for h in current_holdings.values()
-                                   if h.get('sector') == stock_sector]
-                sector_count = len(sector_holdings)
+            sector_holdings = [h for h in current_holdings.values() 
+                             if h.get('sector') == stock_sector]
+            sector_count = len(sector_holdings)
                 sector_concentration = sector_count / total_holdings
-
+                
                 if sector_concentration > 0.40:
                     context_score -= 15
                     adjustments.append(f"High sector concentration: {sector_concentration*100:.0f}%")
@@ -951,7 +953,7 @@ class EnhancedTop200StockAnalyzer:
                 elif sector_concentration < 0.10:
                     context_score += 10
                     adjustments.append("Good sector diversification")
-
+            
                 if stock_sector != 'Unknown':
                     if stock_sector not in [h.get('sector') for h in current_holdings.values()]:
                         context_score += 15
@@ -969,11 +971,11 @@ class EnhancedTop200StockAnalyzer:
                         ratio = stock_market_cap / holding_mc
                         if 0.5 <= ratio <= 2.0:
                             similar_size_count += 1
-
+                
                 if similar_size_count > total_holdings * 0.6:
                     context_score -= 5
                     adjustments.append("Low size diversification")
-
+            
             if total_holdings > 20:
                 stock_quality = stock_data.get('data_quality_score', 50)
                 if stock_quality < 70:
@@ -1918,58 +1920,58 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['sentiment_context'] = 'DISABLED'
             else:
                 try:
-                    base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
-                    
-                    sentiment_data = {
-                        'composite_score': stock_data.get('sentiment_composite_score', 50),
-                        'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
-                        'confidence': stock_data.get('sentiment_confidence', 40),
-                        'news_sentiment': {
-                            'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
+                base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
+                
+                sentiment_data = {
+                    'composite_score': stock_data.get('sentiment_composite_score', 50),
+                    'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
+                    'confidence': stock_data.get('sentiment_confidence', 40),
+                    'news_sentiment': {
+                        'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
                             'volume_surge': ({'VERY_HIGH': 3.0, 'HIGH': 2.5, 'ABOVE_AVERAGE': 1.5,
                                               'AVERAGE': 1.0, 'BELOW_AVERAGE': 0.7, 'LOW': 0.5, 'VERY_LOW': 0.3}
                                              .get(str(stock_data.get('volume_trend', 'AVERAGE')).upper(), 1.0)
                                              if isinstance(stock_data.get('volume_trend'), str)
                                              else _nv(stock_data.get('volume_trend'), 1.0))
-                        },
-                        'analyst_sentiment': {
-                            'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
-                            'total_recommendations': (
-                                stock_data.get('analyst_buy_count', 0) +
-                                stock_data.get('analyst_hold_count', 0) +
-                                stock_data.get('analyst_sell_count', 0)
-                            )
-                        },
-                        'earnings_sentiment': {
-                            'earnings_growth': stock_data.get('earnings_growth', 0)
-                        }
+                    },
+                    'analyst_sentiment': {
+                        'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
+                        'total_recommendations': (
+                            stock_data.get('analyst_buy_count', 0) +
+                            stock_data.get('analyst_hold_count', 0) +
+                            stock_data.get('analyst_sell_count', 0)
+                        )
+                    },
+                    'earnings_sentiment': {
+                        'earnings_growth': stock_data.get('earnings_growth', 0)
                     }
-                    
-                    sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
-                        base_score_for_sentiment,
-                        sentiment_data
-                    )
-                    
-                    stock_data.update({
-                        'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
-                        'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
-                        'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
-                        'sentiment_context': sentiment_adjustment_result['sentiment_context']
-                    })
-                    
-                    if sentiment_adjustment_result['sentiment_adjustment'] != 0:
-                        logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
-                                   f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
+                }
                 
-                except Exception as e:
-                    logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
-                    stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
-                    stock_data['sentiment_adjustment_amount'] = 0.0
-                    stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
-                    stock_data['sentiment_context'] = 'Error'
+                sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
+                    base_score_for_sentiment,
+                    sentiment_data
+                )
+                
+                stock_data.update({
+                    'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
+                    'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
+                    'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
+                    'sentiment_context': sentiment_adjustment_result['sentiment_context']
+                })
+                
+                if sentiment_adjustment_result['sentiment_adjustment'] != 0:
+                    logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
+                               f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
+            
+            except Exception as e:
+                logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
+                stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
+                stock_data['sentiment_adjustment_amount'] = 0.0
+                stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
+                stock_data['sentiment_context'] = 'Error'
             
             # PHASE 2 - TASK 5: Apply Volume Profile & Order Flow Adjustments
-            base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
+                base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
             try:
                 
                 # Prepare volume data for adjustment
@@ -2202,13 +2204,18 @@ class EnhancedTop200StockAnalyzer:
                 hybrid_score = 50
                 stock_data['_score_is_fallback'] = True
                 logging.warning(f"[SCORING] {stock_data.get('symbol','?')}: hybrid_score was 0/NaN but scoring_failed=False — using safety floor 50")
+            if _scoring_failed:
+                hybrid_score = -1
+                stock_data['_score_is_fallback'] = True
+                stock_data['final_recommendation'] = 'HOLD (SCORING FAILED)'
+                logging.warning(f"[SCORING] {stock_data.get('symbol','?')}: scoring_failed=True — setting score=-1, action=HOLD")
             old_phase1_blend = 0
 
             # V5.0: Sentiment and pattern adjustments removed — they added noise.
             # Sentiment analyzer still runs for data collection; it just doesn't affect the score.
             _sent_adj = 0.0
             _vol_adj  = 0.0
-            _pattern_adj = 0.0
+                _pattern_adj = 0.0
             stock_data['sentiment_score_contribution'] = 0.0
             stock_data['volume_score_contribution']    = 0.0
             stock_data['pattern_score_contribution']   = 0.0
@@ -2217,7 +2224,7 @@ class EnhancedTop200StockAnalyzer:
             _cd = self.crisis_data if self.crisis_data else {'crisis_detected': False, 'crisis_type': 'NONE', 'severity': 0}
             _stock_sector = stock_data.get('sector', '')
             try:
-                _crisis_adj = self.crisis_detector.get_stock_crisis_adjustment(symbol, _stock_sector, _cd)
+            _crisis_adj = self.crisis_detector.get_stock_crisis_adjustment(symbol, _stock_sector, _cd)
             except Exception as _ce:
                 logging.warning(f"Crisis adjustment failed for {symbol}: {_ce}")
                 _crisis_adj = 0.0
@@ -2249,7 +2256,7 @@ class EnhancedTop200StockAnalyzer:
             stock_data['quality_adj_recorded'] = round(_quality_adj, 2)
 
             _sector_adj = _nv(stock_data.get('sector_performance_adj'), 0.0)
-            final_blended_score += _sector_adj
+                final_blended_score += _sector_adj
             stock_data['sector_adj_recorded'] = _sector_adj
 
             final_blended_score = _nv(final_blended_score, 50)
@@ -2294,7 +2301,7 @@ class EnhancedTop200StockAnalyzer:
                         logging.debug(f"Corrupt cache {_pf}, trying older: {_cache_err}")
                         _cached = None
                         continue
-                if _cached and isinstance(_cached, dict):
+                if _cached and isinstance(_cached, dict) and not _cached.get('scoring_failed', False):
                     _prev_score = _cached.get('final_blended_score')
                     if _prev_score is not None and not (isinstance(_prev_score, float) and np.isnan(_prev_score)):
                         _prev_score = float(_prev_score)
@@ -2400,20 +2407,20 @@ class EnhancedTop200StockAnalyzer:
                 _eff_sell_thr = _sell_thr - _hyst if _prev_tier in ('WEAK_SELL', 'HOLD') else (_sell_thr + _hyst if _prev_tier == 'SELL' else _sell_thr)
 
                 if final_blended_score >= _eff_strong_buy_thr and is_undervalued:
-                    phase2_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
+                phase2_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
                 elif final_blended_score >= _eff_strong_buy_thr:
-                    phase2_recommendation = "🟢 STRONG BUY"
+                phase2_recommendation = "🟢 STRONG BUY"
                 elif final_blended_score >= _eff_buy_thr and is_undervalued:
-                    phase2_recommendation = "🟢 BUY (VALUE)"
+                phase2_recommendation = "🟢 BUY (VALUE)"
                 elif final_blended_score >= _eff_buy_thr:
-                    phase2_recommendation = "🟢 BUY"
+                phase2_recommendation = "🟢 BUY"
                 elif final_blended_score >= _eff_hold_thr:
-                    phase2_recommendation = "🟡 HOLD"
+                phase2_recommendation = "🟡 HOLD"
                 elif final_blended_score >= _eff_sell_thr:
-                    phase2_recommendation = "🟠 WEAK SELL"
-                else:
-                    phase2_recommendation = "🔴 SELL"
-
+                phase2_recommendation = "🟠 WEAK SELL"
+            else:
+                phase2_recommendation = "🔴 SELL"
+            
                 if _prev_tier:
                     stock_data['hysteresis_applied'] = True
                     stock_data['hysteresis_prev_tier'] = _prev_tier
@@ -2470,10 +2477,10 @@ class EnhancedTop200StockAnalyzer:
             if getattr(_config, 'ML_TAG_IN_RECOMMENDATION', False):
                 ml_prediction_quality = str(ml_prediction_quality or '').lower()
                 if ml_prediction_quality == 'high' and ml_confidence > 75:
-                    if ml_signal == 'BUY' and 'BUY' in phase2_recommendation:
-                        phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
-                    elif ml_signal == 'SELL' and 'SELL' in phase2_recommendation:
-                        phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
+                if ml_signal == 'BUY' and 'BUY' in phase2_recommendation:
+                    phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
+                elif ml_signal == 'SELL' and 'SELL' in phase2_recommendation:
+                    phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
             
             # Add regime adjustment to final recommendation
             if regime_adjustment:
@@ -2505,15 +2512,15 @@ class EnhancedTop200StockAnalyzer:
             _ext_vol = stock_data.get('extreme_volatility_flag', False)
             _corp_warn = stock_data.get('corporate_action_warning', False)
             _pre_safety_rec = stock_data.get('final_recommendation', '')
-            if _ext_vol and 'BUY' in str(_pre_safety_rec).upper():
-                stock_data['pre_safety_recommendation'] = _pre_safety_rec
-                stock_data['final_recommendation'] = f'HOLD (EXTREME VOLATILITY — was {_pre_safety_rec})'
-                logging.warning(f"{symbol}: {_pre_safety_rec} downgraded to HOLD due to extreme volatility")
-            if _corp_warn and 'BUY' in str(stock_data.get('final_recommendation', '')).upper():
-                _pre_corp_rec = stock_data.get('final_recommendation', '')
-                stock_data['pre_safety_recommendation'] = stock_data.get('pre_safety_recommendation', _pre_corp_rec)
-                stock_data['final_recommendation'] = f'HOLD (CORPORATE ACTION REVIEW — was {_pre_safety_rec})'
-                logging.warning(f"{symbol}: {_pre_corp_rec} downgraded to HOLD due to possible corporate action")
+            _original_rec = _pre_safety_rec
+            if _ext_vol and 'BUY' in str(_original_rec).upper():
+                stock_data['pre_safety_recommendation'] = _original_rec
+                stock_data['final_recommendation'] = f'HOLD (EXTREME VOLATILITY — was {_original_rec})'
+                logging.warning(f"{symbol}: {_original_rec} downgraded to HOLD due to extreme volatility")
+            if _corp_warn and 'BUY' in str(_original_rec).upper():
+                stock_data['pre_safety_recommendation'] = stock_data.get('pre_safety_recommendation', _original_rec)
+                stock_data['final_recommendation'] = f'HOLD (CORPORATE ACTION REVIEW — was {_original_rec})'
+                logging.warning(f"{symbol}: {_original_rec} downgraded to HOLD due to possible corporate action")
 
             # Score comparison (legacy fields zeroed for backward compat)
             stock_data['score_adjustment'] = 0
@@ -2707,10 +2714,10 @@ class EnhancedTop200StockAnalyzer:
                     _bm_lock = FileLock(cache_file + '.lock', timeout=5) if _HAS_FILELOCK else None
                     _ctx = _bm_lock if _bm_lock else open(os.devnull)
                     with _ctx:
-                        with open(cache_file, 'rb') as f:
-                            cached_benchmarks = pickle.load(f)
-                            logging.debug(f"Using cached dynamic benchmarks for {sector}")
-                            return cached_benchmarks
+                    with open(cache_file, 'rb') as f:
+                        cached_benchmarks = pickle.load(f)
+                        logging.debug(f"Using cached dynamic benchmarks for {sector}")
+                        return cached_benchmarks
         except Exception as e:
             logging.warning(f"Failed to load cached benchmarks: {e}")
         
@@ -2723,8 +2730,8 @@ class EnhancedTop200StockAnalyzer:
                 _bm_lock = FileLock(cache_file + '.lock', timeout=5) if _HAS_FILELOCK else None
                 _ctx = _bm_lock if _bm_lock else open(os.devnull)
                 with _ctx:
-                    with open(cache_file, 'wb') as f:
-                        pickle.dump(dynamic_benchmarks, f)
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(dynamic_benchmarks, f)
                 logging.info(f"Cached dynamic benchmarks for {sector}")
             except Exception as e:
                 logging.warning(f"Failed to cache benchmarks: {e}")
@@ -3744,9 +3751,9 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 hist = bundle.hist_6mo
             else:
-                import yfinance as yf
-                ticker = yf.Ticker(f"{symbol}.NS")
-                hist = ticker.history(period="6mo", interval="1d")
+            import yfinance as yf
+            ticker = yf.Ticker(f"{symbol}.NS")
+            hist = ticker.history(period="6mo", interval="1d")
             
             if hist.empty or len(hist) < 60:
                 return {'fii_activity': 'NEUTRAL', 'dii_activity': 'NEUTRAL'}
@@ -3803,9 +3810,9 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 hist = bundle.hist_3mo
             else:
-                import yfinance as yf
-                ticker = yf.Ticker(f"{symbol}.NS")
-                hist = ticker.history(period="3mo", interval="1d")
+            import yfinance as yf
+            ticker = yf.Ticker(f"{symbol}.NS")
+            hist = ticker.history(period="3mo", interval="1d")
             
             if hist.empty or len(hist) < 30:
                 return {'bulk_deals_signal': 'NEUTRAL', 'large_block_activity': 'NEUTRAL'}
@@ -3859,8 +3866,8 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 info = bundle.info or {}
             else:
-                import yfinance as yf
-                ticker = yf.Ticker(f"{symbol}.NS")
+            import yfinance as yf
+            ticker = yf.Ticker(f"{symbol}.NS")
                 info = ticker.info or {}
             
             ownership_data = {
@@ -3902,9 +3909,9 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 hist = bundle.hist_3mo
             else:
-                import yfinance as yf
-                ticker = yf.Ticker(f"{symbol}.NS")
-                hist = ticker.history(period="3mo", interval="1d")
+            import yfinance as yf
+            ticker = yf.Ticker(f"{symbol}.NS")
+            hist = ticker.history(period="3mo", interval="1d")
             
             if hist.empty or len(hist) < 30:
                 return {'smart_money_flow': 'NEUTRAL'}
@@ -4703,7 +4710,7 @@ class EnhancedTop200StockAnalyzer:
                             max_drawdown = 0
                         if beta is None or pd.isna(beta):
                             beta = 1.0
-
+                        
                         # Update results
                         results_df.at[idx, 'volatility_6m'] = round(volatility, 2)
                         results_df.at[idx, 'max_drawdown_6m'] = round(max_drawdown, 2)
@@ -4713,7 +4720,7 @@ class EnhancedTop200StockAnalyzer:
                         results_df.at[idx, 'risk_category'] = risk_category
                         # Debug log for risk category assignment
                         logging.debug(f"{symbol}: volatility={volatility:.1f}%, profile={self.risk_profile}, risk_category={risk_category}")
-
+                        
                         # ILLIQUIDITY CHECK: penalize stocks with very low average volume
                         _avg_vol = _nv(row.get('avg_volume_10d', row.get('current_volume', 0)), 0)
                         if _avg_vol > 0 and _avg_vol < _config.MIN_AVG_DAILY_VOLUME:
@@ -4982,7 +4989,7 @@ class EnhancedTop200StockAnalyzer:
                 print(f"   {'='*60}\n")
         except Exception:
             pass
-
+    
     def _load_current_holdings(self):
         """Load current portfolio holdings from CSV or Excel holdings file"""
         try:
@@ -5138,7 +5145,7 @@ class EnhancedTop200StockAnalyzer:
         except Exception as e:
             logging.warning(f"Past accuracy computation failed: {e}")
             return {}
-
+    
     def generate_portfolio_allocation_suggestions(self, results_df, target_amount=100000, target_stocks=35, portfolio_size_info=None):
         """
         ENHANCEMENT 4: Risk-Based Portfolio Allocation with Strict Limits
@@ -5190,7 +5197,7 @@ class EnhancedTop200StockAnalyzer:
                         print(f"   ⚠️  RECONCILIATION: ₹{current_portfolio_value:,.0f} vs ₹{_recon_expected:,.0f} ({_recon_diff_pct:.1f}% diff)")
                     else:
                         print(f"   ✅ RECONCILIATION: ₹{current_portfolio_value:,.0f} matches Invested+P&L (diff < 2%)")
-
+                
                 print(f"   📊 Current Portfolio: ₹{current_portfolio_value:,.0f} across {len(current_holdings)} stocks")
                 print(f"   💰 Available Funds: ₹{target_amount:,.0f}")
                 print(f"   🎯 Total Target Portfolio: ₹{current_portfolio_value + target_amount:,.0f}")
@@ -5529,7 +5536,7 @@ class EnhancedTop200StockAnalyzer:
                             'action_reason': action_reason,
                         })
                     else:
-                        logging.warning(f"[M5] Holdings symbol {symbol} not found in analysis results — may need manual review")
+                        logging.info(f"[M5] Holdings symbol {symbol} not found in analysis results — unscored/ETF instrument, default HOLD")
                         _stale_action = "HOLD CURRENT"
                         _stale_rec = "HOLD (NOT ANALYZED)"
                         _stale_priority = "LOW"
@@ -5615,7 +5622,7 @@ class EnhancedTop200StockAnalyzer:
                         })
             
             print(f"   🔧 CHECKPOINT 3: Processed {len(allocation_data)} current holdings")
-
+            
             # SECTOR CAP ENFORCEMENT ON EXISTING HOLDINGS
             # Strategy: reduce down to SECTOR_CAP, protecting the top-scoring stocks.
             # The lowest-scoring stocks in the overweight sector are marked REDUCE
@@ -5647,6 +5654,13 @@ class EnhancedTop200StockAnalyzer:
                             if any(kw in _ss_act.upper() for kw in _skip_actions):
                                 _reduced += 1
                                 continue
+                            _ss_pnl_raw = _ss.get('current_profit_pct', 0)
+                            _ss_pnl = float(_ss_pnl_raw) if _ss_pnl_raw is not None and _ss_pnl_raw == _ss_pnl_raw else 0.0
+                            _ss_overall = _ss.get('overall_score', _ss_score)
+                            if _ss_overall >= 50:
+                                _kept += 1
+                                logging.info(f"Sector overweight SKIP {_ss['symbol']}: overall_score {_ss_overall:.1f} >= 50 (ROI-first policy)")
+                                continue
                             _ss['action_type'] = 'REDUCE (SECTOR OVERWEIGHT)'
                             _ss['priority'] = 'MEDIUM'
                             _ss_qty = _ss.get('current_quantity', 0) or 0
@@ -5661,7 +5675,7 @@ class EnhancedTop200StockAnalyzer:
                             )
                             _ss['exit_reason'] = (
                                 f"⚖️ SECTOR OVERWEIGHT | {_ow_sector}: {_ow_count} stocks (cap={_config.SECTOR_CAP})"
-                                f"{_reduce_detail}"
+                                f" | Decision score: {_ss_score:.1f}{_reduce_detail}"
                             )
                             _ss['profit_booking_timing'] = 'Within 2 weeks'
                             _ss['profit_booking_pct'] = 0.30
@@ -5892,7 +5906,8 @@ class EnhancedTop200StockAnalyzer:
             allocation_df.loc[_dq_zero_score & ~_dq_bad_price, 'data_quality'] = 'NO_SCORE'
             _dq_flagged = (_dq_bad_price | _dq_zero_score).sum()
             if _dq_flagged > 0:
-                print(f"   ⚠️ Data quality flags: {_dq_flagged} stocks have missing price or score")
+                _dq_names = allocation_df.loc[_dq_bad_price | _dq_zero_score, 'symbol'].tolist()
+                print(f"   ⚠️ Data quality flags: {_dq_flagged} stocks have missing price or score: {_dq_names}")
             
             # Initialize allocation columns for all rows
             allocation_df['allocation_percentage'] = 0.0
@@ -5953,12 +5968,12 @@ class EnhancedTop200StockAnalyzer:
             
             # Initialize profit booking and timing columns — preserve values already set (e.g. REDUCE from sector cap)
             if 'profit_booking_pct' not in allocation_df.columns:
-                allocation_df['profit_booking_pct'] = None
+            allocation_df['profit_booking_pct'] = None
             else:
                 allocation_df['profit_booking_pct'] = allocation_df['profit_booking_pct'].where(
                     allocation_df['profit_booking_pct'].notna(), None)
             if 'profit_booking_timing' not in allocation_df.columns:
-                allocation_df['profit_booking_timing'] = None
+            allocation_df['profit_booking_timing'] = None
             else:
                 allocation_df['profit_booking_timing'] = allocation_df['profit_booking_timing'].where(
                     allocation_df['profit_booking_timing'].notna(), None)
@@ -5967,8 +5982,20 @@ class EnhancedTop200StockAnalyzer:
             print(f"   📊 Ranking current holdings by performance...")
             current_holdings_df = allocation_df[allocation_df['is_current_holding'] == True].copy()
             if not current_holdings_df.empty:
+                # Exclude unscored instruments (ETFs, instruments not in analysis universe)
+                _unscored = current_holdings_df['overall_score'] == 0
+                if _unscored.any():
+                    _unscored_syms = current_holdings_df.loc[_unscored, 'symbol'].tolist()
+                    for _us_idx in current_holdings_df[_unscored].index:
+                        allocation_df.at[_us_idx, 'action_recommendation'] = 'HOLD'
+                        allocation_df.at[_us_idx, 'exit_reason'] = 'ETF/unscored — not in analysis universe, default HOLD'
+                        allocation_df.at[_us_idx, 'exit_strategy'] = '🛡️ ETF/PASSIVE — HOLD'
+                        allocation_df.at[_us_idx, 'keep_stock'] = True
+                    current_holdings_df = current_holdings_df[~_unscored].copy()
+                    print(f"      ℹ️  Excluded {len(_unscored_syms)} unscored instruments from ranking: {_unscored_syms}")
+
                 # Rank by overall_score (best to worst) - USING HYBRID V4 SCORE for better returns
-                current_holdings_df['holdings_rank'] = current_holdings_df['overall_score'].rank(method='dense', ascending=False).astype(int)
+                current_holdings_df['holdings_rank'] = current_holdings_df['overall_score'].rank(method='min', ascending=False).astype(int)
                 
                 # Update main dataframe with rankings
                 for idx, row in current_holdings_df.iterrows():
@@ -6000,7 +6027,7 @@ class EnhancedTop200StockAnalyzer:
                     for _, winner in quality_winners.iterrows():
                         symbol = winner['symbol']
                         profit = winner['current_profit_pct']
-                        print(f"      ✅ {symbol}: +{profit:.1f}% (KEEP core position)")
+                        print(f"      ✅ {symbol}: +{profit*100:.1f}% (KEEP core position)")
                 
                 # 🔧 FIX #4: CLEAR EXIT STRATEGY - Bottom 20% = SELL, Top 30% = INCREASE, Middle = HOLD
                 # Modified for VALUE INVESTING: Don't sell quality winners just because of low score
@@ -6039,17 +6066,17 @@ class EnhancedTop200StockAnalyzer:
                         # Quality winner - ALWAYS protect, suggest partial profit booking
                         if profit_pct > 0.40:
                             action = 'HOLD'
-                            reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Consider taking 50% profit, hold rest"
+                            reason = f"🏆 QUALITY WINNER +{profit_pct*100:.1f}% | Consider taking 50% profit, hold rest"
                             priority = 'HIGH'
                             allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - TAKE PARTIAL PROFIT'
                         elif profit_pct > 0.30:
                             action = 'HOLD'
-                            reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Consider taking 30-40% profit"
+                            reason = f"🏆 QUALITY WINNER +{profit_pct*100:.1f}% | Consider taking 30-40% profit"
                             priority = 'MEDIUM'
                             allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - HOLD CORE'
                         else:  # 20-30% profit
                             action = 'INCREASE'
-                            reason = f"🏆 QUALITY WINNER +{profit_pct:.1f}% | Can add on dips"
+                            reason = f"🏆 QUALITY WINNER +{profit_pct*100:.1f}% | Can add on dips"
                             priority = 'LOW'
                             allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - ADD ON DIPS'
                     
@@ -6059,7 +6086,7 @@ class EnhancedTop200StockAnalyzer:
                         _ml_sig_inc = str(allocation_df.at[idx, 'ml_signal']) if 'ml_signal' in allocation_df.columns else ''
                         if profit_pct < -0.02 and _ml_sig_inc != 'STRONG_BUY':
                             action = 'HOLD'
-                            reason = f"🔄 TOP SCORER but AT LOSS ({profit_pct:.1f}%) - Hold, rotate when profitable | Score: {score:.1f}"
+                            reason = f"🔄 TOP SCORER but AT LOSS ({profit_pct*100:.1f}%) - Hold, rotate when profitable | Score: {score:.1f}"
                             priority = 'MEDIUM'
                             allocation_df.at[idx, 'exit_strategy'] = '⚠️ HOLD - ROTATION CANDIDATE'
                         else:
@@ -6072,20 +6099,20 @@ class EnhancedTop200StockAnalyzer:
                     # ML overrides removed — 39% accuracy ML model was blocking legitimate sells.
                     elif rank > (total_holdings - bottom_20_pct):
                         if profit_pct < -0.05:  # Loss > 5%
-                            action = 'SELL'
+                                action = 'SELL'
                             reason = f"❌ UNDERPERFORMER (Rank #{rank}/{total_holdings}) | Score: {score:.1f} | Loss: {profit_pct*100:.1f}%"
-                            priority = 'HIGH'
-                            allocation_df.at[idx, 'exit_strategy'] = '🔴 SELL - CUT LOSSES'
+                                priority = 'HIGH'
+                                allocation_df.at[idx, 'exit_strategy'] = '🔴 SELL - CUT LOSSES'
                         elif score < 50 and profit_pct < 0.05:
-                            action = 'SELL'
-                            reason = f"⚠️ WEAK FUNDAMENTALS (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
-                            priority = 'MEDIUM'
-                            allocation_df.at[idx, 'exit_strategy'] = '🟠 SELL - WEAK STOCK'
+                                action = 'SELL'
+                                reason = f"⚠️ WEAK FUNDAMENTALS (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
+                                priority = 'MEDIUM'
+                                allocation_df.at[idx, 'exit_strategy'] = '🟠 SELL - WEAK STOCK'
                         elif profit_pct < 0.05:
-                            action = 'SELL'
-                            reason = f"🔄 REBALANCE (Rank #{rank}/{total_holdings}) | Better opportunities available"
-                            priority = 'MEDIUM'
-                            allocation_df.at[idx, 'exit_strategy'] = '🟡 SELL - REBALANCE'
+                                action = 'SELL'
+                                reason = f"🔄 REBALANCE (Rank #{rank}/{total_holdings}) | Better opportunities available"
+                                priority = 'MEDIUM'
+                                allocation_df.at[idx, 'exit_strategy'] = '🟡 SELL - REBALANCE'
                         else:
                             action = 'HOLD'
                             reason = f"⚪ HOLD (Rank #{rank}/{total_holdings}) | Profit: +{profit_pct*100:.1f}% | Monitor closely"
@@ -6114,8 +6141,38 @@ class EnhancedTop200StockAnalyzer:
                     else:
                         _existing_reason = str(allocation_df.at[idx, 'exit_reason'])
                         if not _existing_reason or _existing_reason in ('', 'nan', 'None'):
-                            allocation_df.at[idx, 'exit_reason'] = reason
-                            allocation_df.at[idx, 'priority'] = priority
+                    allocation_df.at[idx, 'exit_reason'] = reason
+                    allocation_df.at[idx, 'priority'] = priority
+                
+                # CONVICTION-BASED GRADUATED EXIT: require multiple consecutive sell signals
+                # before escalating. Limits damage from single-day wrong calls.
+                _grad_downgrades = 0
+                for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
+                    _act_g = str(allocation_df.at[idx, 'action_recommendation']).upper()
+                    if 'SELL' not in _act_g and 'CONSIDER' not in _act_g:
+                        continue
+                    _er_g = str(allocation_df.at[idx, 'exit_reason'])
+                    if any(kw in _er_g.upper() for kw in ('UNCONDITIONAL', 'STOP LOSS', 'EMERGENCY', 'CIRCUIT BREAKER', 'CRISIS')):
+                        continue
+                    _sym_g = row['symbol']
+                    _streak = self.recommendation_history.get_sell_signal_streak(_sym_g)
+                    _existing_bk = allocation_df.at[idx, 'profit_booking_pct']
+                    _bk_val = float(_existing_bk) if pd.notna(_existing_bk) and float(_existing_bk) > 0 else 0
+                    if _streak < 1:
+                        allocation_df.at[idx, 'action_recommendation'] = 'CONSIDER SELLING'
+                        allocation_df.at[idx, 'profit_booking_pct'] = 0.25
+                        allocation_df.at[idx, 'exit_reason'] = f"⚠️ 1st SELL signal — graduated 25% | {_er_g[:60]}"
+                        _grad_downgrades += 1
+                    elif _streak < 2:
+                        allocation_df.at[idx, 'action_recommendation'] = 'CONSIDER SELLING'
+                        allocation_df.at[idx, 'profit_booking_pct'] = 0.50
+                        allocation_df.at[idx, 'exit_reason'] = f"⚠️ 2nd SELL signal — graduated 50% | {_er_g[:60]}"
+                        _grad_downgrades += 1
+                    elif _bk_val <= 0 and 'CONSIDER' in _act_g:
+                        allocation_df.at[idx, 'profit_booking_pct'] = 0.25
+                        _grad_downgrades += 1
+                if _grad_downgrades > 0:
+                    print(f"      🛡️ CONVICTION GATE: {_grad_downgrades} sell actions graduated (require more sessions for full exit)")
                 
                 # Summary of exit strategy
                 _exit_sell_count = len(current_holdings_df[current_holdings_df['holdings_rank'] > (total_holdings - bottom_20_pct)])
@@ -6128,25 +6185,75 @@ class EnhancedTop200StockAnalyzer:
                 print(f"      📊 Net change: {increase_count} to add, {_exit_sell_count} to remove")
                 
                 print(f"\n   💰 Applying PROFIT BOOKING rules (>{_profit_book_thr*100:.0f}% gains)...")
+
+                _MAX_BOOK_PER_SESSION = 0.10
+
+                _bh_data = {}
+                try:
+                    _bh_path = os.path.join('data', 'booking_history.json')
+                    if os.path.exists(_bh_path):
+                        with open(_bh_path, 'r') as _bh_f:
+                            _bh_data = json.load(_bh_f)
+                        logging.debug(f"Loaded booking history for profit booking: {len(_bh_data)} stocks")
+                except Exception as _bh_err:
+                    logging.debug(f"Could not load booking history: {_bh_err}")
+
                 profit_book_candidates = current_holdings_df[current_holdings_df['current_profit_pct'] > _profit_book_thr].copy()
                 
                 if len(profit_book_candidates) > 0:
                     for idx, row in profit_book_candidates.iterrows():
                         profit_pct = row['current_profit_pct']
                         current_action = allocation_df.at[idx, 'action_recommendation']
+                        _pb_sym = row.get('symbol', '')
                         
-                        # Determine profit booking percentage based on gain level
                         if profit_pct > 0.40:
-                            book_pct = 0.50
+                            _target_book_pct = 0.50
                             timing = "Within 1 week"
                         elif profit_pct > 0.30:
-                            book_pct = 0.40
+                            _target_book_pct = 0.40
                             timing = "Within 2 weeks"
                         else:  # 20-30%
-                            book_pct = 0.30
+                            _target_book_pct = 0.30
                             timing = "Within 3 weeks"
                         
-                        # Override action to include profit booking (SKIP if conflict-resolved)
+                        book_pct = _target_book_pct
+                        _cur_qty = _nv(row.get('current_quantity', 0), 0)
+                        _bh_entry = _bh_data.get(_pb_sym, {})
+                        _bh_original = _bh_entry.get('original_qty', 0)
+                        _bh_booked = _bh_entry.get('total_booked_qty', 0)
+                        _bh_valid = (
+                            _bh_original > 0
+                            and _cur_qty > 0
+                            and _bh_original >= _cur_qty
+                            and _bh_booked >= 0
+                            and _bh_booked <= _bh_original
+                        )
+                        if _bh_valid and _bh_booked > 0:
+                            _already_pct = _bh_booked / _bh_original
+                            _target_shares = int(_target_book_pct * _bh_original)
+                            _incremental_shares = max(0, _target_shares - _bh_booked)
+                            if _incremental_shares <= 0:
+                                logging.info(
+                                    f"Profit booking SKIP {_pb_sym}: already booked {_bh_booked}/{_bh_original} "
+                                    f"({_already_pct*100:.1f}%) >= target {_target_book_pct*100:.0f}%"
+                                )
+                                continue
+                            book_pct = _incremental_shares / _cur_qty
+                            book_pct = min(book_pct, _target_book_pct)
+                            logging.info(
+                                f"Profit booking {_pb_sym}: target {_target_book_pct*100:.0f}% of original {_bh_original}, "
+                                f"already booked {_bh_booked} ({_already_pct*100:.1f}%), "
+                                f"incremental {_incremental_shares} shares ({book_pct*100:.1f}% of current {_cur_qty})"
+                            )
+                        else:
+                            if not _bh_valid and _bh_original > 0:
+                                logging.warning(
+                                    f"Profit booking {_pb_sym}: booking history invalid "
+                                    f"(original={_bh_original}, booked={_bh_booked}, current={_cur_qty}) — using session cap"
+                                )
+
+                        book_pct = min(book_pct, _MAX_BOOK_PER_SESSION)
+                        
                         current_action = allocation_df.at[idx, 'action_recommendation']
                         _ca_upper_pb = str(current_action).upper()
                         has_conflict_resolution = any(kw in _ca_upper_pb for kw in ('SELL', 'SWAP', 'REDUCE', 'EMERGENCY', 'EXIT'))
@@ -6157,14 +6264,17 @@ class EnhancedTop200StockAnalyzer:
                             allocation_df.at[idx, 'profit_booking_pct'] = book_pct
                             allocation_df.at[idx, 'profit_booking_timing'] = timing
                         elif current_action == 'INCREASE' and not has_conflict_resolution:
-                            # 🔧 FIX: For top performers with high profits, BOOK_PROFIT takes priority
                             allocation_df.at[idx, 'action_recommendation'] = 'BOOK_PROFIT'
                             allocation_df.at[idx, 'exit_reason'] = f"🏆 TOP PERFORMER + 💰 Book {book_pct*100:.0f}% profit | Then INCREASE remaining position"
                             allocation_df.at[idx, 'profit_booking_pct'] = book_pct
                             allocation_df.at[idx, 'profit_booking_timing'] = timing
                     
-                    print(f"      💰 {len(profit_book_candidates)} stocks marked for profit booking")
-                    print(f"      📊 Book 30-50% profit, keep 50-70% for long term")
+                    _actual_booked = (allocation_df['action_recommendation'] == 'BOOK_PROFIT').sum()
+                    if _actual_booked > 0:
+                        print(f"      💰 {_actual_booked} stocks marked for profit booking (session cap: {_MAX_BOOK_PER_SESSION*100:.0f}%)")
+                        print(f"      📊 Incremental booking — capped at {_MAX_BOOK_PER_SESSION*100:.0f}% per session")
+                    else:
+                        print(f"      ✓ All profitable stocks already at or above booking target")
                 else:
                     print(f"      ✓ No stocks with >20% profit requiring booking")
                 
@@ -6374,8 +6484,19 @@ class EnhancedTop200StockAnalyzer:
                 
                 # First pass: Allocate based on 40/30/20/10 targets
                 actual_counts = {}
+                # Protect unscored/ETF instruments: exclude from category selection entirely
+                _unscored_hold_mask = (
+                    (allocation_df.get('overall_score', pd.Series(dtype=float)) == 0) &
+                    (allocation_df.get('is_current_holding', pd.Series(dtype=bool)) == True)
+                )
+                if _unscored_hold_mask.any():
+                    allocation_df.loc[_unscored_hold_mask, 'keep_stock'] = True
+                    allocation_df.loc[_unscored_hold_mask, 'action_recommendation'] = 'HOLD'
+                
                 for category in ['CORE_VALUE', 'CORE_MOMENTUM', 'OPPORTUNISTIC', 'SPECULATIVE']:
-                    category_stocks = allocation_df[allocation_df['stock_type'] == category].copy()
+                    category_stocks = allocation_df[
+                        (allocation_df['stock_type'] == category) & (~_unscored_hold_mask)
+                    ].copy()
                     
                     if not category_stocks.empty:
                         # Sort by risk_adjusted_score (descending - best first)
@@ -6438,17 +6559,17 @@ class EnhancedTop200StockAnalyzer:
                                     break
                                 if row['risk_adjusted_score'] < _fill_floor:
                                     continue
-                                allocation_df.at[idx, 'keep_stock'] = True
+                                    allocation_df.at[idx, 'keep_stock'] = True
                                 current_action = str(allocation_df.at[idx, 'action_recommendation']).upper()
                                 _PRESERVE_KW_BF = ('SELL', 'SWAP', 'INCREASE', 'REDUCE', 'CONSIDER',
                                                    'EMERGENCY', 'BOOK_PROFIT', 'PRE-BREAKOUT', 'NEW POSITION',
                                                    'MOMENTUM', 'EXIT')
                                 has_special_action = any(kw in current_action for kw in _PRESERVE_KW_BF)
-                                if not has_special_action:
-                                    allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
-                                print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
-                                shortfall -= 1
-                                added += 1
+                                    if not has_special_action:
+                                        allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
+                                    print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
+                                    shortfall -= 1
+                                    added += 1
                             
                             if added > 0:
                                 actual_counts[category] = actual_counts.get(category, 0) + added
@@ -6621,8 +6742,8 @@ class EnhancedTop200StockAnalyzer:
                 # F-13 FIX: Apply estimated tax haircut so BUY sizing reflects realistic cash.
                 # Conservative 20% STCG on the gain portion of SELL + BOOK_PROFIT proceeds.
                 # Actual tax depends on holding period and individual circumstances.
-                _est_sell_tax = sell_proceeds * 0.15  # ~15% effective rate (tax on gain, not full proceeds)
-                _est_book_tax = book_profit_proceeds * 0.10  # Lower rate: only partial position is sold
+                _est_sell_tax = sell_proceeds * 0.10
+                _est_book_tax = book_profit_proceeds * 0.05
                 _post_tax_sell = sell_proceeds - _est_sell_tax
                 _post_tax_book = book_profit_proceeds - _est_book_tax
                 total_available = target_amount + _post_tax_sell + _post_tax_book
@@ -6708,12 +6829,6 @@ class EnhancedTop200StockAnalyzer:
                                 })
                 
                 print(f"      ✅ Found {len(all_opportunities)} existing holdings eligible for INCREASE")
-                
-                # Check if OPPORTUNISTIC category is underweight — steer new capital toward defensive stocks
-                _opp_count = actual_counts.get('OPPORTUNISTIC', 0) if 'actual_counts' in dir() else 0
-                _total_alloc = sum(actual_counts.values()) if 'actual_counts' in dir() else 1
-                _opp_pct = (_opp_count / _total_alloc * 100) if _total_alloc > 0 else 0
-                _needs_opp = _opp_pct < 15
                 
                 # 2. NEW BUY OPPORTUNITIES
                 print(f"\n   🔍 Searching for NEW buy opportunities...")
@@ -6842,47 +6957,49 @@ class EnhancedTop200StockAnalyzer:
                         cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
                         max_allocation_per_stock = total_target_portfolio * max_allocation_pct
                         
-                        # 🚀 ROI POTENTIAL SCORING: Boost scores for high-probability setups based on available data
+                        # 🚀 ROI POTENTIAL SCORING: Cumulative boosts for high-probability setups
                         base_score = _nv(analyzed_stock.get('final_blended_score', analyzed_stock.get('risk_adjusted_score')), 0)
                         
-                        # Check momentum indicators (already calculated during analysis)
                         momentum_score = analyzed_stock.get('momentum_score', 0)
                         rsi = analyzed_stock.get('rsi', 50)
                         volume_trend = analyzed_stock.get('volume_trend', 0)
                         price_near_high = analyzed_stock.get('distance_from_52w_high_pct', 100)
                         
                         roi_boost = 0
-                        roi_label = ""
+                        roi_labels = []
                         
-                        # 🚀 HIGH MOMENTUM: Strong uptrend with volume support
+                        # 🚀 MOMENTUM (cumulative with other factors)
                         if momentum_score >= 75 and volume_trend > 20 and rsi < 70:
-                            roi_boost = 5  # High momentum opportunity
-                            roi_label = "🚀 High Momentum"
+                            roi_boost += 5
+                            roi_labels.append("🚀 High Momentum")
                         elif momentum_score >= 70 and rsi < 70:
-                            roi_boost = 4  # Good momentum
-                            roi_label = "📈 Good Momentum"
+                            roi_boost += 4
+                            roi_labels.append("📈 Good Momentum")
+                        elif momentum_score >= 60 and rsi < 75:
+                            roi_boost += 2
+                            roi_labels.append("📈 Moderate Momentum")
                         
-                        # 🎯 PRE-BREAKOUT SETUP: Near 52-week high with good momentum
-                        elif price_near_high <= 5 and momentum_score >= 65 and 50 <= rsi <= 65:
-                            roi_boost = 6  # Pre-breakout setup
-                            roi_label = "⚡ Pre-Breakout Setup"
+                        # 🎯 PRE-BREAKOUT (additive on top of momentum)
+                        if price_near_high <= 5 and momentum_score >= 60 and 45 <= rsi <= 70:
+                            roi_boost += 4
+                            roi_labels.append("⚡ Pre-Breakout")
                         
-                        # 📊 STRONG FUNDAMENTALS: High score with undervaluation
-                        elif base_score >= 80 and analyzed_stock.get('is_undervalued', False):
-                            roi_boost = 3  # Strong fundamental opportunity
-                            roi_label = "💎 Strong Fundamentals"
+                        # 📊 STRONG FUNDAMENTALS (additive)
+                        if base_score >= 75 and analyzed_stock.get('is_undervalued', False):
+                            roi_boost += 3
+                            roi_labels.append("💎 Strong Fundamentals")
+                        elif base_score >= 70 and analyzed_stock.get('undervaluation_score', 0) >= 70:
+                            roi_boost += 2
+                            roi_labels.append("💎 Undervalued")
                         
+                        # 📊 HIGH ROE (strong return generator)
+                        _roe = _nv(analyzed_stock.get('roe', 0), 0)
+                        if _roe > 20:
+                            roi_boost += 2
+                            roi_labels.append(f"📊 High ROE ({_roe:.0f}%)")
+                        
+                        roi_label = " + ".join(roi_labels) if roi_labels else ""
                         adjusted_score = base_score + roi_boost
-                        
-                        if _needs_opp:
-                            _beta = _nv(analyzed_stock.get('beta', 1.0), 1.0)
-                            _sector = str(analyzed_stock.get('sector', '')).lower()
-                            _defensive_sectors = ('healthcare', 'pharma', 'fmcg', 'consumer defensive', 'utilities')
-                            if _beta < 0.9 or any(ds in _sector for ds in _defensive_sectors):
-                                _opp_boost = 3
-                                adjusted_score += _opp_boost
-                                roi_boost += _opp_boost
-                                roi_label = (roi_label + " + " if roi_label else "") + "🛡️ Defensive (rebalance)"
                         
                         if roi_boost > 0:
                             print(f"         {roi_label}: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f})")
@@ -7034,10 +7151,13 @@ class EnhancedTop200StockAnalyzer:
                             allocation_df.loc[_sw1_idx, 'investment_amount'] = 0
                             allocation_df.loc[_sw1_idx, 'priority'] = 'HIGH'
                         
-                        # 💰 RECYCLE CAPITAL back to budget and total_available
-                        remaining_budget += current_val
-                        total_available += current_val
-                        print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f}")
+                        _swap_invested = opportunity.get('invested_amount', current_val)
+                        _swap_gain = max(0, current_val - _swap_invested)
+                        _swap_tax = _swap_gain * 0.20
+                        _swap_post_tax = current_val - _swap_tax
+                        remaining_budget += _swap_post_tax
+                        total_available += _swap_post_tax
+                        print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f} (post-tax on ₹{_swap_gain:,.0f} gain)")
                         logging.debug(f"Capital recycled: {opportunity['symbol']} {current_val} -> budget {remaining_budget}")
                 
                 # Step 2: IMMEDIATELY fund SWAP targets (guaranteed allocation from recycled capital)
@@ -7047,9 +7167,10 @@ class EnhancedTop200StockAnalyzer:
                         symbol = opportunity['symbol']
                         swap_source_value = opportunity.get('swap_source_value', 0)
                         
-                        # F-11 FIX: Check sector cap for SWAP targets
                         _swap_sector = opportunity.get('sector', '')
-                        if sector_allocation.get(_swap_sector, 0) >= _config.SECTOR_CAP:
+                        _swap_score = opportunity.get('score', 0)
+                        _swap_cap_override = _swap_score >= getattr(_config, 'SECTOR_CAP_SCORE_OVERRIDE', 75)
+                        if sector_allocation.get(_swap_sector, 0) >= _config.SECTOR_CAP and not _swap_cap_override:
                             print(f"      ⚠️ SWAP TARGET {symbol} blocked: sector '{_swap_sector}' at cap ({_config.SECTOR_CAP})")
                             continue
                         
@@ -7131,18 +7252,25 @@ class EnhancedTop200StockAnalyzer:
                     sector = opportunity['sector']
                     sector_count = sector_allocation.get(sector, 0)
                     
-                    if sector_count >= _config.SECTOR_CAP:
-                        logging.info(f"Sector cap reached: {sector} has {sector_count} stocks, skipping {opportunity['symbol']}")
+                    _is_existing = opportunity.get('is_existing_holding', False)
+                    _opp_score = opportunity.get('score', 0)
+                    _score_overrides_cap = _opp_score >= getattr(_config, 'SECTOR_CAP_SCORE_OVERRIDE', 75)
+                    if sector_count >= _config.SECTOR_CAP and not _is_existing and not _score_overrides_cap:
+                        logging.info(f"Sector cap reached: {sector} has {sector_count} stocks, skipping NEW {opportunity['symbol']} (score {_opp_score:.1f} < override threshold)")
                         continue
+                    elif sector_count >= _config.SECTOR_CAP and not _is_existing and _score_overrides_cap:
+                        logging.info(f"Sector cap OVERRIDE: {opportunity['symbol']} score {_opp_score:.1f} >= {_config.SECTOR_CAP_SCORE_OVERRIDE} — allowing despite {sector} at cap")
+                    elif sector_count >= _config.SECTOR_CAP and _is_existing:
+                        logging.info(f"Sector cap soft-pass: {opportunity['symbol']} is existing holding — allowing INCREASE despite {sector} at cap")
 
-                    # Per-category sector cap: max 3 from same sector in one category
+                    # Per-category sector cap: only for NEW positions (also allow score override)
                     _opp_cat = opportunity.get('stock_classification', '')
                     _cat_sector_key = f"{_opp_cat}|{sector}"
                     _cat_sector_counts = category_sector_counts if 'category_sector_counts' in dir() else {}
                     if _cat_sector_key not in _cat_sector_counts:
                         _cat_sector_counts[_cat_sector_key] = 0
-                    if _cat_sector_counts[_cat_sector_key] >= _config.CATEGORY_SECTOR_CAP:
-                        logging.info(f"Per-category sector cap: {sector} has {_cat_sector_counts[_cat_sector_key]} in {_opp_cat}, skipping {opportunity['symbol']}")
+                    if _cat_sector_counts[_cat_sector_key] >= _config.CATEGORY_SECTOR_CAP and not _is_existing and not _score_overrides_cap:
+                        logging.info(f"Per-category sector cap: {sector} has {_cat_sector_counts[_cat_sector_key]} in {_opp_cat}, skipping NEW {opportunity['symbol']}")
                         continue
                     
                     
@@ -7161,7 +7289,7 @@ class EnhancedTop200StockAnalyzer:
                         continue
                     shares_to_buy = int(optimal_investment / current_price)
                     actual_investment = shares_to_buy * current_price
-                    
+
                     # Final validation
                     if actual_investment < _min_invest or shares_to_buy < 1:
                         continue
@@ -7251,18 +7379,24 @@ class EnhancedTop200StockAnalyzer:
                     sector_allocation[sector] = sector_count + 1
                     _cat_sector_counts[_cat_sector_key] = _cat_sector_counts.get(_cat_sector_key, 0) + 1
                 
-                # Relabel unfunded BUY/NEW POSITION/INCREASE stocks as WATCHLIST
-                _unfunded = (
-                    allocation_df['action_recommendation'].str.contains('NEW POSITION|BUY|INCREASE', na=False, regex=True) &
+                # Relabel unfunded positions: existing holdings → HOLD, new → WATCHLIST
+                _is_holding_col = allocation_df.get('is_current_holding', pd.Series(False, index=allocation_df.index))
+                _unfunded_base = (
+                    allocation_df['action_recommendation'].str.contains('NEW POSITION|BUY|INCREASE|MOMENTUM', na=False, regex=True) &
                     ~allocation_df['action_recommendation'].str.contains('SWAP', na=False) &
                     (allocation_df['investment_amount'] == 0)
                 )
-                _n_watchlist = _unfunded.sum()
-                if _n_watchlist > 0:
-                    allocation_df.loc[_unfunded, 'action_recommendation'] = 'WATCHLIST'
-                    allocation_df.loc[_unfunded, 'exit_reason'] = 'Budget exhausted — monitor for future entry'
-                    print(f"   📋 Relabeled {_n_watchlist} unfunded positions as WATCHLIST")
-
+                _unfunded_new = _unfunded_base & ~(_is_holding_col == True)
+                _unfunded_existing = _unfunded_base & (_is_holding_col == True)
+                if _unfunded_new.sum() > 0:
+                    allocation_df.loc[_unfunded_new, 'action_recommendation'] = 'WATCHLIST'
+                    allocation_df.loc[_unfunded_new, 'exit_reason'] = 'Budget exhausted — monitor for future entry'
+                    print(f"   📋 Relabeled {_unfunded_new.sum()} unfunded NEW positions as WATCHLIST")
+                if _unfunded_existing.sum() > 0:
+                    allocation_df.loc[_unfunded_existing, 'action_recommendation'] = 'HOLD'
+                    allocation_df.loc[_unfunded_existing, 'exit_reason'] = 'INCREASE target but budget exhausted — hold position'
+                    print(f"   📋 Relabeled {_unfunded_existing.sum()} unfunded INCREASE (existing holdings) as HOLD")
+                
                 # === ALLOCATION SUMMARY ===
                 print(f"\n   🎯 UNIFIED ALLOCATION SUMMARY:")
                 print(f"      💰 SELL proceeds: ₹{sell_proceeds:,.0f}")
@@ -7344,16 +7478,9 @@ class EnhancedTop200StockAnalyzer:
                             weak_in_sector = sector_stocks.head(3)  # Bottom 3 stocks in overweight sector
                             
                             for idx, stock in weak_in_sector.iterrows():
+                                _sym = stock.get('symbol', '?')
                                 current_action = allocation_df.at[idx, 'action_recommendation']
-                                if current_action == 'HOLD':
-                                    allocation_df.at[idx, 'action_recommendation'] = 'SELL'
-                                    allocation_df.at[idx, 'exit_reason'] = f"🔄 SECTOR ROTATION | {sector} over-concentrated ({sector_pct:.1f}%)"
-                                    allocation_df.at[idx, 'priority'] = 'MEDIUM'
-                                    allocation_df.at[idx, 'profit_booking_pct'] = 1.0
-                                    allocation_df.at[idx, 'profit_booking_timing'] = "Within 2 weeks"
-                                else:
-                                    _sym = stock.get('symbol', '?')
-                                    logging.info(f"Sector rotation skipped {_sym}: action={current_action} (only HOLD overridden)")
+                                logging.info(f"Sector rotation advisory: {_sym} (action={current_action}, score={stock.get('risk_adjusted_score', 0):.1f}) — no forced override (ROI-first policy)")
                 
                 # Check for sector rotation opportunities (find undervalued sectors)
                 all_stocks_sector = allocation_df.groupby('sector')['risk_adjusted_score'].mean().sort_values(ascending=False)
@@ -7610,7 +7737,7 @@ class EnhancedTop200StockAnalyzer:
                 logging.debug(f"Kelly sizing error: {_ke}")
 
             portfolio_summary['allocation_df_count'] = len(allocation_df)
-
+            
             # Final reconciliation: remove BUY entries for stocks also in the SELL list
             if not sell_recommendations_df.empty and 'symbol' in sell_recommendations_df.columns:
                 _sell_syms = set(sell_recommendations_df['symbol'].tolist())
@@ -7879,46 +8006,46 @@ class EnhancedTop200StockAnalyzer:
                 _shutdown_requested.set()
             signal.signal(signal.SIGINT, _graceful_shutdown)
             try:
-                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                    future_to_stock = {}
-                    for _i, stock in enumerate(current_batch):
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                future_to_stock = {}
+                for _i, stock in enumerate(current_batch):
                         if _shutdown_requested.is_set():
                             break
-                        if _i > 0:
+                    if _i > 0:
                             time.sleep(0.3)
-                        future_to_stock[executor.submit(self.analyze_single_stock, stock)] = stock
-                    
-                    for future in as_completed(future_to_stock):
-                        stock = future_to_stock[future]
+                    future_to_stock[executor.submit(self.analyze_single_stock, stock)] = stock
+                
+                for future in as_completed(future_to_stock):
+                    stock = future_to_stock[future]
                         _counted = False
-                        try:
+                    try:
                             result = future.result(timeout=120)
-                            if result:
-                                batch_results.append(result)
-                                self.processed_stocks += 1
+                        if result:
+                            batch_results.append(result)
+                            self.processed_stocks += 1
                                 _counted = True
-                                
-                                status = result.get('status', 'unknown')
+                            
+                            status = result.get('status', 'unknown')
                                 score = _nv(result.get('risk_adjusted_score', result.get('overall_score', result.get('overall_score_triple'))), 0)
-                                recommendation = result.get('final_recommendation', 'N/A')
-                                
-                                print(f"   [DONE] {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
-                                
+                            recommendation = result.get('final_recommendation', 'N/A')
+                            
+                            print(f"   [DONE] {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
+                            
                                 if status in ('error', 'network_error'):
-                                    self.failed_stocks.append(stock)
-                            else:
-                                print(f"   [WARN] {stock:<12}: no data returned")
                                 self.failed_stocks.append(stock)
-                                logging.warning(f"No data returned for {stock}")
-                                self.processed_stocks += 1
-                                _counted = True
-                                
-                        except Exception as e:
-                            print(f"   [FAIL] {stock:<12}: timeout/error - {str(e)[:50]}")
+                        else:
+                            print(f"   [WARN] {stock:<12}: no data returned")
                             self.failed_stocks.append(stock)
+                            logging.warning(f"No data returned for {stock}")
+                            self.processed_stocks += 1
+                                _counted = True
+                            
+                    except Exception as e:
+                        print(f"   [FAIL] {stock:<12}: timeout/error - {str(e)[:50]}")
+                        self.failed_stocks.append(stock)
                             if not _counted:
-                                self.processed_stocks += 1
-                            logging.error(f"Batch processing error for {stock}: {e}")
+                        self.processed_stocks += 1
+                        logging.error(f"Batch processing error for {stock}: {e}")
             finally:
                 signal.signal(signal.SIGINT, _original_sigint)
             if _shutdown_requested.is_set():
@@ -8061,8 +8188,8 @@ class EnhancedTop200StockAnalyzer:
             if hist_override is not None and not hist_override.empty:
                 hist = hist_override
             else:
-                ticker = yf.Ticker(f"{symbol}.NS")
-                hist = ticker.history(period="6mo", interval="1d")
+            ticker = yf.Ticker(f"{symbol}.NS")
+            hist = ticker.history(period="6mo", interval="1d")
             
             if hist.empty or len(hist) < 20:
                 return {
@@ -8681,7 +8808,7 @@ Trading Plan ({risk_tolerance} RISK):
                     # �🔧 ENHANCED: Comprehensive retail investor decision-making columns
                     essential_cols = [
                         # ── GROUP A: WHAT TO DO ──
-                        'symbol',
+                        'symbol', 
                         'company_name',
                         'action_recommendation',
                         'profit_booking_timing',
@@ -8692,6 +8819,7 @@ Trading Plan ({risk_tolerance} RISK):
                         'suggested_quantity',
                         'current_quantity',
                         'current_value',
+                        'avg_cost',
                         'current_profit_pct',
                         'profit_booking_pct',
                         'profit_booking_amount',
@@ -8768,7 +8896,7 @@ Trading Plan ({risk_tolerance} RISK):
                         _sr_avail = [c for c in _sr_merge_cols if c in sr_df.columns]
                         if len(_sr_avail) > 1:
                             alloc_df = alloc_df.merge(sr_df[_sr_avail], on='symbol', how='left', suffixes=('', '_sr'))
-
+                    
                     # Create simplified dataframe
                     alloc_df_simple = alloc_df[existing_cols].copy()
 
@@ -8851,10 +8979,11 @@ Trading Plan ({risk_tolerance} RISK):
                             alloc_df_simple.loc[keep_hold_mask, _kh_field] = 0 if _kh_field in ('estimated_tax', 'post_tax_proceeds', 'profit_booking_amount') else None
                     print(f"      ✅ Cleared timing/booking/tax/net for {keep_hold_mask.sum()} KEEP/HOLD stocks")
 
-                    # 🔧 FIX: Ensure all SELL/SWAP stocks have profit_booking_pct = 1.0
-                    _sell_swap_mask = alloc_df_simple['action_recommendation'].astype(str).str.contains('SELL|SWAP', na=False, regex=True)
+                    # 🔧 FIX: Ensure hard SELL/SWAP stocks have profit_booking_pct = 1.0
+                    # Exclude CONSIDER SELLING — those use graduated booking from conviction gate
+                    _hard_sell_mask = alloc_df_simple['action_recommendation'].astype(str).str.upper().str.strip().isin(['SELL', 'SWAP'])
                     alloc_df_simple['profit_booking_pct'] = pd.to_numeric(alloc_df_simple['profit_booking_pct'], errors='coerce')
-                    _sell_swap_no_book = _sell_swap_mask & (alloc_df_simple['profit_booking_pct'].isna() | (alloc_df_simple['profit_booking_pct'] <= 0))
+                    _sell_swap_no_book = _hard_sell_mask & (alloc_df_simple['profit_booking_pct'].isna() | (alloc_df_simple['profit_booking_pct'] <= 0))
                     if _sell_swap_no_book.any():
                         alloc_df_simple.loc[_sell_swap_no_book, 'profit_booking_pct'] = 1.0
                         _fixed_syms = alloc_df_simple.loc[_sell_swap_no_book, 'symbol'].tolist()
@@ -8905,6 +9034,9 @@ Trading Plan ({risk_tolerance} RISK):
                     for _idx14, _row14 in alloc_df_simple.iterrows():
                         if pd.notna(_row14.get('profit_booking_pct')): continue  # already set, don't overwrite
                         if _own_c14 and not bool(_row14.get(_own_c14, False)): continue  # only owned holdings
+                        _act14 = str(_row14.get('action_recommendation', '')).upper()
+                        if _act14 in ('HOLD', 'KEEP') or 'INCREASE' in _act14 or 'BUY' in _act14 or 'NEW' in _act14 or 'WATCHLIST' in _act14:
+                            continue
                         _pnl14 = _nv(_row14.get('current_profit_pct'), 0)
                         _rsi14 = _nv(_row14.get(_rsi_c14), 50)
                         _res14 = _nv(_row14.get(_res_c14), 0)
@@ -8924,25 +9056,7 @@ Trading Plan ({risk_tolerance} RISK):
                             alloc_df_simple.at[_idx14, 'profit_booking_pct'] = 0.25
                     print(f"      ✅ [RT-14/MI-P] BOOK_%_IF_SELL populated (profit/resistance/ML-aware)")
 
-                    # Recalculate TAX/NET for RT-14 partial bookings where TAX was cleared for HOLD
-                    _rt14_book_mask = (
-                        alloc_df_simple['action_recommendation'].isin(['KEEP', 'HOLD']) &
-                        pd.to_numeric(alloc_df_simple['profit_booking_pct'], errors='coerce').gt(0) &
-                        pd.to_numeric(alloc_df_simple['profit_booking_pct'], errors='coerce').lt(1.0)
-                    )
-                    if _rt14_book_mask.any():
-                        for _rt_idx in alloc_df_simple[_rt14_book_mask].index:
-                            _rt_val = _nv(alloc_df_simple.at[_rt_idx, 'current_value'], 0)
-                            _rt_pct = _nv(alloc_df_simple.at[_rt_idx, 'profit_booking_pct'], 0)
-                            _rt_book_amt = _rt_val * _rt_pct
-                            _rt_invested = _nv(alloc_df_simple.at[_rt_idx, 'avg_cost'], 0) * _nv(alloc_df_simple.at[_rt_idx, 'current_quantity'], 0)
-                            _rt_gain = _rt_book_amt - (_rt_invested * _rt_pct) if _rt_invested > 0 else 0
-                            if _rt_gain > 0:
-                                _rt_tax = _rt_gain * 0.20
-                                alloc_df_simple.at[_rt_idx, 'tax_type'] = 'STCG (est.)'
-                                alloc_df_simple.at[_rt_idx, 'estimated_tax'] = round(_rt_tax, 0)
-                                alloc_df_simple.at[_rt_idx, 'post_tax_proceeds'] = round(_rt_book_amt - _rt_tax, 0)
-                        print(f"      ✅ Recalculated TAX/NET for {_rt14_book_mask.sum()} RT-14 partial bookings")
+                    # RT-14 recalc for HOLD/KEEP removed — HOLD/KEEP must never carry booking artifacts
 
                     # [RT-10 FIX] Auto-populate WHEN_TO_ACT (profit_booking_timing) for actionable stocks
                     print(f"   🔧 [RT-10] Auto-populating WHEN_TO_ACT for actionable stocks...")
@@ -9027,10 +9141,15 @@ Trading Plan ({risk_tolerance} RISK):
                         alloc_df_simple['post_tax_proceeds'] = pd.to_numeric(alloc_df_simple['post_tax_proceeds'], errors='coerce').fillna(0)
                         _partial_mask = book_profit_mask & (alloc_df_simple['profit_booking_pct'] < 1.0)
                         if _partial_mask.any():
-                            _pct = alloc_df_simple.loc[_partial_mask, 'profit_booking_pct']
-                            alloc_df_simple.loc[_partial_mask, 'estimated_tax'] = (
-                                alloc_df_simple.loc[_partial_mask, 'estimated_tax'] * _pct
-                            ).round(0)
+                            for _pt_idx in alloc_df_simple[_partial_mask].index:
+                                _pt_qty = _nv(alloc_df_simple.at[_pt_idx, 'current_quantity'], 0)
+                                _pt_pct = _nv(alloc_df_simple.at[_pt_idx, 'profit_booking_pct'], 0)
+                                _pt_sell_qty = max(1, int(_pt_qty * _pt_pct)) if _pt_qty > 0 else 0
+                                _pt_avg = _nv(alloc_df_simple.at[_pt_idx, 'avg_cost'], 0)
+                                _pt_price = _nv(alloc_df_simple.at[_pt_idx, 'current_price'], 0)
+                                _pt_gain_per_share = max(0, _pt_price - _pt_avg)
+                                _pt_tax = round(_pt_sell_qty * _pt_gain_per_share * 0.20, 0)
+                                alloc_df_simple.at[_pt_idx, 'estimated_tax'] = _pt_tax
                         # For ALL booked rows (partial AND full): NET = BOOK - TAX
                         alloc_df_simple.loc[book_profit_mask, 'post_tax_proceeds'] = (
                             alloc_df_simple.loc[book_profit_mask, 'profit_booking_amount'] -
@@ -9221,6 +9340,21 @@ Trading Plan ({risk_tolerance} RISK):
                         alloc_df_simple['OWNED?'] = alloc_df_simple['OWNED?'].apply(
                             lambda x: 'YES' if x is True or str(x).strip().upper() in ('TRUE', 'YES', '1') else 'NO'
                         )
+
+                    # [C-03 FIX] Normalize ROE to decimal (0.15 = 15%) for Excel pct format
+                    if 'ROE %' in alloc_df_simple.columns:
+                        _roe_col = pd.to_numeric(alloc_df_simple['ROE %'], errors='coerce')
+                        alloc_df_simple['ROE %'] = _roe_col.apply(
+                            lambda x: x / 100.0 if pd.notna(x) and abs(x) > 1 else x
+                        )
+
+                    # Normalize WT% to decimal for Excel pct format, and round PE/D/E
+                    for _pct_col in ('WT %', 'BOOK %'):
+                        if _pct_col in alloc_df_simple.columns:
+                            alloc_df_simple[_pct_col] = pd.to_numeric(alloc_df_simple[_pct_col], errors='coerce').round(4)
+                    for _score_col in ('PE', 'D/E'):
+                        if _score_col in alloc_df_simple.columns:
+                            alloc_df_simple[_score_col] = pd.to_numeric(alloc_df_simple[_score_col], errors='coerce').round(1)
 
                     # [R-07/R-08] Round numeric columns for clean presentation
                     for _rc in ('SCORE', 'ADJ SCORE', 'FUND', 'MOM', 'VOL', 'MTF', 'RISK SC', 'VALUE',
@@ -9449,7 +9583,7 @@ Trading Plan ({risk_tolerance} RISK):
                     if hasattr(self, 'recommendation_history') and self.recommendation_history is not None:
                         _perf_df = self.recommendation_history.get_performance_summary_df()
                         if not _perf_df.empty:
-                            _has_outcomes = _perf_df['Recommendations'].sum() > 0 if 'Recommendations' in _perf_df.columns else False
+                            _has_outcomes = pd.to_numeric(_perf_df['Recommendations'], errors='coerce').sum() > 0 if 'Recommendations' in _perf_df.columns else False
                             _perf_df.to_excel(writer, sheet_name='Rec Performance', index=False)
                             _perf_ws = writer.sheets['Rec Performance']
                             for ci, col in enumerate(_perf_df.columns):
@@ -9480,7 +9614,11 @@ Trading Plan ({risk_tolerance} RISK):
                                 _perf_ws.write(_worst_start + _wi, 0, str(_wc_item.get('symbol', '')), data_format)
                                 _perf_ws.write(_worst_start + _wi, 1, f"{_wc_item.get(f'return_30d', 0):.1f}%", data_format)
                                 _perf_ws.write(_worst_start + _wi, 2, str(_wc_item.get('action', '')), data_format)
-                            print(f"   📊 Recommendation Performance sheet: win rate {_m30.get('win_rate', 0):.1f}% (30d)")
+                            _m30_total = _m30.get('total_with_outcomes', 0)
+                            if _m30_total > 0:
+                                print(f"   📊 Recommendation Performance sheet: win rate {_m30.get('win_rate', 0):.1f}% (30d, {_m30_total} outcomes)")
+                            else:
+                                print(f"   📊 Recommendation Performance sheet: INSUFFICIENT DATA (30d — no completed outcomes yet)")
                 except Exception as _rp_err:
                     logging.debug(f"Recommendation Performance sheet error: {_rp_err}")
 
@@ -9572,7 +9710,7 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   📋 _Metadata sheet: {len(_meta_data)} parameters recorded")
                 except Exception as _meta_err:
                     logging.warning(f"_Metadata sheet error: {_meta_err}")
-
+                
                 print(f"   🎯 Generated {len(writer.sheets)} essential worksheets (streamlined with auto-resize)")
             
             return filename
@@ -9593,7 +9731,7 @@ Trading Plan ({risk_tolerance} RISK):
         'fundamental_score_final', 'enhanced_technical_score_final',
     }
     _VOLATILITY_COLUMNS = {'volatility', 'volatility_6m', 'volatility_20d'}
-
+    
     def _clean_dataframe_for_excel(self, df):
         """Clean DataFrame by replacing NaN/Inf values that Excel can't handle.
         HI-04: Score columns fill with 50 (neutral), volatility columns fill with 100 (conservative).
@@ -9607,7 +9745,7 @@ Trading Plan ({risk_tolerance} RISK):
                     elif col in self._VOLATILITY_COLUMNS or col_lower in self._VOLATILITY_COLUMNS:
                         df[col] = df[col].fillna(100)
                     else:
-                        df[col] = df[col].fillna(0)
+                    df[col] = df[col].fillna(0)
                     df[col] = df[col].replace([np.inf, -np.inf], [999999, -999999])
                 elif df[col].dtype in ['int64', 'int32']:
                     df[col] = df[col].fillna(0)
@@ -9698,7 +9836,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.merge_range('A1:H2', 'STOCK ANALYSIS DASHBOARD', dashboard_title_format)
         _ts_fmt = workbook.add_format({'italic': True, 'font_color': '#666666', 'align': 'right', 'font_size': 9})
         worksheet.merge_range('A3:H3', f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  Regime: {getattr(self, 'current_market_regime', 'N/A')}  |  Engine: {getattr(self.hybrid_scoring_engine, 'version', 'N/A')}", _ts_fmt)
-
+        
         # Key Metrics Section
         row = 5
         
@@ -9715,33 +9853,33 @@ Trading Plan ({risk_tolerance} RISK):
         hold_count = int(_rec.str.contains('HOLD', na=False).sum())
         sell_count = int(_rec.str.upper().str.contains('SELL', na=False).sum())
         _other_count = total_stocks - strong_buy_count - buy_count - hold_count - sell_count
-
+        
         # Left side metrics
         worksheet.write(f'A{row}', 'Total Stocks Analyzed:', header_format)
         worksheet.write(f'B{row}', total_stocks, metric_value_format)
-
+        
         worksheet.write(f'E{row}', 'Strong Buy:', header_format)
         worksheet.write(f'F{row}', strong_buy_count, metric_value_format)
         worksheet.write(f'G{row}', f'{strong_buy_count/total_stocks*100:.1f}%', percent_format)
-
+        
         row += 1
         _avg_col = 'final_blended_score' if 'final_blended_score' in df.columns else 'overall_score_with_value'
         avg_score = round(float(df[_avg_col].mean()), 1) if _avg_col in df.columns else 0
-
+        
         worksheet.write(f'A{row}', 'Average Score:', header_format)
         worksheet.write(f'B{row}', avg_score, score_format)
-
+        
         worksheet.write(f'E{row}', 'Buy:', header_format)
         worksheet.write(f'F{row}', buy_count, metric_value_format)
         worksheet.write(f'G{row}', f'{buy_count/total_stocks*100:.1f}%', percent_format)
-
+        
         row += 1
         undervalued_count = len(df[df.get('undervaluation_score', pd.Series()).fillna(50) >= 65])
-
+        
         worksheet.write(f'A{row}', 'Undervalued Stocks:', header_format)
         worksheet.write(f'B{row}', undervalued_count, metric_value_format)
         worksheet.write(f'C{row}', f'{undervalued_count/total_stocks*100:.1f}%', percent_format)
-
+        
         worksheet.write(f'E{row}', 'Hold:', header_format)
         worksheet.write(f'F{row}', hold_count, metric_value_format)
         worksheet.write(f'G{row}', f'{hold_count/total_stocks*100:.1f}%', percent_format)
@@ -9771,7 +9909,7 @@ Trading Plan ({risk_tolerance} RISK):
         # Portfolio metrics
         _pa_summary = portfolio_allocation.get('summary', {}) if portfolio_allocation else {}
         _total_inv = _pa_summary.get('current_portfolio_value', _pa_summary.get('total_investment', 0))
-        worksheet.write(f'E{row}', 'Total Investment:', header_format)
+            worksheet.write(f'E{row}', 'Total Investment:', header_format)
         worksheet.write(f'F{row}', round(float(_total_inv), 0), price_format)
         
         row += 1
@@ -9780,7 +9918,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.write(f'C{row}', f'{medium_risk/total_stocks*100:.1f}%', percent_format)
         
         _utilized = _pa_summary.get('total_available_capital', _pa_summary.get('utilized_amount', 0))
-        worksheet.write(f'E{row}', 'Amount Utilized:', header_format)
+            worksheet.write(f'E{row}', 'Amount Utilized:', header_format)
         worksheet.write(f'F{row}', round(float(_utilized), 0), price_format)
         
         row += 1
@@ -9789,7 +9927,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.write(f'C{row}', f'{high_risk/total_stocks*100:.1f}%', percent_format)
         
         _util_pct = _pa_summary.get('funds_utilization', _pa_summary.get('utilization_percentage', 0))
-        worksheet.write(f'E{row}', 'Utilization %:', header_format)
+            worksheet.write(f'E{row}', 'Utilization %:', header_format)
         worksheet.write(f'F{row}', f'{float(_util_pct):.1f}%', percent_format)
         
         # Top Performers Section
@@ -9936,11 +10074,11 @@ Trading Plan ({risk_tolerance} RISK):
                 # Silently skip chart creation if it fails
                 logging.debug(f"Could not create dashboard chart: {e}")
     
-    def _apply_conditional_formatting_portfolio(self, writer, alloc_df, buy_format, strong_buy_format,
-                                              hold_format, sell_format, low_risk_format,
+    def _apply_conditional_formatting_portfolio(self, writer, alloc_df, buy_format, strong_buy_format, 
+                                              hold_format, sell_format, low_risk_format, 
                                               medium_risk_format, high_risk_format):
         """Modern Dark visual formatting for the Portfolio Allocation sheet."""
-
+        
         workbook = writer.book
         worksheet = writer.sheets['Portfolio Allocation']
         num_rows = len(alloc_df)
@@ -9990,7 +10128,7 @@ Trading Plan ({risk_tolerance} RISK):
                 continue
             if c_start == c_end:
                 worksheet.write(0, c_start, label, grp_hdr_fmt)
-            else:
+                else:
                 worksheet.merge_range(0, c_start, 0, c_end, label, grp_hdr_fmt)
 
         # ═══════════════════════════════════════════════════════════════════
@@ -10836,7 +10974,7 @@ Trading Plan ({risk_tolerance} RISK):
         
         # Risk analysis for top stocks
         risk_stocks = df.head(25)
-
+        
         _alloc_lookup = {}
         if portfolio_allocation and 'allocation_df' in portfolio_allocation:
             _pa = portfolio_allocation['allocation_df']
@@ -10990,7 +11128,7 @@ Trading Plan ({risk_tolerance} RISK):
                 bear_case = round(max(target_6m * (1 - _vol_frac), current_price * 0.30), 2)
 
                 prob_up = min(0.9, max(0.1, score / 100))
-
+                
                 if score > 80:
                     model = 'AI-Optimistic'
                     confidence = 85
@@ -11000,7 +11138,7 @@ Trading Plan ({risk_tolerance} RISK):
                 else:
                     model = 'Conservative'
                     confidence = 55
-
+                
                 risk_level = stock.get('risk_category', 'MODERATE')
             else:
                 target_1m = target_3m = target_6m = bull_case = bear_case = 0
@@ -11159,7 +11297,7 @@ Trading Plan ({risk_tolerance} RISK):
         for row, (_, stock) in enumerate(top_stocks.iterrows(), 1):
             score = stock.get('overall_score_with_value', 0)
             recommendation = stock.get('final_recommendation', '')
-
+            
             _news_score = stock.get('news_sentiment_score', 50)
             _market_score = stock.get('market_sentiment_score', 50)
             _buzz_score = stock.get('buzz_sentiment_score', 50)
@@ -11374,9 +11512,9 @@ Trading Plan ({risk_tolerance} RISK):
                     expected_return = expected_return / 100
             else:
                 expected_return = df['overall_score_with_value'].mean() / 100 * 0.15
-
+            
             sharpe_ratio = (expected_return - risk_free_rate) / portfolio_volatility if portfolio_volatility > 0 else 0
-
+            
             metrics = [
                 ('Expected Annual Return', f'{expected_return:.1%}'),
                 ('Portfolio Volatility', f'{portfolio_volatility:.1%}'),
@@ -11420,7 +11558,7 @@ Trading Plan ({risk_tolerance} RISK):
                     _pw = _r.get('portfolio_weight', 0)
                     _weight_map[_r['symbol']] = 0.0 if (_pw is None or (isinstance(_pw, float) and np.isnan(_pw))) else float(_pw)
         total_value = sum(_weight_map.values()) * 1000000 if _weight_map else 1000000
-
+        
         for _, stock in top_performers.iterrows():
             current_weight = _weight_map.get(stock['symbol'], 0.0)
             score = stock.get('overall_score_with_value', 0)
@@ -11534,7 +11672,7 @@ Trading Plan ({risk_tolerance} RISK):
 
             if 'sell_recommendations' in self.portfolio_allocation and not self.portfolio_allocation['sell_recommendations'].empty:
                 sell_df = self.portfolio_allocation['sell_recommendations']
-                print(f"\n[SELL] SELL RECOMMENDATIONS ({len(sell_df)} stocks):")
+                print(f"\n[EXIT] EXIT RECOMMENDATIONS ({len(sell_df)} stocks — SELL + REDUCE + CONSIDER SELLING):")
                 print(f"   Risk Profile: {self.risk_profile.upper()} - Excess holdings to optimize portfolio")
                 
                 # Group by category
@@ -11661,7 +11799,7 @@ def generate_top_10_categories(results_df, analyzer=None):
         elif 'real_technical_score_final' in results_df.columns:
             results_df['technical_score'] = results_df['real_technical_score_final']
         else:
-            results_df['technical_score'] = 50
+        results_df['technical_score'] = 50
     if 'fundamental_score' not in results_df.columns:
         results_df['fundamental_score'] = 50
     if 'overall_score_with_value' not in results_df.columns:
@@ -11839,7 +11977,7 @@ def merge_holdings_and_orders():
             return
         
         # Load orders data
-        merger.load_orders_data(orders_file)
+            merger.load_orders_data(orders_file)
         
         # Merge data
         if merger.merge_data():
@@ -12074,7 +12212,7 @@ def main():
         print(f"   📸 Run snapshot saved: {_snap_dir}")
     except Exception as _snap_err:
         logging.warning(f"Snapshot creation failed: {_snap_err}")
-
+    
     # Run batch analysis
     results = analyzer.analyze_batch(batch_size=args.batch)
     
@@ -12124,7 +12262,7 @@ def main():
                 for _str_col in ['ACTION', 'WHEN', 'TYPE', 'sector', 'symbol', 'company_name']:
                     if _str_col in df_portfolio.columns:
                         df_portfolio[_str_col] = df_portfolio[_str_col].fillna('').astype(str)
-
+                
                 total_stocks = len(df_portfolio)
                 _val_col = 'MY VALUE ₹' if 'MY VALUE ₹' in df_portfolio.columns else 'current_value'
                 _inv_col = 'INVEST ₹' if 'INVEST ₹' in df_portfolio.columns else None
@@ -12304,19 +12442,19 @@ def main():
                 print(f"[PROFIT] AUTO-RUNNING SMART PROFIT BOOKING ADVISOR")
                 print(f"   [SMART] History-Aware System - Prevents Over-Booking")
                 print(f"{'='*90}")
-
+                
                 _spb_imported = False
                 try:
-                    from smart_profit_booking_advisor import SmartProfitBookingAdvisor
+                from smart_profit_booking_advisor import SmartProfitBookingAdvisor
                     _spb_imported = True
-                except ImportError:
+            except ImportError:
                     pass
                 if not _spb_imported:
                     try:
                         sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'archived', 'legacy'))
                         from smart_profit_booking_advisor import SmartProfitBookingAdvisor
                         _spb_imported = True
-                    except ImportError:
+            except ImportError:
                         pass
 
                 if _spb_imported:
@@ -12360,12 +12498,12 @@ def main():
                 for _sc in ['ACTION', 'symbol', 'company_name']:
                     if _sc in allocation_df.columns:
                         allocation_df[_sc] = allocation_df[_sc].fillna('').astype(str)
-
+                
                 print('\n' + '='*100)
                 print('📋 YOUR COMPLETE ACTION PLAN')
                 print('='*100)
                 print('\n🎯 EXECUTE IN THIS ORDER:\n')
-
+                
                 # PRIORITY 1: SWAP POSITIONS
                 swaps = allocation_df[allocation_df['ACTION'].str.contains('SWAP', na=False)].sort_values(_V, ascending=False)
                 swap_total = 0
@@ -12377,7 +12515,7 @@ def main():
                         print(f"Sell {row['symbol']} ({row[_Q]:.0f} shares) → ₹{row[_V]:,.0f} → Immediately buy {target}")
                         swap_total += row[_V]
                     print()
-
+                
                 # PRIORITY 2: SELL (hard sells only — exclude CONSIDER SELLING)
                 _sell_mask = (allocation_df['ACTION'].str.upper().str.strip() == 'SELL')
                 sells = allocation_df[_sell_mask].sort_values(_V, ascending=False)
@@ -12400,14 +12538,14 @@ def main():
                         _cs_bk = float(_cs_bk) if pd.notna(_cs_bk) and float(_cs_bk) > 0 else 1.0
                         if _cs_bk < 1.0:
                             _cs_qty = max(1, int(row[_Q] * _cs_bk))
-                            print(f"{row['symbol']}: Consider selling ~{_cs_qty} of {row[_Q]:.0f} shares ({_cs_bk*100:.0f}%) → ~₹{row[_V]*_cs_bk:,.0f}")
+                            print(f"{row['symbol']}: Consider selling ~{_cs_qty} of {row[_Q]:.0f} shares ({_cs_bk*100:.0f}%) → ~₹{_cs_qty * row['PRICE']:,.0f}")
                         else:
                             print(f"{row['symbol']}: Consider selling ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}")
-                        consider_total += row[_V] * _cs_bk
+                        consider_total += _cs_qty * row['PRICE']
                     print()
-
+                
                 # PRIORITY 3: BOOK PARTIAL PROFITS
-                book_profit = allocation_df[(allocation_df['ACTION'].str.contains('BOOK', na=False)) &
+                book_profit = allocation_df[(allocation_df['ACTION'].str.contains('BOOK', na=False)) & 
                                            (allocation_df[_V] > 0)].sort_values(_V, ascending=False)
                 book_total = 0
                 if len(book_profit) > 0:
@@ -12425,7 +12563,7 @@ def main():
                         print(f"{row['symbol']}: Sell {sell_min}-{sell_max} shares → ₹{proceeds_min:,.0f}-₹{proceeds_max:,.0f}")
                         book_total += (proceeds_min + proceeds_max) / 2
                     print(f"BOOK Proceeds: ₹{book_total:,.0f}\n")
-
+                
                 # PRIORITY 3.5: REDUCE (SECTOR OVERWEIGHT)
                 reduces = allocation_df[allocation_df['ACTION'].str.contains('REDUCE', na=False)].sort_values(_V, ascending=True)
                 reduce_total = 0
@@ -12448,7 +12586,7 @@ def main():
                         print(f"⚠️  WARNING: {_reduce_repeat_count} REDUCE signals were repeated from the previous run.")
                         print(f"   Sector concentration risk is GROWING. Please act on these signals.")
                     print()
-
+                
                 # PRIORITY 4: INCREASE
                 increases = allocation_df[(allocation_df[_V] > 0) & (allocation_df[_I] > 0) &
                                          (allocation_df['ACTION'].str.contains('INCREASE', na=False))].sort_values(_I, ascending=False)
@@ -12470,14 +12608,14 @@ def main():
                         print(f"{row['symbol']}: {row[_BQ]:.0f} shares @ ₹{row['PRICE']:.2f} = ₹{row[_I]:,.0f}")
                         total_new += row[_I]
                     print()
-
+                
                 # PRIORITY 6: HOLD
                 holds = allocation_df[(allocation_df[_V] > 0) & ((allocation_df[_I] == 0) | pd.isna(allocation_df[_I])) &
                                      (allocation_df['ACTION'].str.contains('HOLD|KEEP', na=False))].sort_values(_V, ascending=False)
                 if len(holds) > 0:
                     print(f'PRIORITY 6: HOLD ✋')
                     print(f"{len(holds)} stocks - No action\n")
-
+                
                 # PRIORITY 7: WATCHLIST
                 watchlist = allocation_df[allocation_df['ACTION'].str.contains('WATCHLIST', na=False)]
                 if len(watchlist) > 0:
@@ -12512,8 +12650,8 @@ def main():
                         print('⚠️  RISK WARNINGS:')
                         for _w in _warnings[:8]:
                             print(f"  • {_w}")
-                        print()
-
+                    print()
+                
                 # SECTOR CONCENTRATION WARNING
                 try:
                     _sect_counts = allocation_df.groupby('sector').size().to_dict() if 'sector' in allocation_df.columns else {}
@@ -12523,7 +12661,7 @@ def main():
                         print('📊 SECTOR CONCENTRATION:')
                         for _hs, _hc in sorted(_heavy.items(), key=lambda x: -x[1]):
                             print(f"  • {_hs}: {_hc} stocks (cap={_config.SECTOR_CAP}) "
-                                  f"— only weak stocks (score<{getattr(_config, 'SECTOR_REDUCE_MIN_SCORE', 45)}) marked REDUCE")
+                                  f"— only stocks with score<50 marked REDUCE (ROI-first: high-scorers protected)")
                         print()
                 except Exception:
                     pass

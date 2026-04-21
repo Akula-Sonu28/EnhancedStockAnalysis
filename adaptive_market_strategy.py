@@ -83,11 +83,11 @@ class AdaptiveMarketRegimeStrategy:
             },
             'BEAR_MODERATE': {
                 'fundamental_quality': 0.15,
-                'momentum_technical': 0.20,
+                'momentum_technical': 0.35,
                 'volume_strength': 0.05,
                 'multi_timeframe': 0.15,
                 'ml_signal': 0.00,
-                'risk_adjustment': 0.45,
+                'risk_adjustment': 0.30,
             }
         }
         
@@ -128,7 +128,7 @@ class AdaptiveMarketRegimeStrategy:
         if external_regime:
             mapped = self._map_regime(str(external_regime).upper())
             return {'regime': mapped, 'confidence': 'HIGH'}
-        return {'regime': 'CALM', 'confidence': 'LOW'}
+        return {'regime': 'BEAR_MODERATE', 'confidence': 'LOW'}
     
     def _calculate_regime_confidence(self, return_30d, volatility, price, sma_20):
         """Calculate confidence in market regime detection"""

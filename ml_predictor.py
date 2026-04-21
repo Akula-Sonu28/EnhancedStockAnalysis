@@ -416,7 +416,7 @@ class MLPricePredictor:
             signal_map = {1: 'BUY', 0: 'HOLD', -1: 'SELL'}
             signal = signal_map.get(int(prediction), 'HOLD')
             
-            expected_return = float(prediction * confidence * 0.2)
+            expected_return = round(float(np.clip(prediction * confidence * 0.02, -5, 5)), 2)
             
             return {
                 'prediction': int(prediction),
@@ -470,7 +470,7 @@ class MLPricePredictor:
             confidence    = float(np.max(probabilities) * 100)
             signal_map    = {1: 'BUY', 0: 'HOLD', -1: 'SELL'}
             signal        = signal_map.get(int(prediction), 'HOLD')
-            expected_return = float(prediction * confidence * 0.2)
+            expected_return = round(float(np.clip(prediction * confidence * 0.02, -5, 5)), 2)
 
             classes = list(self.model.classes_) if hasattr(self.model, 'classes_') else [-1, 0, 1]
             prob_map = {int(c): float(probabilities[i]) for i, c in enumerate(classes) if i < len(probabilities)}
@@ -549,7 +549,7 @@ class MLPricePredictor:
                 'prediction': prediction,
                 'confidence': float(confidence),
                 'signal': signal,
-                'expected_return': prediction * confidence * 0.15,
+                'expected_return': round(float(np.clip(prediction * confidence * 0.02, -5, 5)), 2),
                 'probabilities': {'down': 0.33, 'hold': 0.34, 'up': 0.33}
             }
             

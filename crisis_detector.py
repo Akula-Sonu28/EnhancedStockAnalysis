@@ -231,6 +231,20 @@ class CrisisDetector:
             _total_assets = len(self.ASSETS) + 1  # +1 for VIX
             _all_failed = _fetch_failures >= _total_assets
 
+            if _all_failed:
+                self.logger.warning("ALL cross-asset feeds failed — defaulting to CAUTION (fail-safe)")
+                return {
+                    'crisis_detected': False,
+                    'crisis_type': 'DETECTION_FAILED',
+                    'severity': 1,
+                    'confidence': 0.0,
+                    'detection_failed': True,
+                    'recommended_action': 'REDUCE_EXPOSURE',
+                    'sector_adjustments': {},
+                    'signals': {},
+                    'timestamp': datetime.now().isoformat()
+                }
+
             crisis_type = self._classify_event(signals)
             severity = self._calculate_severity(signals, crisis_type)
 

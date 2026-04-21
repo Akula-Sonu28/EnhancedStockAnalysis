@@ -62,11 +62,11 @@ class AnalysisConfig:
     DEFAULT_PORTFOLIO_AMOUNT: float = 100000
     MAX_PORTFOLIO_POSITIONS: int = 15
     MIN_ALLOCATION_PERCENTAGE: float = 2.0
-    MAX_SINGLE_STOCK_WEIGHT: float = 20.0  # NOT WIRED: allocation engine uses per-cap-tier limits instead
+    MAX_SINGLE_STOCK_WEIGHT: float = 20.0  # DEPRECATED: allocation engine uses per-cap-tier limits. Changing this has NO effect.
 
     # Allocation Thresholds
     MIN_INVESTMENT_PER_STOCK: float = 3000
-    MAX_ALLOCATION_PCT: float = 0.05  # NOT WIRED: allocation engine uses per-cap-tier limits instead
+    MAX_ALLOCATION_PCT: float = 0.05  # DEPRECATED: allocation engine uses per-cap-tier limits. Changing this has NO effect.
     TARGET_PORTFOLIO_SIZE: int = 23
     SECTOR_CAP: int = 10
     CATEGORY_SECTOR_CAP: int = 5
@@ -81,6 +81,17 @@ class AnalysisConfig:
     EMERGENCY_EXIT_LOSS: float = -0.30
     EMERGENCY_EXIT_SCORE: float = 45.0
 
+    # Tiered Emergency Exit (sliding scale replaces hard AND gate)
+    EMERGENCY_TIER_1_LOSS: float = -0.25
+    EMERGENCY_TIER_2_LOSS: float = -0.20
+    EMERGENCY_TIER_2_SCORE: float = 50.0
+    EMERGENCY_TIER_3_LOSS: float = -0.15
+    EMERGENCY_TIER_3_SCORE: float = 45.0
+
+    # ATR-based Stop Loss
+    STOP_LOSS_ATR_MULTIPLIER: float = 2.0
+    STOP_LOSS_FALLBACK_PCT: float = 0.08
+
     # Regime Exposure
     BEAR_EXPOSURE: float = 0.50
     SIDEWAYS_EXPOSURE: float = 0.85
@@ -88,18 +99,19 @@ class AnalysisConfig:
 
     # Score Smoothing
     SCORE_SMOOTHING_WEIGHT: float = 0.55
-    SCORE_SMOOTHING_WEIGHT_BEAR: float = 0.80
+    SCORE_SMOOTHING_WEIGHT_BEAR: float = 0.50
     SCORE_SMOOTHING_MAX_AGE_DAYS: int = 3
 
     # Recommendation Hysteresis (prevents flip-flops at threshold boundaries)
-    HYSTERESIS_BUFFER: float = 3.0
-    HYSTERESIS_PROXIMITY_BOOST: float = 1.5
+    HYSTERESIS_BUFFER: float = 1.5
+    HYSTERESIS_PROXIMITY_BOOST: float = 0.0
 
     # ML Tag Control (disabled until model accuracy > 60%)
     ML_TAG_IN_RECOMMENDATION: bool = False
 
     # Sector Cap Enforcement
     SECTOR_CAP_ENFORCE_HOLDINGS: bool = True
+    SECTOR_CAP_SCORE_OVERRIDE: float = 75.0
 
     # Liquidity Filter
     MIN_AVG_DAILY_VOLUME: int = 50000
