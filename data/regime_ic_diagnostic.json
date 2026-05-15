@@ -1,0 +1,215 @@
+{
+  "updated": "2026-05-08T00:16:06.998489",
+  "score_col": "score",
+  "thresholds": {
+    "min_regime_n": 50,
+    "ic_floor": 0.05,
+    "spread_pp_floor": 3.0,
+    "sample_size_floor": 200
+  },
+  "global": {
+    "status": "OK",
+    "n_rows": 5835,
+    "date_span": {
+      "first": "2023-04-03",
+      "last": "2026-05-07"
+    },
+    "ic_30d": {
+      "rho": -0.4636,
+      "p": 0.0,
+      "n": 3966
+    },
+    "ic_7d": {
+      "rho": -0.09,
+      "p": 0.0,
+      "n": 5418
+    },
+    "quintile_30d": {
+      "q1": 15.027,
+      "q5": 2.479,
+      "spread": -12.548,
+      "n": 3966
+    },
+    "hit_rate_30d": {
+      "rate": 69.8,
+      "n": 1983
+    }
+  },
+  "regimes": {
+    "BULL": {
+      "status": "OK",
+      "n_rows": 240,
+      "date_span": {
+        "first": "2023-05-03",
+        "last": "2025-11-18"
+      },
+      "ic_30d": {
+        "rho": 0.1034,
+        "p": 0.110148,
+        "n": 240
+      },
+      "ic_7d": {
+        "rho": 0.1034,
+        "p": 0.110148,
+        "n": 240
+      },
+      "quintile_30d": {
+        "q1": 2.548,
+        "q5": 3.065,
+        "spread": 0.517,
+        "n": 240
+      },
+      "hit_rate_30d": {
+        "rate": 59.7,
+        "n": 119
+      }
+    },
+    "BEAR": {
+      "status": "OK",
+      "n_rows": 1891,
+      "date_span": {
+        "first": "2025-01-22",
+        "last": "2026-03-31"
+      },
+      "ic_30d": {
+        "rho": -0.4012,
+        "p": 0.0,
+        "n": 1871
+      },
+      "ic_7d": {
+        "rho": -0.0795,
+        "p": 0.000546,
+        "n": 1887
+      },
+      "quintile_30d": {
+        "q1": 14.133,
+        "q5": 3.462,
+        "spread": -10.671,
+        "n": 1871
+      },
+      "hit_rate_30d": {
+        "rate": 77.6,
+        "n": 935
+      }
+    },
+    "SIDEWAYS": {
+      "status": "OK",
+      "n_rows": 634,
+      "date_span": {
+        "first": "2023-04-03",
+        "last": "2026-05-07"
+      },
+      "ic_30d": {
+        "rho": 0.0957,
+        "p": 0.047077,
+        "n": 431
+      },
+      "ic_7d": {
+        "rho": 0.0957,
+        "p": 0.047077,
+        "n": 431
+      },
+      "quintile_30d": {
+        "q1": 0.85,
+        "q5": 2.612,
+        "spread": 1.762,
+        "n": 431
+      },
+      "hit_rate_30d": {
+        "rate": 63.3,
+        "n": 215
+      }
+    },
+    "UNKNOWN": {
+      "status": "OK",
+      "n_rows": 3070,
+      "date_span": {
+        "first": "2026-03-26",
+        "last": "2026-04-29"
+      },
+      "ic_30d": {
+        "rho": -0.3987,
+        "p": 0.0,
+        "n": 1424
+      },
+      "ic_7d": {
+        "rho": -0.2919,
+        "p": 0.0,
+        "n": 2860
+      },
+      "quintile_30d": {
+        "q1": 16.948,
+        "q5": 4.865,
+        "spread": -12.084,
+        "n": 1424
+      },
+      "hit_rate_30d": {
+        "rate": 82.3,
+        "n": 711
+      }
+    }
+  },
+  "sources": {
+    "reports_pairwise": {
+      "status": "OK",
+      "n_rows": 5124,
+      "date_span": {
+        "first": "2026-03-12",
+        "last": "2026-05-07"
+      },
+      "ic_30d": {
+        "rho": -0.4154,
+        "p": 0.0,
+        "n": 3255
+      },
+      "ic_7d": {
+        "rho": -0.1206,
+        "p": 0.0,
+        "n": 4707
+      },
+      "quintile_30d": {
+        "q1": 15.545,
+        "q5": 3.96,
+        "spread": -11.585,
+        "n": 3255
+      },
+      "hit_rate_30d": {
+        "rate": 79.8,
+        "n": 1621
+      }
+    },
+    "bt_trades": {
+      "status": "OK",
+      "n_rows": 711,
+      "date_span": {
+        "first": "2023-04-03",
+        "last": "2026-02-16"
+      },
+      "ic_30d": {
+        "rho": 0.1094,
+        "p": 0.003482,
+        "n": 711
+      },
+      "ic_7d": {
+        "rho": 0.1094,
+        "p": 0.003482,
+        "n": 711
+      },
+      "quintile_30d": {
+        "q1": 1.236,
+        "q5": 2.979,
+        "spread": 1.743,
+        "n": 711
+      },
+      "hit_rate_30d": {
+        "rate": 60.7,
+        "n": 354
+      }
+    }
+  },
+  "verdict": {
+    "verdict": "REGIME_CONDITIONAL_ALPHA",
+    "reason": "IC sign splits across regimes: positive in ['BULL', 'SIDEWAYS'], negative in ['BEAR', 'UNKNOWN']",
+    "next_action": "Plan a follow-up to gate v2 weights on regime; do not promote globally yet."
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "updated": "2026-05-13T20:47:33.379393",
+  "months_executed": 1,
+  "top_n": 10,
+  "mean_v1_monthly_pct": 8.628711583023076,
+  "mean_v2_monthly_pct": 26.416681157337337,
+  "cumulative_v1_pct": 8.628711583023074,
+  "cumulative_v2_pct": 26.41668115733733,
+  "invest_amount": 100000,
+  "final_value_v1": 108628.71158302308,
+  "final_value_v2": 126416.68115733733,
+  "months": [
+    {
+      "rebalance_date": "2026-04-02",
+      "universe_n": 206,
+      "train_n": 2974,
+      "v1_picks": [
+        "ONGC",
+        "COALINDIA",
+        "AUROPHARMA",
+        "DMART",
+        "OIL",
+        "LUPIN",
+        "GICRE",
+        "NATIONALUM",
+        "DRREDDY",
+        "SUNPHARMA"
+      ],
+      "v2_picks": [
+        "COCHINSHIP",
+        "MAZDOCK",
+        "HYUNDAI",
+        "OLAELEC",
+        "BDL",
+        "TRENT",
+        "MOTILALOFS",
+        "SUZLON",
+        "WAAREEENER",
+        "ATGL"
+      ],
+      "v1_ret_pct": 8.628711583023076,
+      "v2_ret_pct": 26.416681157337337,
+      "v1_pick_returns_pct": [
+        7.0,
+        8.75,
+        9.84,
+        6.88,
+        7.57,
+        5.47,
+        9.16,
+        12.94,
+        13.57,
+        5.11
+      ],
+      "v2_pick_returns_pct": [
+        38.29,
+        26.23,
+        8.13,
+        34.84,
+        20.97,
+        25.68,
+        18.47,
+        45.35,
+        17.19,
+        29.01
+      ]
+    }
+  ]
+}

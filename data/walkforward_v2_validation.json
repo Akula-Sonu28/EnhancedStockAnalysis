@@ -1,0 +1,234 @@
+{
+  "updated": "2026-05-13T00:13:31.980662",
+  "eligible_rows": 3255,
+  "date_span": {
+    "first": "2026-03-12",
+    "last": "2026-04-10"
+  },
+  "primary_80_20": {
+    "label": "80/20",
+    "status": "OK",
+    "n_train": 2604,
+    "n_test": 651,
+    "weights_train": {
+      "fundamental_quality": 0.0945,
+      "volume_strength": 0.1276,
+      "multi_timeframe": -0.1493,
+      "ml_signal": -0.1727,
+      "risk_adjustment": -0.45,
+      "momentum_technical": 0.0,
+      "growth": 0.0,
+      "value": 0.0
+    },
+    "v2": {
+      "ic_30d": 0.23851116903659303,
+      "ic_p": 7.137616682495538e-10,
+      "ic_n": 651,
+      "q5": 14.542506125920157,
+      "q1": 6.347691920111973,
+      "spread_pp": 8.194814205808186
+    },
+    "v1": {
+      "ic_30d": -0.317981605786874,
+      "ic_p": 9.224045412197815e-17,
+      "ic_n": 651,
+      "q5": 3.2355321540237894,
+      "q1": 12.418270021214957,
+      "spread_pp": -9.182737867191168
+    },
+    "edge_v2_minus_v1": 0.556492774823467
+  },
+  "folds": [
+    {
+      "label": "fold_1",
+      "status": "OK",
+      "n_train": 542,
+      "n_test": 542,
+      "weights_train": {
+        "fundamental_quality": 0.1015,
+        "momentum_technical": 0.1523,
+        "volume_strength": 0.2164,
+        "multi_timeframe": 0.2704,
+        "ml_signal": -0.0925,
+        "risk_adjustment": -0.1669,
+        "growth": 0.0,
+        "value": 0.0
+      },
+      "v2": {
+        "ic_30d": 0.12774528270655494,
+        "ic_p": 0.0028883860137811344,
+        "ic_n": 542,
+        "q5": 7.20673840395079,
+        "q1": 4.598835633960899,
+        "spread_pp": 2.6079027699898907
+      },
+      "v1": {
+        "ic_30d": -0.18821532344069267,
+        "ic_p": 1.0280469832341282e-05,
+        "ic_n": 542,
+        "q5": 4.152900879055412,
+        "q1": 9.001814398289886,
+        "spread_pp": -4.848913519234474
+      },
+      "edge_v2_minus_v1": 0.31596060614724764
+    },
+    {
+      "label": "fold_2",
+      "status": "OK",
+      "n_train": 1084,
+      "n_test": 542,
+      "weights_train": {
+        "fundamental_quality": 0.2166,
+        "momentum_technical": 0.398,
+        "volume_strength": 0.0703,
+        "multi_timeframe": -0.0763,
+        "ml_signal": -0.0874,
+        "risk_adjustment": -0.1514,
+        "growth": 0.0,
+        "value": 0.0
+      },
+      "v2": {
+        "ic_30d": 0.09041814097543135,
+        "ic_p": 0.035337694513029705,
+        "ic_n": 542,
+        "q5": 9.827246027969819,
+        "q1": 9.458241674705077,
+        "spread_pp": 0.36900435326474224
+      },
+      "v1": {
+        "ic_30d": -0.33226660404121827,
+        "ic_p": 1.951041488048742e-15,
+        "ic_n": 542,
+        "q5": 5.688446884190139,
+        "q1": 15.686936352361547,
+        "spread_pp": -9.998489468171408
+      },
+      "edge_v2_minus_v1": 0.42268474501664965
+    },
+    {
+      "label": "fold_3",
+      "status": "OK",
+      "n_train": 1626,
+      "n_test": 542,
+      "weights_train": {
+        "fundamental_quality": 0.1442,
+        "momentum_technical": 0.2045,
+        "volume_strength": 0.1409,
+        "multi_timeframe": -0.1732,
+        "ml_signal": -0.1189,
+        "risk_adjustment": -0.2183,
+        "growth": 0.0,
+        "value": 0.0
+      },
+      "v2": {
+        "ic_30d": 0.21059552906366436,
+        "ic_p": 7.531954979927024e-07,
+        "ic_n": 542,
+        "q5": 16.38701410633598,
+        "q1": 9.115280079049265,
+        "spread_pp": 7.271734027286714
+      },
+      "v1": {
+        "ic_30d": -0.43755912033480726,
+        "ic_p": 9.35157793602305e-27,
+        "ic_n": 542,
+        "q5": 6.314565019640538,
+        "q1": 19.367634158700824,
+        "spread_pp": -13.053069139060286
+      },
+      "edge_v2_minus_v1": 0.6481546493984716
+    },
+    {
+      "label": "fold_4",
+      "status": "OK",
+      "n_train": 2168,
+      "n_test": 542,
+      "weights_train": {
+        "fundamental_quality": 0.0767,
+        "momentum_technical": 0.0671,
+        "volume_strength": 0.1803,
+        "multi_timeframe": -0.214,
+        "ml_signal": -0.1193,
+        "risk_adjustment": -0.3425,
+        "growth": 0.0,
+        "value": 0.0
+      },
+      "v2": {
+        "ic_30d": 0.2732185435197258,
+        "ic_p": 9.827520668579627e-11,
+        "ic_n": 542,
+        "q5": 19.279825895071497,
+        "q1": 10.539434842849719,
+        "spread_pp": 8.740391052221778
+      },
+      "v1": {
+        "ic_30d": -0.3002676899384196,
+        "ic_p": 9.348903327601958e-13,
+        "ic_n": 542,
+        "q5": 8.227106690463557,
+        "q1": 18.608307522307655,
+        "spread_pp": -10.381200831844097
+      },
+      "edge_v2_minus_v1": 0.5734862334581454
+    },
+    {
+      "label": "fold_5",
+      "status": "OK",
+      "n_train": 2710,
+      "n_test": 542,
+      "weights_train": {
+        "fundamental_quality": 0.0997,
+        "momentum_technical": 0.0854,
+        "volume_strength": 0.1081,
+        "multi_timeframe": -0.0621,
+        "ml_signal": -0.1848,
+        "risk_adjustment": -0.45,
+        "growth": 0.0,
+        "value": 0.0
+      },
+      "v2": {
+        "ic_30d": 0.1459182557759257,
+        "ic_p": 0.0006555622730896914,
+        "ic_n": 542,
+        "q5": 12.072638940912011,
+        "q1": 6.494624489803441,
+        "spread_pp": 5.57801445110857
+      },
+      "v1": {
+        "ic_30d": -0.2864450655451531,
+        "ic_p": 1.073974947570235e-11,
+        "ic_n": 542,
+        "q5": 2.937760707326229,
+        "q1": 11.346184236958699,
+        "spread_pp": -8.40842352963247
+      },
+      "edge_v2_minus_v1": 0.4323633213210788
+    }
+  ],
+  "folds_summary": {
+    "n_folds": 5,
+    "mean_ic": 0.1696,
+    "std_ic": 0.0648,
+    "min_ic": 0.0904,
+    "max_ic": 0.2732
+  },
+  "per_regime": {
+    "BULL": {
+      "status": "INSUFFICIENT",
+      "n": 0
+    },
+    "BEAR": {
+      "status": "INSUFFICIENT",
+      "n": 0
+    },
+    "SIDEWAYS": {
+      "status": "INSUFFICIENT",
+      "n": 0
+    }
+  },
+  "verdict": {
+    "verdict": "PROMOTE",
+    "reason": "Primary out-of-sample IC=0.239 >= 0.05; spread=8.19pp >= 3.0; n_test=651 >= 200; 5-fold mean IC=0.1696",
+    "next_action": "Re-calibrate on full dataset, persist weights, run promote_v2.py."
+  }
+}

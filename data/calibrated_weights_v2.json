@@ -1,0 +1,47 @@
+{
+  "weights": {
+    "momentum_technical": 0.1026,
+    "volume_strength": 0.0803,
+    "multi_timeframe": 0.1329,
+    "ml_signal": -0.2287,
+    "risk_adjustment": -0.45,
+    "fundamental_quality": 0.0,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "ics_7d": {
+    "fundamental_quality": 0.0168,
+    "momentum_technical": 0.1451,
+    "volume_strength": -0.026,
+    "multi_timeframe": 0.1308,
+    "ml_signal": -0.0867,
+    "risk_adjustment": -0.0786,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "ics_30d": {
+    "fundamental_quality": -0.0433,
+    "momentum_technical": -0.1464,
+    "volume_strength": 0.0947,
+    "multi_timeframe": -0.104,
+    "ml_signal": -0.0286,
+    "risk_adjustment": -0.3617,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "ics_blended": {
+    "fundamental_quality": -0.0072,
+    "momentum_technical": 0.0285,
+    "volume_strength": 0.0223,
+    "multi_timeframe": 0.0369,
+    "ml_signal": -0.0635,
+    "risk_adjustment": -0.1918,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "blend_7d": 0.6,
+  "sample_size_7d": 5418,
+  "sample_size_30d": 3966,
+  "updated": "2026-05-13T00:13:26.142584",
+  "engine": "v2"
+}

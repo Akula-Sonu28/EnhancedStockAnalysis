@@ -1,0 +1,314 @@
+{
+  "updated": "2026-05-13T20:47:32.529516",
+  "periods": 19,
+  "top_n": 10,
+  "mean_v1_return_pct": 2.728504262781609,
+  "mean_v2_return_pct": 12.71851851021306,
+  "median_v1_return_pct": 2.985823302350058,
+  "median_v2_return_pct": 13.944708344923319,
+  "cumulative_v1_pct": 62.862915183343745,
+  "cumulative_v2_pct": 819.4642246157395,
+  "v2_beat_v1_pct": 84.21052631578947,
+  "periods_log_sample": [
+    {
+      "date": "2026-03-12",
+      "n_universe": 10,
+      "v1_top_ret": 4.855037228431461,
+      "v2_top_ret": 4.855037228431461,
+      "v1_symbols": [
+        "ABB",
+        "APLAPOLLO",
+        "ADANIPORTS",
+        "AUBANK",
+        "ADANIENT",
+        "ACC",
+        "ADANIPOWER",
+        "ATGL",
+        "ADANIENSOL",
+        "ADANIGREEN"
+      ],
+      "v2_symbols": [
+        "ATGL",
+        "ABB",
+        "ADANIPOWER",
+        "ADANIENSOL",
+        "ACC",
+        "AUBANK",
+        "ADANIENT",
+        "ADANIPORTS",
+        "APLAPOLLO",
+        "ADANIGREEN"
+      ]
+    },
+    {
+      "date": "2026-03-13",
+      "n_universe": 198,
+      "v1_top_ret": 4.091789503109269,
+      "v2_top_ret": -0.9236190989307922,
+      "v1_symbols": [
+        "MAHABANK",
+        "INDIANB",
+        "UNIONBANK",
+        "ICICIBANK",
+        "AXISBANK",
+        "BANKINDIA",
+        "CANBK",
+        "RECLTD",
+        "MUTHOOTFIN",
+        "HDFCBANK"
+      ],
+      "v2_symbols": [
+        "ABB",
+        "OIL",
+        "APOLLOHOSP",
+        "CUMMINSIND",
+        "ASTRAL",
+        "TORNTPOWER",
+        "BIOCON",
+        "NTPCGREEN",
+        "CGPOWER",
+        "SUPREMEIND"
+      ]
+    },
+    {
+      "date": "2026-03-16",
+      "n_universe": 205,
+      "v1_top_ret": 8.31771305635326,
+      "v2_top_ret": 4.666747045375672,
+      "v1_symbols": [
+        "J&KBANK",
+        "UNIONBANK",
+        "MAHABANK",
+        "INDIANB",
+        "AXISBANK",
+        "ICICIBANK",
+        "IOB",
+        "CANBK",
+        "BANKINDIA",
+        "RECLTD"
+      ],
+      "v2_symbols": [
+        "J&KBANK",
+        "INDIANB",
+        "TORNTPHARM",
+        "UNIONBANK",
+        "COALINDIA",
+        "BANKBARODA",
+        "ABB",
+        "DRREDDY",
+        "PFC",
+        "ONGC"
+      ]
+    },
+    {
+      "date": "2026-03-17",
+      "n_universe": 205,
+      "v1_top_ret": 8.347284301357442,
+      "v2_top_ret": 16.12234643225758,
+      "v1_symbols": [
+        "J&KBANK",
+        "MUTHOOTFIN",
+        "ICICIBANK",
+        "INDIANB",
+        "AXISBANK",
+        "MAHABANK",
+        "ABB",
+        "IOB",
+        "UNIONBANK",
+        "HDFCBANK"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "ABFRL",
+        "WAAREEENER",
+        "COFORGE",
+        "RVNL",
+        "SWIGGY",
+        "DIXON",
+        "TATAELXSI",
+        "KPITTECH",
+        "OFSS"
+      ]
+    },
+    {
+      "date": "2026-03-18",
+      "n_universe": 206,
+      "v1_top_ret": 1.5613643866989217,
+      "v2_top_ret": 12.480151378973428,
+      "v1_symbols": [
+        "COALINDIA",
+        "LUPIN",
+        "AUROPHARMA",
+        "ABB",
+        "J&KBANK",
+        "SUNPHARMA",
+        "DRREDDY",
+        "PFC",
+        "TORNTPHARM",
+        "NATIONALUM"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "PREMIERENE",
+        "WAAREEENER",
+        "BDL",
+        "ABFRL",
+        "SWIGGY",
+        "COFORGE",
+        "COCHINSHIP",
+        "KALYANKJIL",
+        "TRENT"
+      ]
+    },
+    {
+      "date": "2026-04-07",
+      "n_universe": 205,
+      "v1_top_ret": 2.985823302350058,
+      "v2_top_ret": 13.944708344923319,
+      "v1_symbols": [
+        "ONGC",
+        "GICRE",
+        "COALINDIA",
+        "NMDC",
+        "AUROPHARMA",
+        "NATIONALUM",
+        "DMART",
+        "AXISBANK",
+        "LUPIN",
+        "OIL"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "ABFRL",
+        "COCHINSHIP",
+        "SWIGGY",
+        "HYUNDAI",
+        "IDBI",
+        "MAZDOCK",
+        "DIXON",
+        "KPITTECH",
+        "BDL"
+      ]
+    },
+    {
+      "date": "2026-04-09",
+      "n_universe": 203,
+      "v1_top_ret": 2.2433299739493506,
+      "v2_top_ret": 10.28718588298568,
+      "v1_symbols": [
+        "NMDC",
+        "ONGC",
+        "GICRE",
+        "NATIONALUM",
+        "COALINDIA",
+        "AUROPHARMA",
+        "AXISBANK",
+        "INDIANB",
+        "LUPIN",
+        "HINDALCO"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "ABFRL",
+        "COCHINSHIP",
+        "ATGL",
+        "KPITTECH",
+        "MOTILALOFS",
+        "WAAREEENER",
+        "BDL",
+        "DIXON",
+        "RVNL"
+      ]
+    },
+    {
+      "date": "2026-04-10",
+      "n_universe": 203,
+      "v1_top_ret": 4.874959751475276,
+      "v2_top_ret": 9.390338334982074,
+      "v1_symbols": [
+        "NMDC",
+        "GICRE",
+        "NATIONALUM",
+        "AUROPHARMA",
+        "ONGC",
+        "HINDALCO",
+        "AXISBANK",
+        "BSE",
+        "CUMMINSIND",
+        "ABB"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "ABFRL",
+        "ATGL",
+        "COCHINSHIP",
+        "WAAREEENER",
+        "KPITTECH",
+        "RVNL",
+        "MOTILALOFS",
+        "BDL",
+        "SUZLON"
+      ]
+    },
+    {
+      "date": "2026-04-15",
+      "n_universe": 203,
+      "v1_top_ret": -9.700403727302625,
+      "v2_top_ret": -1.9243257175994835,
+      "v1_symbols": [
+        "NMDC",
+        "ICICIBANK",
+        "ABB",
+        "CUMMINSIND",
+        "LICI",
+        "NATIONALUM",
+        "VEDL",
+        "INDIANB",
+        "FEDERALBNK",
+        "ADANIPORTS"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "ABFRL",
+        "COCHINSHIP",
+        "WAAREEENER",
+        "KPITTECH",
+        "RVNL",
+        "SWIGGY",
+        "LODHA",
+        "COFORGE",
+        "DIXON"
+      ]
+    },
+    {
+      "date": "2026-04-18",
+      "n_universe": 203,
+      "v1_top_ret": -9.735797079386476,
+      "v2_top_ret": -4.391484687068017,
+      "v1_symbols": [
+        "NMDC",
+        "ADANIPORTS",
+        "LUPIN",
+        "NATIONALUM",
+        "ABB",
+        "CUMMINSIND",
+        "VEDL",
+        "ICICIBANK",
+        "ZYDUSLIFE",
+        "LICI"
+      ],
+      "v2_symbols": [
+        "OLAELEC",
+        "ABFRL",
+        "RVNL",
+        "SWIGGY",
+        "COCHINSHIP",
+        "ETERNAL",
+        "KPITTECH",
+        "BDL",
+        "MAZDOCK",
+        "MOTILALOFS"
+      ]
+    }
+  ]
+}

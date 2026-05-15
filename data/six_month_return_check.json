@@ -1,0 +1,513 @@
+{
+  "updated": "2026-05-13T20:48:37.252755",
+  "invest_amount": 100000,
+  "top_n": 10,
+  "section_a_dense_weekly": {
+    "n_rebalances": 5,
+    "mean_v1_per_rebal_pct": 4.653534598207335,
+    "mean_v2_per_rebal_pct": 15.080210176201197,
+    "mean_edge_pp": 10.42667557799386,
+    "win_rate_v2": 0.8,
+    "cum_v1_pct": 25.2562083653026,
+    "cum_v2_pct": 99.6371087553703,
+    "cum_v1_multiplier": 1.252562083653026,
+    "cum_v2_multiplier": 1.996371087553703,
+    "months": [
+      {
+        "date": "2026-03-17",
+        "universe_n": 205,
+        "v1_picks": [
+          "J&KBANK",
+          "MUTHOOTFIN",
+          "ICICIBANK",
+          "INDIANB",
+          "AXISBANK",
+          "MAHABANK",
+          "ABB",
+          "IOB",
+          "UNIONBANK",
+          "HDFCBANK"
+        ],
+        "v2_picks": [
+          "JUBLFOOD",
+          "VMM",
+          "MFSL",
+          "MAXHEALTH",
+          "GODREJCP",
+          "RVNL",
+          "VOLTAS",
+          "NYKAA",
+          "APLAPOLLO",
+          "INDIGO"
+        ],
+        "v1_ret_pct": 8.347284301357442,
+        "v2_ret_pct": 3.5337898702454686,
+        "v1_pick_rets": [
+          8.38,
+          6.86,
+          5.12,
+          13.92,
+          11.73,
+          14.58,
+          9.18,
+          9.92,
+          8.46,
+          -4.67
+        ],
+        "v2_pick_rets": [
+          -3.79,
+          13.07,
+          2.29,
+          -0.12,
+          3.83,
+          4.87,
+          -2.56,
+          8.8,
+          1.9,
+          7.05
+        ]
+      },
+      {
+        "date": "2026-03-23",
+        "universe_n": 205,
+        "v1_picks": [
+          "COALINDIA",
+          "AUROPHARMA",
+          "LUPIN",
+          "RELIANCE",
+          "SUNPHARMA",
+          "DRREDDY",
+          "ONGC",
+          "TORNTPHARM",
+          "ABB",
+          "ZYDUSLIFE"
+        ],
+        "v2_picks": [
+          "PREMIERENE",
+          "WAAREEENER",
+          "AUROPHARMA",
+          "COALINDIA",
+          "ADANIPOWER",
+          "TECHM",
+          "NATIONALUM",
+          "BSE",
+          "ATGL",
+          "PERSISTENT"
+        ],
+        "v1_ret_pct": 2.354564254603413,
+        "v2_ret_pct": 16.051191035000976,
+        "v1_pick_rets": [
+          -2.79,
+          8.89,
+          0.09,
+          -3.76,
+          -6.04,
+          -3.69,
+          6.05,
+          -1.6,
+          19.92,
+          6.48
+        ],
+        "v2_pick_rets": [
+          14.95,
+          14.05,
+          8.89,
+          -2.79,
+          38.04,
+          7.35,
+          20.16,
+          29.51,
+          18.25,
+          12.1
+        ]
+      },
+      {
+        "date": "2026-03-26",
+        "universe_n": 206,
+        "v1_picks": [
+          "AUROPHARMA",
+          "LUPIN",
+          "COALINDIA",
+          "SUNPHARMA",
+          "TORNTPHARM",
+          "DRREDDY",
+          "RELIANCE",
+          "ONGC",
+          "ABB",
+          "ZYDUSLIFE"
+        ],
+        "v2_picks": [
+          "MAZDOCK",
+          "PREMIERENE",
+          "WAAREEENER",
+          "ATGL",
+          "LODHA",
+          "ADANIENT",
+          "SUZLON",
+          "TECHM",
+          "ADANIPOWER",
+          "OFSS"
+        ],
+        "v1_ret_pct": 1.6937828781033957,
+        "v2_ret_pct": 18.262997159345627,
+        "v1_pick_rets": [
+          7.47,
+          -1.78,
+          -0.05,
+          -7.54,
+          -4.92,
+          -6.2,
+          -3.59,
+          4.76,
+          25.83,
+          2.95
+        ],
+        "v2_pick_rets": [
+          19.5,
+          8.42,
+          9.78,
+          19.41,
+          20.99,
+          18.29,
+          27.94,
+          -0.06,
+          37.33,
+          21.03
+        ]
+      },
+      {
+        "date": "2026-04-02",
+        "universe_n": 206,
+        "v1_picks": [
+          "ONGC",
+          "COALINDIA",
+          "AUROPHARMA",
+          "DMART",
+          "OIL",
+          "LUPIN",
+          "GICRE",
+          "NATIONALUM",
+          "DRREDDY",
+          "SUNPHARMA"
+        ],
+        "v2_picks": [
+          "COCHINSHIP",
+          "MAZDOCK",
+          "HYUNDAI",
+          "OLAELEC",
+          "BDL",
+          "TRENT",
+          "MOTILALOFS",
+          "SUZLON",
+          "WAAREEENER",
+          "ATGL"
+        ],
+        "v1_ret_pct": 8.628711583023076,
+        "v2_ret_pct": 26.416681157337337,
+        "v1_pick_rets": [
+          7.0,
+          8.75,
+          9.84,
+          6.88,
+          7.57,
+          5.47,
+          9.16,
+          12.94,
+          13.57,
+          5.11
+        ],
+        "v2_pick_rets": [
+          38.29,
+          26.23,
+          8.13,
+          34.84,
+          20.97,
+          25.68,
+          18.47,
+          45.35,
+          17.19,
+          29.01
+        ]
+      },
+      {
+        "date": "2026-04-09",
+        "universe_n": 203,
+        "v1_picks": [
+          "NMDC",
+          "ONGC",
+          "GICRE",
+          "NATIONALUM",
+          "COALINDIA",
+          "AUROPHARMA",
+          "AXISBANK",
+          "INDIANB",
+          "LUPIN",
+          "HINDALCO"
+        ],
+        "v2_picks": [
+          "OLAELEC",
+          "ABFRL",
+          "KPITTECH",
+          "WAAREEENER",
+          "SUZLON",
+          "COCHINSHIP",
+          "ATGL",
+          "MOTILALOFS",
+          "DIXON",
+          "PREMIERENE"
+        ],
+        "v1_ret_pct": 2.2433299739493506,
+        "v2_ret_pct": 11.136391659076574,
+        "v1_pick_rets": [
+          6.75,
+          -1.63,
+          2.65,
+          -2.15,
+          2.76,
+          10.32,
+          -1.96,
+          -8.61,
+          7.19,
+          7.11
+        ],
+        "v2_pick_rets": [
+          -3.39,
+          16.02,
+          0.92,
+          -0.18,
+          25.82,
+          27.45,
+          17.16,
+          17.1,
+          3.98,
+          6.49
+        ]
+      }
+    ]
+  },
+  "section_b_v1_monthly_6m": {
+    "n_months": 7,
+    "mean_v1_monthly_pct": 0.5513572980189066,
+    "cum_v1_pct": 2.545545832763363,
+    "cum_v1_multiplier": 1.0254554583276336,
+    "months": [
+      {
+        "month": "2025-10",
+        "date": "2025-10-19",
+        "universe_n": 20,
+        "v1_picks": [
+          "INDIANB",
+          "HDFCBANK",
+          "ADANIPORTS",
+          "BHARTIARTL",
+          "FEDERALBNK",
+          "ICICIBANK",
+          "ETERNAL",
+          "BANKBARODA",
+          "HAL",
+          "EICHERMOT"
+        ],
+        "v1_ret_pct": 2.746,
+        "v1_pick_rets": [
+          13.19,
+          -0.79,
+          0.32,
+          7.35,
+          15.84,
+          -3.72,
+          -10.8,
+          10.89,
+          -2.75,
+          -2.07
+        ]
+      },
+      {
+        "month": "2025-11",
+        "date": "2025-11-18",
+        "universe_n": 20,
+        "v1_picks": [
+          "GMRAIRPORT",
+          "ASIANPAINT",
+          "FEDERALBNK",
+          "CANBK",
+          "INDIANB",
+          "BIOCON",
+          "AXISBANK",
+          "AUROPHARMA",
+          "ALKEM",
+          "HCLTECH"
+        ],
+        "v1_ret_pct": -2.2409999999999997,
+        "v1_pick_rets": [
+          -2.11,
+          -3.65,
+          9.55,
+          -0.28,
+          -12.15,
+          -10.07,
+          -2.75,
+          -1.15,
+          -2.76,
+          2.96
+        ]
+      },
+      {
+        "month": "2025-12",
+        "date": "2025-12-18",
+        "universe_n": 20,
+        "v1_picks": [
+          "FEDERALBNK",
+          "INFY",
+          "HCLTECH",
+          "ASHOKLEY",
+          "HINDZINC",
+          "AUBANK",
+          "INDUSTOWER",
+          "ADANIPORTS",
+          "HINDALCO",
+          "IDFCFIRSTB"
+        ],
+        "v1_ret_pct": 4.4799999999999995,
+        "v1_pick_rets": [
+          5.39,
+          3.34,
+          4.08,
+          9.56,
+          11.53,
+          3.37,
+          4.81,
+          -6.2,
+          9.72,
+          -0.8
+        ]
+      },
+      {
+        "month": "2026-01",
+        "date": "2026-01-17",
+        "universe_n": 20,
+        "v1_picks": [
+          "ICICIPRULI",
+          "CANBK",
+          "HCLTECH",
+          "MAHABANK",
+          "BANKBARODA",
+          "BANKINDIA",
+          "INFY",
+          "INDUSTOWER",
+          "HINDALCO",
+          "COALINDIA"
+        ],
+        "v1_ret_pct": -2.2760000000000002,
+        "v1_pick_rets": [
+          -5.8,
+          -5.1,
+          -13.07,
+          2.7,
+          -1.62,
+          8.18,
+          -10.04,
+          8.95,
+          -4.77,
+          -2.19
+        ]
+      },
+      {
+        "month": "2026-02",
+        "date": "2026-02-16",
+        "universe_n": 11,
+        "v1_picks": [
+          "INDUSTOWER",
+          "APLAPOLLO",
+          "EICHERMOT",
+          "IOC",
+          "ASHOKLEY",
+          "HDFCAMC",
+          "ICICIBANK",
+          "GRASIM",
+          "BHARTIARTL",
+          "AXISBANK"
+        ],
+        "v1_ret_pct": -11.569999999999999,
+        "v1_pick_rets": [
+          -10.5,
+          -12.82,
+          -12.92,
+          -13.88,
+          -10.3,
+          -10.38,
+          -10.28,
+          -11.81,
+          -10.96,
+          -11.85
+        ]
+      },
+      {
+        "month": "2026-03",
+        "date": "2026-03-12",
+        "universe_n": 208,
+        "v1_picks": [
+          "MAHABANK",
+          "INDIANB",
+          "UNIONBANK",
+          "ICICIBANK",
+          "AXISBANK",
+          "BANKINDIA",
+          "CANBK",
+          "RECLTD",
+          "MUTHOOTFIN",
+          "HDFCBANK"
+        ],
+        "v1_ret_pct": 4.091789503109269,
+        "v1_pick_rets": [
+          9.27,
+          8.22,
+          6.22,
+          2.11,
+          10.12,
+          -3.93,
+          2.4,
+          4.62,
+          4.26,
+          -2.36
+        ]
+      },
+      {
+        "month": "2026-04",
+        "date": "2026-04-02",
+        "universe_n": 206,
+        "v1_picks": [
+          "ONGC",
+          "COALINDIA",
+          "AUROPHARMA",
+          "DMART",
+          "OIL",
+          "LUPIN",
+          "GICRE",
+          "NATIONALUM",
+          "DRREDDY",
+          "SUNPHARMA"
+        ],
+        "v1_ret_pct": 8.628711583023076,
+        "v1_pick_rets": [
+          7.0,
+          8.75,
+          9.84,
+          6.88,
+          7.57,
+          5.47,
+          9.16,
+          12.94,
+          13.57,
+          5.11
+        ]
+      }
+    ]
+  },
+  "section_c_projection": {
+    "edge_pp_per_rebal": 10.42667557799386,
+    "cum_v1_pct": 2.545545832763363,
+    "cum_v2_proj_pct": 105.07674386034824,
+    "final_v1_value": 102545.54583276337,
+    "final_v2_proj_value": 205076.74386034824
+  }
+}
