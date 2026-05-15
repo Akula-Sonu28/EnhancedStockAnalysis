@@ -1,0 +1,39 @@
+---
+description: Stock Analysis system architecture and safety rules
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Stock Analysis System Rules
+
+## Architecture
+
+- `analyze_top200_stocks_enhanced.py` — central orchestrator (analysis, allocation, report generation).
+- `market_regime_detector.py` — market regime detection (BULL/BEAR/SIDEWAYS) and score adjustments.
+- `hybrid_optimized_scoring.py` — scoring engine with 6 components blended into `final_blended_score`.
+- `recommendation_history.py` — tracks historical recommendations, streaks, and flip-flops.
+- `config.py` / `config.json` — defaults and runtime overrides. JSON always wins over Python defaults.
+- `smart_profit_booking_advisor.py` — profit booking strategy.
+
+## Investor Safety
+
+- Never allow debug/internal columns to leak into investor-facing Excel sheets.
+- All investor-facing numbers must be rounded appropriately.
+- Terminal action plan and workbook must always agree.
+- Financial fields must reconcile: `NET = BOOK - TAX` for all rows.
+- Emergency exits (Tier 1 deep loss, stop loss breach) must never be delayed or graduated.
+
+## Known Bug Patterns to Avoid
+
+- **Wrong-key bugs** — always verify column/field names match between modules.
+- **Late-overwrite bugs** — check that no downstream code overwrites carefully set values.
+- **Partial vs full position math** — use booked slice for TAX/NET, not full position.
+- **SELL regex matching CONSIDER SELLING** — use exact match for hard SELL filters.
+
+## Testing Protocol
+
+After any code change:
+1. `python3 -c "import ast; ast.parse(open('FILE').read())"` — syntax check.
+2. `python3 tests/static_validator.py` — static analysis.
+3. `python3 -m unittest tests.test_regression_fixes -v` — regression tests.
+4. Regenerate report and validate investor-facing outputs.

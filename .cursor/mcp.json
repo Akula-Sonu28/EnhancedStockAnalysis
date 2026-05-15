@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "cursorflow": {
+      "command": "node",
+      "args": [
+        "/Users/akulakavyashree/cursorflow/packages/cli/bin/cursorflow.js",
+        "mcp",
+        "start"
+      ],
+      "env": {
+        "CURSORFLOW_LOG_LEVEL": "info"
+      }
+    }
+  }
+}

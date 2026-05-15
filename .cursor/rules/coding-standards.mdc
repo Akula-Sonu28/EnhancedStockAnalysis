@@ -1,0 +1,24 @@
+---
+description: Coding standards and repository awareness rules for the Stock Analysis system
+alwaysApply: true
+---
+
+# Coding Standards
+
+- Follow clean code, SOLID principles, and industry best practices.
+- Maintain consistency with existing repository code style and naming conventions.
+- Do not generate unnecessary comments or explanations unless requested.
+- Always check existing files before writing new ones to avoid duplication.
+- Confirm changes that introduce breaking behavior.
+
+# Repository Awareness
+
+When the user asks for changes, automatically:
+
+1. Search the repository for relevant files and patterns.
+2. Load only necessary files into context (do not overload).
+3. Reference existing conventions before proposing new ones.
+
+# Decision Tracking
+
+Treat all decisions as part of a long-term development roadmap. Track architectural patterns, naming rules, dependencies, and assumptions across sessions.

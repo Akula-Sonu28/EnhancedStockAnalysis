@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node /Users/akulakavyashree/cursorflow/packages/cli/bin/cursorflow.js memory search --query \"$CURSOR_SHELL_COMMAND\" --namespace patterns --limit 3",
+        "matcher": "\\b(python3?|pytest)\\b",
+        "timeout_ms": 5000,
+        "optional": true
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "node /Users/akulakavyashree/cursorflow/packages/cli/bin/cursorflow.js memory store --key \"edit-$(date +%s)\" --value \"$CURSOR_EDITED_FILE\" --namespace edits",
+        "timeout_ms": 3000,
+        "optional": true
+      }
+    ]
+  }
+}
