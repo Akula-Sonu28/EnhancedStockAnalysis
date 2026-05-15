@@ -1,0 +1,241 @@
+{
+  "CANBK": {
+    "original_qty": 320,
+    "current_qty": 258,
+    "original_price": 126.76,
+    "avg_cost": 111.04,
+    "total_booked_qty": 62,
+    "total_booked_pct": 19.375,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 31,
+        "qty_remaining": 289,
+        "pct_booked": 9.69
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 31,
+        "qty_remaining": 258,
+        "pct_booked": 9.6875
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "INDIANB": {
+    "original_qty": 39,
+    "current_qty": 33,
+    "original_price": 758.05,
+    "avg_cost": 676.6,
+    "total_booked_qty": 6,
+    "total_booked_pct": 15.384615384615385,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 3,
+        "qty_remaining": 36,
+        "pct_booked": 7.69
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 3,
+        "qty_remaining": 33,
+        "pct_booked": 7.6923076923076925
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "BANKINDIA": {
+    "original_qty": 180,
+    "current_qty": 146,
+    "original_price": 126.04,
+    "avg_cost": 111.89,
+    "total_booked_qty": 34,
+    "total_booked_pct": 18.88888888888889,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 17,
+        "qty_remaining": 163,
+        "pct_booked": 9.44
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 17,
+        "qty_remaining": 146,
+        "pct_booked": 9.444444444444445
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "BANKBARODA": {
+    "original_qty": 100,
+    "current_qty": 80,
+    "original_price": 266.6,
+    "avg_cost": 232.4,
+    "total_booked_qty": 20,
+    "total_booked_pct": 20.0,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 10,
+        "qty_remaining": 90,
+        "pct_booked": 10.0
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 10,
+        "qty_remaining": 80,
+        "pct_booked": 10.0
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "AXISBANK": {
+    "original_qty": 28,
+    "current_qty": 24,
+    "original_price": 1212.8,
+    "avg_cost": 1000.22,
+    "total_booked_qty": 4,
+    "total_booked_pct": 14.285714285714285,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 2,
+        "qty_remaining": 26,
+        "pct_booked": 7.14
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 2,
+        "qty_remaining": 24,
+        "pct_booked": 7.142857142857142
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "KOTAKBANK": {
+    "original_qty": 14,
+    "current_qty": 10,
+    "original_price": 2146.0,
+    "avg_cost": 1811.91,
+    "total_booked_qty": 4,
+    "total_booked_pct": 28.57142857142857,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 2,
+        "qty_remaining": 12,
+        "pct_booked": 14.29
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 2,
+        "qty_remaining": 10,
+        "pct_booked": 14.285714285714285
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "UJJIVANSFB": {
+    "original_qty": 313,
+    "current_qty": 109,
+    "original_price": 48.89,
+    "avg_cost": 36.45,
+    "total_booked_qty": 204,
+    "total_booked_pct": 65.17571884984025,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 102,
+        "qty_remaining": 211,
+        "pct_booked": 32.59
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 102,
+        "qty_remaining": 109,
+        "pct_booked": 32.587859424920126
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "HDFCBANK": {
+    "original_qty": 36,
+    "current_qty": 26,
+    "original_price": 973.45,
+    "avg_cost": 794.44,
+    "total_booked_qty": 10,
+    "total_booked_pct": 27.77777777777778,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 5,
+        "qty_remaining": 31,
+        "pct_booked": 13.89
+      },
+      {
+        "date": "2025-10-16 10:17:31",
+        "qty_booked": 5,
+        "qty_remaining": 26,
+        "pct_booked": 13.88888888888889
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "ETERNAL": {
+    "original_qty": 43,
+    "current_qty": 29,
+    "original_price": 335.1,
+    "avg_cost": 208.1,
+    "total_booked_qty": 14,
+    "total_booked_pct": 32.56,
+    "booking_sessions": [
+      {
+        "date": "2025-10-06",
+        "qty_booked": 14,
+        "qty_remaining": 29,
+        "pct_booked": 32.56
+      }
+    ],
+    "first_tracked": "2025-10-06 20:55:51",
+    "last_updated": "2025-10-09 11:54:02"
+  },
+  "MOTILALOFS": {
+    "original_qty": 9,
+    "current_qty": 9,
+    "original_price": 1004.05,
+    "avg_cost": 876.61,
+    "total_booked_qty": 0,
+    "total_booked_pct": 0,
+    "booking_sessions": [],
+    "first_tracked": "2025-10-16 10:17:31",
+    "last_updated": "2025-10-16 10:52:54"
+  },
+  "UNIONBANK": {
+    "original_qty": 255,
+    "current_qty": 192,
+    "original_price": 0,
+    "avg_cost": 155.89,
+    "total_booked_qty": 63,
+    "total_booked_pct": 24.705882352941178,
+    "booking_sessions": [
+      {
+        "date": "2026-04-16 13:53:05",
+        "qty_booked": 63,
+        "qty_remaining": 192,
+        "pct_booked": 24.705882352941178
+      }
+    ],
+    "first_tracked": "2026-04-10 17:12:02",
+    "last_updated": "2026-04-22 12:21:40"
+  }
+}

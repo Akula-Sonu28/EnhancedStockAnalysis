@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import os
 import sys
+import json
 try:
     import fcntl
 except ImportError:
@@ -20,6 +21,12 @@ import logging
 import threading
 
 import re as _re
+
+try:
+    from src.universe_filter import is_excluded_instrument as _is_excluded_instrument
+except Exception:
+    def _is_excluded_instrument(_sym: str):
+        return False, ''
 
 def _strip_annotation(raw: str) -> str:
     """Remove parenthesised annotations like '(was BUY)' and pipe-delimited suffixes
@@ -35,21 +42,35 @@ def _normalize_action(action: str) -> str:
         return 'HOLD'
     cleaned = _re.sub(r'[^\w\s\->()/]', '', str(action)).strip()
     effective = _strip_annotation(cleaned).upper()
+    if 'EXIT' in effective:
+        return 'EXIT'
     if 'EMERGENCY' in effective or ('SELL' in effective and 'CONSIDER' not in effective and 'WEAK' not in effective):
+        return 'SELL'
+    if 'STOP LOSS' in effective:
         return 'SELL'
     if 'SWAP' in effective:
         return 'SWAP'
-    if 'INCREASE' in effective:
+    if 'INCREASE' in effective or 'MOMENTUM PLAY' in effective:
         return 'INCREASE'
     if 'STRONG BUY' in effective or 'STRONG_BUY' in effective:
         return 'STRONG BUY'
+    if 'NEW POSITION' in effective:
+        return 'NEW POSITION'
     if 'BUY' in effective and 'WEAK' not in effective:
         return 'BUY'
-    if 'REDUCE' in effective:
+    # [Rule 5] SCALE_OUT_20 = additive sub-action of REDUCE. We map any
+    # SCALE_OUT* label (with or without the 20 suffix) to the canonical
+    # SCALE_OUT_20 so audit history is stable, while REDUCE/BOOK fall
+    # back to plain REDUCE. The Suite 1 action-enum contract treats this
+    # as a new additive entry; check `SCALE_OUT_20` BEFORE the REDUCE
+    # fallback so SCALE_OUT does not collapse into REDUCE.
+    if 'SCALE_OUT' in effective or 'SCALE OUT' in effective:
+        return 'SCALE_OUT_20'
+    if 'REDUCE' in effective or 'BOOK' in effective:
         return 'REDUCE'
-    if 'WEAK SELL' in effective or 'CONSIDER SELLING' in effective:
+    if 'WEAK SELL' in effective or 'CONSIDER SELLING' in effective or 'CONSIDER SELL' in effective:
         return 'WEAK SELL'
-    if 'HOLD' in effective or 'KEEP' in effective:
+    if 'HOLD' in effective or 'KEEP' in effective or 'WATCH' in effective:
         return 'HOLD'
     return cleaned
 
@@ -65,14 +86,47 @@ class RecommendationHistory:
         """
         self.history_file = history_file
         self._lock = threading.Lock()
-        
+
         # Configuration — must be set BEFORE _load_history() which references them
         self.MIN_HOLD_DAYS = 7
         self.SCORE_CHANGE_THRESHOLD = 10
         self.FUNDAMENTAL_CHANGE_THRESHOLD = 0.2
         self.HISTORY_TTL_DAYS = 90
-        
+
+        # [F-NEW-10] Batch-save support. When `_batch_depth > 0`, calls to
+        # `_save_history` from within record_recommendation() and friends
+        # only mark the dirty flag; the actual flush happens on the
+        # outermost context exit. Caller usage:
+        #     with rec_history.batch_saves():
+        #         for stock in stocks:
+        #             rec_history.record_recommendation(...)
+        # Backwards-compatible: outside the context, every call flushes
+        # exactly as before.
+        self._batch_depth = 0
+        self._batch_dirty = False
+
         self.history_df = self._load_history()
+
+    def batch_saves(self):
+        """Context manager that defers _save_history flushes until exit.
+        Reduces 18 file flushes (1 per recommendation) to 1 per batch run.
+        Reentrant via depth counter.
+        """
+        rec_history_self = self
+
+        class _BatchCtx:
+            def __enter__(_self):
+                rec_history_self._batch_depth += 1
+                return rec_history_self
+
+            def __exit__(_self, exc_type, exc, tb):
+                rec_history_self._batch_depth -= 1
+                if rec_history_self._batch_depth == 0 and rec_history_self._batch_dirty:
+                    rec_history_self._batch_dirty = False
+                    rec_history_self._save_history(_force=True)
+                return False
+
+        return _BatchCtx()
 
     def _load_history(self) -> pd.DataFrame:
         """Load recommendation history from CSV, ensuring outcome columns exist."""
@@ -138,8 +192,16 @@ class RecommendationHistory:
             'roe', 'debt_to_equity', 'reason', 'rank', 'sector',
         ] + self.OUTCOME_COLUMNS)
     
-    def _save_history(self):
-        """Save recommendation history to CSV with file locking for concurrency safety."""
+    def _save_history(self, _force: bool = False):
+        """Save recommendation history to CSV with file locking for concurrency safety.
+
+        [F-NEW-10] When batch_saves() context is active (`_batch_depth > 0`)
+        and `_force` is False, the call is deferred: the dirty flag is set
+        and the actual flush waits until the outermost context exits.
+        """
+        if self._batch_depth > 0 and not _force:
+            self._batch_dirty = True
+            return
         try:
             _dir = os.path.dirname(self.history_file)
             if _dir:
@@ -267,6 +329,34 @@ class RecommendationHistory:
             logging.info(f"Updated {updated} outcome fields")
         return updated
 
+    @staticmethod
+    def _v2_calibration_event_dates() -> List[datetime]:
+        """[F-NEW-6] Read the timestamps when v2 weights were last (re)written.
+
+        Comparing scores across a calibration event produces false +/-N pp
+        deltas that look like real moves but are actually weight refreshes.
+        The suppressor below uses these timestamps to skip such comparisons.
+
+        Returns list of datetime objects (one per known v2 weights file).
+        Empty list if no files present (e.g. pre-promotion).
+        """
+        events: List[datetime] = []
+        for _path in (
+            'data/calibrated_weights_v2.json',
+            'data/calibrated_weights_v2_BULL.json',
+            'data/calibrated_weights_v2_BEAR.json',
+            'data/calibrated_weights_v2_SIDEWAYS.json',
+        ):
+            try:
+                with open(_path, 'r') as _fh:
+                    _payload = json.load(_fh)
+                _ts = _payload.get('updated')
+                if _ts:
+                    events.append(datetime.fromisoformat(_ts))
+            except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError):
+                pass
+        return events
+
     def get_weekly_changes(self, days: int = 7) -> Dict:
         """
         Compare current scores with scores from `days` ago.
@@ -284,8 +374,38 @@ class RecommendationHistory:
             recent = df[df['date'] >= cutoff].sort_values('date', ascending=False)
             older = df[df['date'] < cutoff].sort_values('date', ascending=False)
 
+            # [F-NEW-6] Calibration-event suppressor. Round 19 (Q122) added
+            # engine-mismatch suppression (current has score_v2, prev does
+            # not). That catches the v1->v2 promotion boundary but NOT
+            # intra-v2 weight refreshes. Example: TORNTPHARM 2026-05-08
+            # score_v2=30.3 vs 2026-05-15 score_v2=71.3 (+41 pts). Both rows
+            # have valid score_v2 and same regime, but the +40 jump on
+            # 2026-05-12 was a weights refresh, not a fundamentals change.
+            # We suppress any comparison where the older row predates the
+            # most recent calibration event AND the absolute delta exceeds
+            # the suspicion threshold.
+            calib_events = self._v2_calibration_event_dates()
+            most_recent_calib = max(calib_events) if calib_events else None
+            CALIB_DELTA_SUSPECT_PP = 15.0  # > 15pp swing across a refresh = artefact
+
             improved, deteriorated, new_stocks = [], [], []
             seen = set()
+
+            # [Investor-audit Q122] When v2 engine was promoted live, the
+            # `score` column shifted from v1-blended to v2-blended values.
+            # Comparing today's v2-score to last week's v1-score produces
+            # bogus 40+ point "deteriorations" that misleadingly show
+            # 23/24 holdings collapsing overnight. Fix:
+            #   1) Prefer `score_v2` on BOTH sides; search backward in
+            #      `prev_rows` for an older row with valid score_v2
+            #      (skip NaN rows from before v2 was logged).
+            #   2) If no v2-aware older row exists at all, mark the
+            #      symbol as `engine_switch_skip` and exclude from
+            #      improved/deteriorated lists (don't show a misleading
+            #      v1->v2 comparison).
+            def _valid_num(v):
+                return v is not None and not (isinstance(v, float) and np.isnan(v))
+
             for _, row in recent.iterrows():
                 sym = row.get('symbol')
                 if sym in seen:
@@ -300,12 +420,47 @@ class RecommendationHistory:
                     new_stocks.append({'symbol': sym, 'score': curr_score, 'action': row.get('action', '')})
                     continue
 
-                prev_score = prev_rows.iloc[0].get('score', 0)
-                if prev_score is None or (isinstance(prev_score, float) and np.isnan(prev_score)):
-                    prev_score = 0
-                _cs = 0.0 if (curr_score is None or (isinstance(curr_score, float) and np.isnan(curr_score))) else float(curr_score)
-                _ps = 0.0 if (prev_score is None or (isinstance(prev_score, float) and np.isnan(prev_score))) else float(prev_score)
+                # Try v2-aware comparison: search prev_rows for any older
+                # row with valid score_v2 (recent-first order).
+                curr_v2 = row.get('score_v2')
+                _cs = _ps = None
+                _prev_date = None
+                if _valid_num(curr_v2):
+                    for _, pr in prev_rows.iterrows():
+                        pv = pr.get('score_v2')
+                        if _valid_num(pv):
+                            _cs, _ps = float(curr_v2), float(pv)
+                            _prev_date = pr.get('date')
+                            break
+                # If no v2 prev row, fall back to v1-on-v1 (will be
+                # apples-to-apples only if current engine still produces
+                # v1-comparable scores; with v2 live this can still drift,
+                # but is the best we can do for pre-v2-era history).
+                if _cs is None:
+                    prev_row = prev_rows.iloc[0]
+                    _cs = 0.0 if not _valid_num(curr_score) else float(curr_score)
+                    pv1 = prev_row.get('score', 0)
+                    _ps = 0.0 if not _valid_num(pv1) else float(pv1)
+                    _prev_date = prev_row.get('date')
+                    # If current row HAS score_v2 but older does NOT, the
+                    # comparison is engine-mismatched. Suppress.
+                    if _valid_num(curr_v2) and not _valid_num(prev_row.get('score_v2')):
+                        continue
                 delta = _cs - _ps
+
+                # [F-NEW-6] Calibration-event suppressor. If the prev row
+                # predates the most recent calibration AND delta crosses
+                # the suspicion threshold, the move is most likely a
+                # weights refresh artefact rather than a real fundamentals
+                # shift. Skip rather than mislead.
+                if (most_recent_calib is not None
+                        and _prev_date is not None
+                        and pd.notna(_prev_date)
+                        and pd.Timestamp(_prev_date).to_pydatetime().replace(tzinfo=None)
+                            < most_recent_calib.replace(tzinfo=None)
+                        and abs(delta) >= CALIB_DELTA_SUSPECT_PP):
+                    continue
+
                 entry = {'symbol': sym, 'current_score': _cs, 'previous_score': _ps, 'change': round(delta, 1), 'action': row.get('action', '')}
                 if delta >= 5:
                     improved.append(entry)
@@ -391,7 +546,9 @@ class RecommendationHistory:
         if not last_rec:
             return True, ""  # No history, allow action
         
-        last_action = last_rec.get('action', '')
+        last_action_raw = last_rec.get('action', '')
+        last_action_norm = _normalize_action(last_action_raw)
+        proposed_action_norm = _normalize_action(proposed_action)
         last_date = pd.to_datetime(last_rec.get('date'), errors='coerce')
         if pd.isna(last_date):
             return True, ""
@@ -399,28 +556,78 @@ class RecommendationHistory:
             last_date = last_date.tz_localize(None)
         days_since = (datetime.now() - last_date).days
         
-        # Check for flip-flops
-        _SELL_SIDE = ('SELL', 'WEAK SELL', 'REDUCE', 'CONSIDER SELLING', 'SWAP', 'EXIT')
-        if last_action in ['BUY', 'STRONG BUY', 'INCREASE'] and (proposed_action in _SELL_SIDE or any(kw in str(proposed_action).upper() for kw in ('SELL', 'REDUCE', 'SWAP', 'EXIT'))):
+        _SELL_SIDE_NORM = ('SELL', 'WEAK SELL', 'REDUCE', 'SWAP', 'EXIT')
+        _BUY_SIDE_NORM = ('BUY', 'STRONG BUY', 'INCREASE', 'NEW POSITION')
+
+        if last_action_norm in _BUY_SIDE_NORM and proposed_action_norm in _SELL_SIDE_NORM:
             if days_since < self.MIN_HOLD_DAYS:
                 warning = (
-                    f"⚠️ COOLDOWN ACTIVE: Last action was {last_action} "
+                    f"⚠️ COOLDOWN ACTIVE: Last action was {last_action_raw} "
                     f"{days_since} days ago (minimum {self.MIN_HOLD_DAYS} days required). "
                     f"Recommendation changed to HOLD."
                 )
                 return False, warning
         
-        _SELL_ACTIONS = ('SELL', 'WEAK SELL', 'REDUCE', 'CONSIDER SELLING', 'SWAP', 'EXIT')
-        if last_action in _SELL_ACTIONS and proposed_action in ['BUY', 'STRONG BUY', 'INCREASE']:
+        if last_action_norm in _SELL_SIDE_NORM and proposed_action_norm in _BUY_SIDE_NORM:
             if days_since < self.MIN_HOLD_DAYS:
                 warning = (
-                    f"⚠️ COOLDOWN ACTIVE: Last action was {last_action} "
+                    f"⚠️ COOLDOWN ACTIVE: Last action was {last_action_raw} "
                     f"{days_since} days ago (minimum {self.MIN_HOLD_DAYS} days required). "
                     f"Recommendation changed to HOLD."
                 )
                 return False, warning
         
         return True, ""
+    
+    def check_directional_commitment(self, symbol: str, proposed_action: str,
+                                      current_score: float) -> Tuple[str, str]:
+        """Enforce directional commitment to prevent flip-flops.
+        
+        Once a bearish signal is issued, require meaningful score improvement
+        before upgrading. Once bullish, require meaningful decline before
+        downgrading to full SELL.
+        
+        Returns:
+            Tuple of (committed_action, reason) — committed_action may differ
+            from proposed_action if the direction change is not justified.
+        """
+        _BEARISH = ('SELL', 'WEAK SELL', 'REDUCE', 'EXIT', 'SWAP')
+        _BULLISH = ('BUY', 'STRONG BUY', 'INCREASE', 'NEW POSITION')
+        UPGRADE_TO_HOLD_THRESHOLD = 5.0
+        UPGRADE_TO_BUY_THRESHOLD = 10.0
+        DOWNGRADE_TO_SELL_THRESHOLD = 5.0
+
+        proposed_norm = _normalize_action(proposed_action)
+        last_rec = self.get_last_recommendation(symbol)
+        if not last_rec:
+            return proposed_action, ""
+
+        last_action_norm = _normalize_action(str(last_rec.get('action', '')))
+        _ls_raw = last_rec.get('score', 0)
+        last_score = float(np.nan_to_num(_ls_raw, nan=0.0)) if _ls_raw is not None else 0.0
+        score_delta = current_score - last_score
+
+        if last_action_norm in _BEARISH:
+            if proposed_norm == 'HOLD' and score_delta < UPGRADE_TO_HOLD_THRESHOLD:
+                return last_rec.get('action', proposed_action), (
+                    f"DIRECTIONAL COMMITMENT: Score improved only {score_delta:+.1f} "
+                    f"(need +{UPGRADE_TO_HOLD_THRESHOLD:.0f} to upgrade from "
+                    f"{last_action_norm} to HOLD)")
+            if proposed_norm in _BULLISH and score_delta < UPGRADE_TO_BUY_THRESHOLD:
+                fallback = 'HOLD' if score_delta >= UPGRADE_TO_HOLD_THRESHOLD else last_rec.get('action', proposed_action)
+                return fallback, (
+                    f"DIRECTIONAL COMMITMENT: Score improved only {score_delta:+.1f} "
+                    f"(need +{UPGRADE_TO_BUY_THRESHOLD:.0f} to upgrade from "
+                    f"{last_action_norm} to {proposed_norm})")
+
+        if last_action_norm in _BULLISH:
+            if proposed_norm in ('SELL', 'EXIT', 'SWAP') and score_delta > -DOWNGRADE_TO_SELL_THRESHOLD:
+                return 'HOLD', (
+                    f"DIRECTIONAL COMMITMENT: Score declined only {score_delta:+.1f} "
+                    f"(need -{DOWNGRADE_TO_SELL_THRESHOLD:.0f} to downgrade from "
+                    f"{last_action_norm} to {proposed_norm})")
+
+        return proposed_action, ""
     
     def check_score_change(self, symbol: str, current_score: float) -> Tuple[bool, str]:
         """
@@ -526,7 +733,8 @@ class RecommendationHistory:
                               fundamentals: Dict,
                               reason: str = "",
                               rank: int = 0,
-                              sector: str = "") -> Dict:
+                              sector: str = "",
+                              hard_stop_tier: str = "NONE") -> Dict:
         """
         Validate and potentially override recommendation based on history
         
@@ -539,6 +747,11 @@ class RecommendationHistory:
             reason: Reason for recommendation
             rank: Stock rank in portfolio
             sector: Stock sector
+            hard_stop_tier: Output of unified hard-stop policy.
+                When set to 'EMERGENCY' / 'HARD_STOP' / 'SOFT_STOP', the
+                premature-exit-prevention override below is bypassed —
+                a stop-loss SELL is by definition NOT premature.
+                Phase 0.5 fix: prevents KOTAKBANK-class silent SELL→HOLD downgrades.
             
         Returns:
             Dict with validated action, warnings, and reasons
@@ -559,6 +772,16 @@ class RecommendationHistory:
             result['warnings'].append(cooldown_warning)
             result['reasons'].append("Cooldown period active")
         
+        # Directional commitment: prevent flip-flops by requiring meaningful
+        # score improvement before reversing direction.
+        if result['final_action'] == proposed_action:
+            committed_action, commit_reason = self.check_directional_commitment(
+                symbol, proposed_action, current_score)
+            if committed_action != proposed_action:
+                result['final_action'] = committed_action
+                result['warnings'].append(f"⚠️ {commit_reason}")
+                result['reasons'].append("Directional commitment enforced")
+        
         # Check score change significance
         score_significant, score_change_desc = self.check_score_change(symbol, current_score)
         result['reasons'].append(score_change_desc)
@@ -571,17 +794,41 @@ class RecommendationHistory:
         
         # Override SELL-like actions if score change is minor and fundamentals unchanged.
         # NEVER override EMERGENCY or STOP LOSS with significant score change.
+        # Also do NOT override if there is a recent bearish trend or score is declining.
+        # [Phase 0.5] Also do NOT override when the SELL is driven by the unified
+        # hard-stop policy (EMERGENCY / HARD_STOP / SOFT_STOP) — a P&L-threshold
+        # exit is by definition NOT premature, so the score-change/fundamentals
+        # heuristic must not silence it (KOTAKBANK / CENTRALBK / PNB / UCOBANK fix).
         _is_sell_like = proposed_action in ('SELL', 'STOP LOSS', 'REDUCE 25%')
         _is_emergency = 'EMERGENCY' in str(proposed_action).upper()
         _is_stop_with_evidence = 'STOP LOSS' in str(proposed_action).upper() and score_significant
-        if _is_sell_like and not _is_emergency and not _is_stop_with_evidence and not score_significant and not fundamental_changed:
+        # [Rule 6b/6c] THESIS_BREAK and TRAILING_STOP behave like hard-stop
+        # exits - they must bypass the premature-exit override.
+        _is_hard_stop_driven = str(hard_stop_tier).upper() in (
+            'EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP',
+        )
+        if _is_sell_like and not _is_emergency and not _is_stop_with_evidence and not _is_hard_stop_driven and not score_significant and not fundamental_changed:
             last_rec = self.get_last_recommendation(symbol)
-            if last_rec and last_rec.get('action') in ['BUY', 'INCREASE', 'HOLD']:
-                result['final_action'] = 'HOLD'
-                result['warnings'].append(
-                    "⚠️ SELL overridden to HOLD: Score change minor and fundamentals stable"
-                )
-                result['reasons'].append("Preventing premature exit")
+            if last_rec and _normalize_action(str(last_rec.get('action', ''))) in ('BUY', 'INCREASE', 'HOLD'):
+                _recent = self.get_recommendation_summary(symbol, days=14)
+                _bearish_count = 0
+                _score_declining = False
+                if _recent is not None and not _recent.empty:
+                    for _, _r in _recent.iterrows():
+                        _a_norm = _normalize_action(str(_r.get('action', '')))
+                        if _a_norm in ('SELL', 'WEAK SELL', 'REDUCE', 'EXIT'):
+                            _bearish_count += 1
+                    _ls = last_rec.get('score', current_score)
+                    _last_score = float(np.nan_to_num(_ls, nan=current_score)) if _ls is not None else float(current_score)
+                    _score_declining = current_score < _last_score
+                if _bearish_count >= 2 or _score_declining:
+                    pass
+                else:
+                    result['final_action'] = 'HOLD'
+                    result['warnings'].append(
+                        "⚠️ SELL overridden to HOLD: Score change minor and fundamentals stable"
+                    )
+                    result['reasons'].append("Preventing premature exit")
         
         # Add recommendation change notification
         last_rec = self.get_last_recommendation(symbol)
@@ -610,7 +857,11 @@ class RecommendationHistory:
                             fundamentals: Dict,
                             reason: str = "",
                             rank: int = 0,
-                            sector: str = ""):
+                            sector: str = "",
+                            components: Optional[Dict] = None,
+                            score_v2: Optional[float] = None,
+                            regime: Optional[str] = None,
+                            sleeve: Optional[str] = None):
         """
         Record a new recommendation in history
         
@@ -623,6 +874,14 @@ class RecommendationHistory:
             reason: Reason for recommendation
             rank: Stock rank
             sector: Stock sector
+            components: [v3 Layer 4] Optional dict of per-component scores for v2
+                IC calibration. Recognised keys (any subset is fine):
+                hybrid_fundamental_quality, hybrid_momentum_technical,
+                hybrid_volume_strength, hybrid_multi_timeframe,
+                hybrid_ml_signal, hybrid_risk_adjustment.
+                These columns are appended at the right edge of history so
+                Suite 1's history-schema contract (required_cols.issubset)
+                still passes.
         """
         def _clean(v, d=0):
             if v is None:
@@ -637,17 +896,56 @@ class RecommendationHistory:
         if price <= 0:
             logging.warning(f"Skipping recommendation for {symbol}: invalid price {price}")
             return
+        _excluded, _excl_reason = _is_excluded_instrument(symbol)
+        if _excluded:
+            logging.info(f"Skipping recommendation for {symbol}: {_excl_reason}")
+            return
         action = _normalize_action(action)
         today_str = datetime.now().strftime('%Y-%m-%d')
-        with self._lock:
-            if not self.history_df.empty:
-                _existing = self.history_df[
-                    (self.history_df['symbol'] == symbol) &
-                    (self.history_df['date'].astype(str).str[:10] == today_str)
-                ]
-                if not _existing.empty:
-                    return
-        new_rec = pd.DataFrame([{
+
+        # [F-NEW-3] Action vs reason divergence tag. The `action` column
+        # holds the policy-mediated final decision (after CORE-sleeve
+        # protection, hysteresis buffer, score smoothing). The `reason`
+        # column holds the raw signal that drove the unfiltered score
+        # threshold. When these CROSS FAMILY (e.g. action=HOLD but reason
+        # text canonicalises to SELL-family), readers see a confusing pair
+        # of opposing labels in Past Accuracy / Complete Data / dashboards.
+        # We prefix the reason with [POLICY OVERRIDE] so the divergence
+        # is visible without changing either column's semantics. Same-
+        # family transitions (SELL vs EXIT, BUY vs NEW POSITION) are not
+        # tagged because they convey the same investor intent.
+        try:
+            _BUY_FAMILY = {'STRONG BUY', 'BUY', 'NEW POSITION', 'INCREASE'}
+            _SELL_FAMILY = {'SELL', 'WEAK SELL', 'REDUCE', 'EXIT', 'SCALE_OUT_20', 'SWAP'}
+            _HOLD_FAMILY = {'HOLD'}
+
+            def _family(_a):
+                if _a in _BUY_FAMILY:
+                    return 'BUY'
+                if _a in _SELL_FAMILY:
+                    return 'SELL'
+                if _a in _HOLD_FAMILY:
+                    return 'HOLD'
+                return _a
+
+            _reason_action_norm = _normalize_action(str(reason or '')) if reason else ''
+            if (_reason_action_norm
+                    and _family(_reason_action_norm) != _family(action)
+                    and not str(reason).startswith('[POLICY OVERRIDE]')):
+                reason = f"[POLICY OVERRIDE] action={action} | raw={reason}"
+        except Exception:
+            pass
+
+        # [DQ-NATALUM] Same-day re-run policy: previously this method silently dropped any
+        # second call for (symbol, today). That meant the Apr 25 post-fix run produced
+        # EXIT 75-80% calls that NEVER reached recommendation_history.csv because the
+        # earlier baseline run had already logged HOLD entries. Result: outcomes can't
+        # be tracked when an intraday re-run changes the action.
+        # New policy:
+        #   - if same-day entry exists with the SAME normalized action → skip (idempotent)
+        #   - if same-day entry exists with a DIFFERENT action → replace it (latest wins)
+        #   - otherwise → append
+        new_rec_row = {
             'date': datetime.now(),
             'symbol': symbol,
             'action': action,
@@ -658,10 +956,72 @@ class RecommendationHistory:
             'debt_to_equity': _clean(fundamentals.get('debt_to_equity'), 0),
             'reason': reason,
             'rank': rank,
-            'sector': sector
-        }])
-        
+            'sector': sector,
+        }
+        # [v3 Layer 4] Per-component scores enable v2 IC calibration. Without
+        # them the calibration script unconditionally returns SKIPPED.
+        # Components are appended after the contracted history columns so
+        # the Suite 1 schema check is unaffected.
+        if components:
+            for _ck in (
+                'hybrid_fundamental_quality', 'hybrid_momentum_technical',
+                'hybrid_volume_strength',     'hybrid_multi_timeframe',
+                'hybrid_ml_signal',           'hybrid_risk_adjustment',
+                # [Rule 3a] Growth + Value factors (additive, right-edge).
+                'hybrid_growth',              'hybrid_value',
+            ):
+                _cv = components.get(_ck)
+                new_rec_row[_ck] = _clean(_cv, None)
+
+        # [Tier C2] Persist v2 shadow score + regime so forward IC measurement
+        # against the v2 engine can start accumulating from today. Both columns
+        # are appended at the right edge so the Suite 1 history-schema contract
+        # (required_cols.issubset) is unaffected.
+        if score_v2 is not None:
+            new_rec_row['score_v2'] = _clean(score_v2, None)
+        if regime is not None:
+            new_rec_row['regime'] = str(regime)
+        # [Rule 1] CORE / TACTICAL sleeve persistence (right-edge, additive).
+        if sleeve is not None:
+            new_rec_row['sleeve'] = str(sleeve).upper()
         with self._lock:
+            same_day_idx = pd.Index([])
+            if not self.history_df.empty:
+                same_day_mask = (
+                    (self.history_df['symbol'] == symbol) &
+                    (self.history_df['date'].astype(str).str[:10] == today_str)
+                )
+                same_day = self.history_df[same_day_mask]
+                if not same_day.empty:
+                    existing_action = _normalize_action(str(same_day.iloc[-1].get('action', '')))
+                    if existing_action == action:
+                        # [Tier C2] Idempotent same-day re-run: action unchanged.
+                        # Backfill any missing OPTIONAL columns (score_v2, regime,
+                        # hybrid_* components) on the existing row so a Tier C2
+                        # update or schema extension does not require an action
+                        # change to populate. This preserves the original row
+                        # ordering / count.
+                        idx_target = same_day.index[-1]
+                        for _ck, _val in new_rec_row.items():
+                            if _ck in ('date', 'symbol', 'action', 'score',
+                                       'price', 'reason', 'rank', 'sector'):
+                                continue
+                            if _ck not in self.history_df.columns:
+                                self.history_df[_ck] = None
+                            existing_val = self.history_df.at[idx_target, _ck] \
+                                if _ck in self.history_df.columns else None
+                            if pd.isna(existing_val) and _val is not None and not pd.isna(_val):
+                                self.history_df.at[idx_target, _ck] = _val
+                        self._save_history()
+                        return
+                    # Action changed within the same day — drop stale rows, append fresh.
+                    same_day_idx = same_day.index
+                    self.history_df = self.history_df.drop(index=same_day_idx).reset_index(drop=True)
+                    logging.info(
+                        f"[hist-update] {symbol}: same-day action change "
+                        f"{existing_action} → {action} (replaced {len(same_day_idx)} rows)"
+                    )
+            new_rec = pd.DataFrame([new_rec_row])
             self.history_df = pd.concat([self.history_df, new_rec], ignore_index=True)
             self._save_history()
         
@@ -695,32 +1055,69 @@ class RecommendationHistory:
     
     def get_flip_flop_stocks(self, days: int = 14) -> List[Dict]:
         """
-        Identify stocks with flip-flopping recommendations
-        
+        Identify stocks with flip-flopping recommendations.
+
+        [Investor-audit Q123] Engine-aware: when the v2 engine was promoted
+        live, pre-promotion actions (v1-driven) flipping to post-promotion
+        actions (v2-driven) are NOT real flip-flops - they're expected
+        engine-switch artifacts (e.g., MAHABANK INCREASE -> SELL 0d apart
+        because v1 said INCREASE on stale cache, v2 said SELL on fresh fetch).
+        Suppress flip-flops where one leg has score_v2 and the other does
+        not - these span the engine switch.
+
         Args:
             days: Period to check for flip-flops
-            
+
         Returns:
             List of dicts with flip-flop details
         """
         with self._lock:
             cutoff_date = datetime.now() - timedelta(days=days)
             recent_history = self.history_df[self.history_df['date'] >= cutoff_date].copy()
-        
+
         flip_flops = []
-        
+
+        def _has_v2(row):
+            v = row.get('score_v2')
+            return v is not None and not (isinstance(v, float) and np.isnan(v))
+
         for symbol in recent_history['symbol'].unique():
             symbol_recs = recent_history[recent_history['symbol'] == symbol].sort_values('date')
-            
+
             if len(symbol_recs) < 2:
                 continue
-            
-            actions = symbol_recs['action'].tolist()
-            dates = symbol_recs['date'].tolist()
-            
+
+            rows = list(symbol_recs.to_dict('records'))
+            actions = [r['action'] for r in rows]
+            dates = [r['date'] for r in rows]
+
+            def _v1_driven_action(r):
+                """Detect actions taken under v1-blend when v2 disagreed
+                strongly (>=15pt divergence). Such actions are NOT real
+                conviction calls under v2-live - they're pre-promotion
+                cache or v1 fallback artifacts."""
+                s = r.get('score')
+                v2 = r.get('score_v2')
+                try:
+                    if s is not None and not (isinstance(s, float) and np.isnan(s)) \
+                       and v2 is not None and not (isinstance(v2, float) and np.isnan(v2)):
+                        return abs(float(s) - float(v2)) >= 15.0
+                except (TypeError, ValueError):
+                    pass
+                return False
+
             for i in range(len(actions) - 1):
                 if (actions[i] in ['BUY', 'INCREASE'] and actions[i+1] == 'SELL') or \
                    (actions[i] == 'SELL' and actions[i+1] in ['BUY', 'INCREASE']):
+                    # [Investor-audit Q123] engine-switch artifact?
+                    if _has_v2(rows[i]) != _has_v2(rows[i+1]):
+                        continue
+                    # [Investor-audit Q123 cont.] v1-driven action artifact?
+                    # When one leg had >=15pt v1-v2 divergence, the action
+                    # was driven by v1 (the now-shadow engine). Real flip-
+                    # flops happen on v2-consistent legs.
+                    if _v1_driven_action(rows[i]) or _v1_driven_action(rows[i+1]):
+                        continue
                     _d0 = pd.to_datetime(dates[i], errors='coerce')
                     _d1 = pd.to_datetime(dates[i+1], errors='coerce')
                     if pd.isna(_d0) or pd.isna(_d1):
@@ -735,7 +1132,7 @@ class RecommendationHistory:
                         'days_between': days_between,
                         'warning': f"Flip-flop detected: {actions[i]} → {actions[i+1]} in {days_between} days"
                     })
-        
+
         return flip_flops
     
     # ------------------------------------------------------------------

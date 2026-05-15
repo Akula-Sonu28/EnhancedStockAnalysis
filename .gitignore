@@ -80,6 +80,10 @@ ENV/
 env/
 .venv/
 
+# Secrets (Groww API credentials, etc.)
+.env
+.env.local
+
 # IDE files
 .idea/
 .vscode/

@@ -15,7 +15,11 @@ class AnalysisConfig:
     """Configuration class for stock analysis parameters"""
     
     # Performance Settings
-    MAX_WORKERS: int = 3
+    # [perf] Workers for the per-stock thread pool. Bumped from 3 -> 8 once
+    # caching dominated the workload: with `_yf_ticker_with_retry` already
+    # throttling per-thread network calls, 8 stays well below any sane API
+    # limit. Override via --workers on the CLI or config.json.
+    MAX_WORKERS: int = 8
     BATCH_SIZE: int = 5
     TIMEOUT_SECONDS: int = 120
     RETRY_ATTEMPTS: int = 3
@@ -100,11 +104,21 @@ class AnalysisConfig:
     # Score Smoothing
     SCORE_SMOOTHING_WEIGHT: float = 0.55
     SCORE_SMOOTHING_WEIGHT_BEAR: float = 0.50
+    SCORE_SMOOTHING_WEIGHT_DOWN: float = 0.75
+    SCORE_SMOOTHING_WEIGHT_UP: float = 0.45
     SCORE_SMOOTHING_MAX_AGE_DAYS: int = 3
 
     # Recommendation Hysteresis (prevents flip-flops at threshold boundaries)
-    HYSTERESIS_BUFFER: float = 1.5
-    HYSTERESIS_PROXIMITY_BOOST: float = 0.0
+    HYSTERESIS_BUFFER: float = 3.0
+    HYSTERESIS_PROXIMITY_BOOST: float = 1.5
+
+    # v3 Layer 3 — unidirectional hysteresis. Default False keeps the bidirectional
+    # buffer (legacy F-10 behavior: sticky in BOTH directions). When True, the
+    # buffer ONLY resists upgrades (entering a higher tier) — downgrades fall
+    # through immediately. Eliminates the "anchored in winning tier while losing"
+    # pathology identified in the prior ROI-drawdown analysis. Shadow toggle for
+    # v3 ablation; will be enabled after paper-trading review.
+    UNIDIRECTIONAL_HYSTERESIS: bool = False
 
     # ML Tag Control (disabled until model accuracy > 60%)
     ML_TAG_IN_RECOMMENDATION: bool = False
@@ -116,6 +130,63 @@ class AnalysisConfig:
     # Liquidity Filter
     MIN_AVG_DAILY_VOLUME: int = 50000
     ILLIQUID_SCORE_PENALTY: float = 15.0
+
+    # Universe Filter (Phase 0): exclude ETFs/REITs/InvITs and enforce ADV minimum.
+    # Permissive: missing avg_volume or current_price never drops a symbol.
+    EXCLUDE_ETFS: bool = True
+    MIN_ADV_CRORES: float = 10.0
+
+    # Hard Stop Loss (Phase 3b): unified stop-loss policy.
+    # HARD_STOP triggers SELL at -7% loss unless score>=65 AND no recent bearish AND RSI>40.
+    # SOFT_STOP triggers REDUCE at -10% loss regardless.
+    HARD_STOP_PCT: float = -0.07
+    HARD_STOP_OVERRIDE_SCORE: float = 65.0
+    SOFT_STOP_PCT: float = -0.10
+
+    # v3 Layer 3 — pure-P&L hard-stop mode (action-decoupled safety layer).
+    # When True, _evaluate_hard_stop ignores the score>=65 / RSI>40 / not-bearish
+    # override — losing positions exit on P&L threshold breach alone.
+    # Default False preserves the prior session's "hard stop=-7% with override"
+    # locked tunable. Flip to True for v3 ablation / paper-trading.
+    HARD_STOP_PURE_PNL: bool = False
+
+    # v3 Layer 3 / Phase 1 — composite paper-trading flag. When True, both
+    # individual v3 toggles (HARD_STOP_PURE_PNL, UNIDIRECTIONAL_HYSTERESIS)
+    # behave as if set to True at runtime, regardless of their own values.
+    # Single opt-in/opt-out for the entire v3 Layer 3 behaviour bundle.
+    # Default False keeps the locked-tunable production behaviour.
+    PAPER_TRADING_MODE: bool = False
+
+    # [Contract Rule 7] — Macro inputs are limited to Nifty regime + India VIX.
+    # The cross-asset crisis overlay (war / oil / panic / USD / crude) is kept
+    # on disk for ablation but disabled by default to comply with the operating
+    # contract. Flip to True to opt back in for diagnostic comparisons.
+    ENABLE_CRISIS_DETECTOR: bool = False
+
+    # [Contract Rule 6b] — Trailing stop on peak price. We persist a per-symbol
+    # peak in booking_history.json each run; once price falls below
+    # `peak * (1 - TRAILING_STOP_PCT)` AND the position is in profit, we emit
+    # a TRAILING_STOP exit signal. BEAR regime tightens the trail to 10% via
+    # TRAILING_STOP_BEAR_PCT. Set TRAILING_STOP_PCT to 0 to disable entirely.
+    TRAILING_STOP_PCT: float = 0.15
+    TRAILING_STOP_BEAR_PCT: float = 0.10
+
+    # [Contract Rule 5] — Profit-booking 20% rotation rule. Fires when a
+    # position is up >= 15% AND its v2 score has dropped >= 10pts from its
+    # peak v2 reading. Recommended rotation target is the highest-v2
+    # non-held candidate from today's universe.
+    SCALE_OUT_PROFIT_THRESHOLD: float = 0.15  # 15% gain floor
+    SCALE_OUT_V2_DROP_PTS: float = 10.0       # peak v2 drop required
+    SCALE_OUT_FRACTION: float = 0.20          # liquidate 20% of position
+
+    # Rotation friction (Phase 3c): minimum score advantage for capital rotation.
+    ROTATION_FRICTION_POINTS: float = 5.0
+
+    # V2 Scoring Engine shadow mode (Phase 1/2): when True, v2 score is computed
+    # alongside v1 but does NOT drive actions. Promotion is gated by data/v2_promotion_status.json.
+    V2_SHADOW_MODE: bool = True
+    V2_PROMOTION_DATE: str = ""
+    V2_IC_BLEND_7D: float = 0.80
 
     # Cache Retention
     CACHE_MAX_AGE_DAYS: int = 7
@@ -201,8 +272,12 @@ _VALIDATION_RULES: dict = {
     'CACHE_EXPIRY_HOURS': (int, 1, 168),
     'CACHE_MAX_AGE_DAYS': (int, 1, 30),
     'SCORE_SMOOTHING_WEIGHT': (float, 0.0, 1.0),
+    'SCORE_SMOOTHING_WEIGHT_DOWN': (float, 0.0, 1.0),
+    'SCORE_SMOOTHING_WEIGHT_UP': (float, 0.0, 1.0),
+    'SCORE_SMOOTHING_WEIGHT_BEAR': (float, 0.0, 1.0),
     'SCORE_SMOOTHING_MAX_AGE_DAYS': (int, 1, 14),
     'HYSTERESIS_BUFFER': (float, 0.0, 10.0),
+    'HYSTERESIS_PROXIMITY_BOOST': (float, 0.0, 5.0),
     'BEAR_EXPOSURE': (float, 0.0, 1.0),
     'SIDEWAYS_EXPOSURE': (float, 0.0, 1.0),
     'BULL_EXPOSURE': (float, 0.0, 1.0),
@@ -224,6 +299,12 @@ _VALIDATION_RULES: dict = {
     'SELL_THRESHOLD': (float, 0, 100),
     'EMERGENCY_EXIT_LOSS': (float, -1.0, 0.0),
     'EMERGENCY_EXIT_SCORE': (float, 0, 100),
+    'MIN_ADV_CRORES': (float, 0.0, 1000.0),
+    'HARD_STOP_PCT': (float, -1.0, 0.0),
+    'HARD_STOP_OVERRIDE_SCORE': (float, 0, 100),
+    'SOFT_STOP_PCT': (float, -1.0, 0.0),
+    'ROTATION_FRICTION_POINTS': (float, 0.0, 50.0),
+    'V2_IC_BLEND_7D': (float, 0.0, 1.0),
 }
 
 def _validate_config(cfg: 'AnalysisConfig') -> None:

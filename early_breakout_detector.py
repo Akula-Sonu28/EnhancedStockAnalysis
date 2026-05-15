@@ -212,7 +212,7 @@ class EarlyBreakoutDetector:
             logging.error(f"Error in pre-breakout detection: {e}")
             return self._empty_result()
     
-    def detect_momentum_exhaustion(self, df: pd.DataFrame, stock_data: dict, entry_price: Optional[float] = None) -> Dict:
+    def detect_momentum_exhaustion(self, df: pd.DataFrame, stock_data: dict, entry_price: Optional[float] = None, previous_exhaustion_score: float = 0) -> Dict:
         """
         Detect MOMENTUM EXHAUSTION (exit signals before reversal)
         Addresses: "system fails to recommend to book profit"
@@ -248,13 +248,13 @@ class EarlyBreakoutDetector:
             rsi = 50 if (isinstance(rsi, float) and np.isnan(rsi)) else rsi
             if rsi > 80:
                 signals.append(f"🔴 RSI extreme: {rsi:.0f} (heavy exhaustion)")
-                exhaustion_score += 40
+                exhaustion_score += 50
             elif rsi > 75:
                 signals.append(f"⚠️ RSI overbought: {rsi:.0f}")
-                exhaustion_score += 30
+                exhaustion_score += 35
             elif rsi > 70:
                 signals.append(f"⚪ RSI elevated: {rsi:.0f}")
-                exhaustion_score += 15
+                exhaustion_score += 20
             
             # Signal 2: Volume Declining (no follow-through)
             volume_declining = self._check_volume_decline(df)
@@ -297,6 +297,15 @@ class EarlyBreakoutDetector:
                 signals.append(f"📏 Extended: {distance_from_ma:.1f}% above 20-MA")
                 exhaustion_score += 15
             
+            # Hysteresis: once an EXIT tier is triggered, maintain it until the
+            # score drops well below the original trigger to prevent on/off flicker.
+            if previous_exhaustion_score >= 80 and exhaustion_score >= 55:
+                exhaustion_score = max(exhaustion_score, 80)
+            elif previous_exhaustion_score >= 70 and exhaustion_score >= 45:
+                exhaustion_score = max(exhaustion_score, 70)
+            elif previous_exhaustion_score >= 50 and exhaustion_score >= 30:
+                exhaustion_score = max(exhaustion_score, 50)
+
             # Determine exit recommendation
             if exhaustion_score >= 80:
                 exit_rec = "🔴 EXIT NOW - Heavy exhaustion"

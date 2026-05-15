@@ -85,6 +85,95 @@ class HybridOptimizedScoringEngine:
             logging.debug(f"Scoring component error (fundamental): {_e}")
             return None
     
+    def calculate_growth_score(self, stock_data):
+        """
+        [Rule 3a] Growth factor: earnings + revenue growth combined to a 0-100 score.
+
+        Composition:
+          - Earnings growth YoY: 50 pts (full credit at +50%)
+          - Revenue growth YoY:  50 pts (full credit at +50%)
+
+        [Investor-audit Q66] Cap was previously +20% which collapsed
+        ~27% of the Indian universe to growth=100/100 with no
+        discrimination. Widened to +50% so 30%+ growers get distinct
+        signals from 20%+ growers - critical for a market where
+        small/mid-caps routinely post 25-50% YoY growth.
+
+        Inputs are expected in decimal form (e.g. 0.15 for 15%) as produced by
+        yfinance's `revenueGrowth` / `earningsGrowth`. We tolerate both decimal
+        and percentage representations by sniffing magnitude.
+        """
+        try:
+            eg_raw = stock_data.get('earnings_growth')
+            rg_raw = stock_data.get('revenue_growth')
+
+            if eg_raw is None and rg_raw is None:
+                return None
+
+            def _to_pct(val):
+                v = self._safe_float(val, 0.0)
+                # If |v| < 5 treat as decimal (0.15 -> 15%); else treat as percent.
+                return v * 100.0 if abs(v) < 5 else v
+
+            eps_pct = _to_pct(eg_raw)
+            rev_pct = _to_pct(rg_raw)
+
+            # Each component: -50% -> 0, 0% -> 25, +50% -> 50 (linear, clipped).
+            # Wider band than the original (+/-20%) preserves discrimination
+            # for the ~30% growth range common in Indian small/mid-caps.
+            eps_score = float(np.clip((eps_pct + 50.0) / 100.0 * 50.0, 0, 50))
+            rev_score = float(np.clip((rev_pct + 50.0) / 100.0 * 50.0, 0, 50))
+            return eps_score + rev_score
+        except Exception as _e:
+            logging.debug(f"Scoring component error (growth): {_e}")
+            return None
+
+    def calculate_value_score(self, stock_data):
+        """
+        [Rule 3a] Value factor: cheap valuation + income on a 0-100 scale.
+
+        Composition:
+          - 1/PE  : 40 pts (sweet spot around PE 12; clip outside [5, 40])
+          - 1/PB  : 40 pts (PB 1 -> 40, PB 5 -> 0)
+          - Div yield: 20 pts (0% -> 0, 5%+ -> 20)
+        """
+        try:
+            pe = self._safe_float(stock_data.get('pe_ratio'), 0)
+            pb = self._safe_float(stock_data.get('pb_ratio'), 0)
+            dy = self._safe_float(stock_data.get('dividend_yield'), 0)
+
+            # PE component (40 pts). Negative or zero PE -> neutral 10 pts
+            # (data missing or loss-making; let other factors decide).
+            if pe <= 0:
+                pe_score = 10.0
+            elif pe <= 5:
+                # Extremely low PE often signals distress; partial credit only.
+                pe_score = 20.0
+            elif pe <= 12:
+                pe_score = 40.0 - (12 - pe) * 1.0  # PE 5 -> 33, PE 12 -> 40
+                pe_score = float(np.clip(pe_score, 20.0, 40.0))
+            elif pe <= 25:
+                pe_score = float(np.clip(40.0 - (pe - 12) * 2.0, 0.0, 40.0))
+            else:
+                pe_score = float(np.clip(40.0 - (pe - 12) * 2.0, 0.0, 40.0))
+
+            # PB component (40 pts).
+            if pb <= 0:
+                pb_score = 10.0
+            elif pb <= 1.0:
+                pb_score = 40.0
+            else:
+                pb_score = float(np.clip(40.0 - (pb - 1.0) * 10.0, 0.0, 40.0))
+
+            # Dividend yield (20 pts). Accept either decimal or percent.
+            dy_pct = dy * 100.0 if 0 < dy < 1 else dy
+            dy_score = float(np.clip(dy_pct / 5.0 * 20.0, 0.0, 20.0))
+
+            return pe_score + pb_score + dy_score
+        except Exception as _e:
+            logging.debug(f"Scoring component error (value): {_e}")
+            return None
+
     @staticmethod
     def _safe_float(val, default=0.0):
         """Safely convert a value to float, handling None, NaN, and inf."""
@@ -146,10 +235,12 @@ class HybridOptimizedScoringEngine:
                     _mr_bonus = -float(np.clip((rsi - 65.0) / 15.0 * 8.0, 0, 8))
                 else:
                     _mr_bonus = 0.0
-                _total += _mr_bonus
-
+            else:
+                _mr_bonus = 0.0
+            _total += _mr_bonus
+            
             return float(np.clip(_total, 0, 100))
-
+            
         except Exception as _e:
             logging.debug(f"Scoring component error (momentum): {_e}")
             return None
@@ -179,7 +270,7 @@ class HybridOptimizedScoringEngine:
         import warnings
         warnings.warn("calculate_sector_momentum_score is deprecated", DeprecationWarning, stacklevel=2)
         return 50
-
+    
     def calculate_multi_timeframe_score(self, stock_data):
         """
         V5.1: Multi-timeframe agreement score.
@@ -284,6 +375,10 @@ class HybridOptimizedScoringEngine:
     # CB-06: detect_market_regime() REMOVED — use MarketRegimeDetector as single source of truth.
     # ML model disabled (test accuracy 39% = random). Weight set to 0, redistributed to momentum.
     # Will be re-enabled when model is retrained with corrected feature pipeline.
+    # [Rule 3a] Growth + Value keys are present (weight=0.0 in the v1 defaults)
+    # so the calibration path can learn non-zero weights without breaking v1's
+    # byte-identity snapshot of 59.7. v2's calibrator persists per-component
+    # weights that include these two factors.
     _REGIME_WEIGHTS_NO_ML = {
         'bullish': {
             'fundamental_quality': 0.15,
@@ -292,6 +387,8 @@ class HybridOptimizedScoringEngine:
             'multi_timeframe':     0.15,
             'ml_signal':           0.00,
             'risk_adjustment':     0.35,
+            'growth':              0.00,
+            'value':               0.00,
         },
         'bearish': {
             'fundamental_quality': 0.15,
@@ -300,6 +397,8 @@ class HybridOptimizedScoringEngine:
             'multi_timeframe':     0.15,
             'ml_signal':           0.00,
             'risk_adjustment':     0.30,
+            'growth':              0.00,
+            'value':               0.00,
         },
         'neutral': {
             'fundamental_quality': 0.15,
@@ -308,6 +407,8 @@ class HybridOptimizedScoringEngine:
             'multi_timeframe':     0.15,
             'ml_signal':           0.00,
             'risk_adjustment':     0.40,
+            'growth':              0.00,
+            'value':               0.00,
         },
     }
 
@@ -380,6 +481,11 @@ class HybridOptimizedScoringEngine:
             _raw_mtf = self.calculate_multi_timeframe_score(stock_data)
             _raw_ml = 50.0  # LO-06: ML weight=0, skip execution
             _raw_risk = self.calculate_risk_adjustment_score(stock_data)
+            # [Rule 3a] Growth + Value are first-class factors but contribute
+            # zero in v1's default weights (preserves byte-identity at 59.7).
+            # v2's calibration can assign non-zero weights once IC is positive.
+            _raw_growth = self.calculate_growth_score(stock_data)
+            _raw_value = self.calculate_value_score(stock_data)
 
             _component_results = {
                 'fundamental_quality': _raw_fundamental,
@@ -388,6 +494,8 @@ class HybridOptimizedScoringEngine:
                 'multi_timeframe': _raw_mtf,
                 'ml_signal': _raw_ml,
                 'risk_adjustment': _raw_risk,
+                'growth': _raw_growth,
+                'value': _raw_value,
             }
             _real_count = sum(1 for v in _component_results.values() if v is not None)
             _total_count = len(_component_results)
@@ -410,6 +518,8 @@ class HybridOptimizedScoringEngine:
             mtf_score = _raw_mtf if _raw_mtf is not None else 50.0
             ml_score = _raw_ml if _raw_ml is not None else 50.0
             risk_score = _raw_risk if _raw_risk is not None else 50.0
+            growth_score = _raw_growth if _raw_growth is not None else 50.0
+            value_score = _raw_value if _raw_value is not None else 50.0
 
             ml_active = False  # ML disabled: test accuracy 39% (random for 3-class). Re-enable after retraining.
             mtf_available = (stock_data.get('mtf_analysis_status') == 'success')
@@ -423,7 +533,11 @@ class HybridOptimizedScoringEngine:
                 _regime_defaults['risk_adjustment'] = _regime_defaults.get('risk_adjustment', 0.40) + _mtf_w * 0.6
                 _regime_defaults['momentum_technical'] = _regime_defaults.get('momentum_technical', 0.20) + _mtf_w * 0.4
 
-            _calibrated = self._load_calibrated_weights()
+            # [Tier C2] Pass the resolved market regime as a hint - v2's loader
+            # uses it to pick the regime-specific weight file when available.
+            # v1's loader ignores the hint (kwarg accepted for signature compat).
+            _regime_for_loader = stock_data.get('market_regime') or stock_data.get('hybrid_market_regime')
+            _calibrated = self._load_calibrated_weights(regime_hint=_regime_for_loader)
             _using_calibrated = False
             if adaptive_weights and isinstance(adaptive_weights, dict):
                 weights = {k: adaptive_weights.get(k, _regime_defaults.get(k, 0)) for k in _regime_defaults}
@@ -444,30 +558,65 @@ class HybridOptimizedScoringEngine:
                     weights = {k: v / _wsum for k, v in weights.items()}
             elif _calibrated:
                 weights = {k: _calibrated.get(k, _regime_defaults.get(k, 0)) for k in _regime_defaults}
-                if not ml_active and weights.get('ml_signal', 0) > 0:
+                if not ml_active and weights.get('ml_signal', 0) != 0:
                     _leaked = weights['ml_signal']
                     weights['ml_signal'] = 0.0
                     weights['momentum_technical'] = weights.get('momentum_technical', 0) + _leaked
-                if not mtf_available and weights.get('multi_timeframe', 0) > 0:
+                if not mtf_available and weights.get('multi_timeframe', 0) != 0:
                     _mtf_w = weights['multi_timeframe']
                     weights['multi_timeframe'] = 0.0
                     weights['risk_adjustment'] = weights.get('risk_adjustment', 0.40) + _mtf_w * 0.6
                     weights['momentum_technical'] = weights.get('momentum_technical', 0.20) + _mtf_w * 0.4
-                _wsum = sum(weights.values())
-                if _wsum > 0 and abs(_wsum - 1.0) > 0.01:
-                    weights = {k: v / _wsum for k, v in weights.items()}
+                # [v3 Layer 4] Signed-weight aware normalisation. v2 calibration
+                # produces signed weights (anti-predictive components get negative
+                # weights). Pre-fix, sum(weights) <= 0 would silently skip
+                # normalisation -> wrong score math. Now: if any weight < 0,
+                # normalise by sum(|w|); else preserve v1's convex-sum path
+                # byte-identically.
+                if any(v < 0 for v in weights.values()):
+                    _abs_sum = sum(abs(v) for v in weights.values())
+                    if _abs_sum > 0 and abs(_abs_sum - 1.0) > 0.01:
+                        weights = {k: v / _abs_sum for k, v in weights.items()}
+                else:
+                    _wsum = sum(weights.values())
+                    if _wsum > 0 and abs(_wsum - 1.0) > 0.01:
+                        weights = {k: v / _wsum for k, v in weights.items()}
                 _using_calibrated = True
             else:
                 weights = _regime_defaults
 
-            weighted_score = (
-                (fundamental_score * weights.get('fundamental_quality', 0.05)) +
-                (momentum_score    * weights.get('momentum_technical', 0.20))  +
-                (volume_score      * weights.get('volume_strength', 0.05))     +
-                (mtf_score         * weights.get('multi_timeframe', 0.20))     +
-                (ml_score          * weights.get('ml_signal', 0.0))            +
-                (risk_score        * weights.get('risk_adjustment', 0.40))
-            )
+            # [v3 Layer 4] Signed-weight aware weighted sum.
+            # When ALL weights are non-negative (v1 + adaptive paths), the existing
+            # convex combination is byte-identical to before this fix.
+            # When ANY weight is negative (v2 calibrated path), use the
+            # deviation-from-neutral form: an anti-predictive component score above
+            # 50 correctly subtracts from the final score.
+            #   Convex form (positive weights, sum=1): sum(score_i * w_i) in [0,100]
+            #   Deviation form (any sign, sum_abs=1):  50 + sum((score_i - 50) * w_i)
+            # For positive weights summing to 1, the two forms are mathematically
+            # identical, so this dispatch is purely a guard for the signed case.
+            if any(v < 0 for v in weights.values()):
+                weighted_score = 50.0 + (
+                    ((fundamental_score - 50.0) * weights.get('fundamental_quality', 0.0)) +
+                    ((momentum_score    - 50.0) * weights.get('momentum_technical', 0.0))  +
+                    ((volume_score      - 50.0) * weights.get('volume_strength', 0.0))     +
+                    ((mtf_score         - 50.0) * weights.get('multi_timeframe', 0.0))     +
+                    ((ml_score          - 50.0) * weights.get('ml_signal', 0.0))           +
+                    ((risk_score        - 50.0) * weights.get('risk_adjustment', 0.0))     +
+                    ((growth_score      - 50.0) * weights.get('growth', 0.0))              +
+                    ((value_score       - 50.0) * weights.get('value', 0.0))
+                )
+            else:
+                weighted_score = (
+                    (fundamental_score * weights.get('fundamental_quality', 0.05)) +
+                    (momentum_score    * weights.get('momentum_technical', 0.20))  +
+                    (volume_score      * weights.get('volume_strength', 0.05))     +
+                    (mtf_score         * weights.get('multi_timeframe', 0.20))     +
+                    (ml_score          * weights.get('ml_signal', 0.0))            +
+                    (risk_score        * weights.get('risk_adjustment', 0.40))     +
+                    (growth_score      * weights.get('growth', 0.0))               +
+                    (value_score       * weights.get('value', 0.0))
+                )
 
             final_score = max(0, min(100, weighted_score))
             if np.isnan(final_score):
@@ -483,6 +632,8 @@ class HybridOptimizedScoringEngine:
                     'multi_timeframe': _r(mtf_score),
                     'ml_signal': _r(ml_score),
                     'risk_adjustment': _r(risk_score),
+                    'growth': _r(growth_score),
+                    'value': _r(value_score),
                     'sector_momentum': 50.0,
                 },
                 'adjustments': {
@@ -535,6 +686,9 @@ class HybridOptimizedScoringEngine:
             'multi_timeframe': 'mtf_composite_score',
             'ml_signal': 'ml_expected_return',
             'risk_adjustment': 'risk_adjusted_score',
+            # [Rule 3a] New factors. v1 calibrator may emit 0 IC if columns absent.
+            'growth': 'hybrid_growth',
+            'value': 'hybrid_value',
         }
 
         _MIN_IC = 0.02  # HI-08: ignore components with IC below this
@@ -551,7 +705,7 @@ class HybridOptimizedScoringEngine:
                     ics[weight_key] = ic_val if ic_val >= _MIN_IC else 0
                 else:
                     ics[weight_key] = 0
-            else:
+        else:
                 ics[weight_key] = 0
 
         total_ic = sum(ics.values())
@@ -588,8 +742,13 @@ class HybridOptimizedScoringEngine:
             logging.warning(f"Could not save calibrated weights: {e}")
         return calibrated
 
-    def _load_calibrated_weights(self):
-        """Load calibrated weights if they exist and are < 3 days old (HI-08: reduced from 7)."""
+    def _load_calibrated_weights(self, regime_hint: str = None):
+        """Load v1 calibrated weights if they exist and are < 3 days old (HI-08: reduced from 7).
+
+        v1 ignores `regime_hint` (regime-conditional weights are a v2 feature).
+        The kwarg exists so subclasses can override it without breaking the
+        call signature in `calculate_hybrid_score`.
+        """
         try:
             if not os.path.exists(self._CALIBRATED_WEIGHTS_PATH):
                 return None
@@ -628,7 +787,7 @@ class HybridOptimizedScoringEngine:
         matched = sector_map.get(sector, None)
         if matched and matched in self.sector_multipliers:
             return self.sector_multipliers[matched]
-        return self.sector_multipliers['default']
+            return self.sector_multipliers['default']
     
     def generate_hybrid_recommendation(self, symbol, hybrid_scores):
         """DEPRECATED (HI-01): For debug/standalone use only.

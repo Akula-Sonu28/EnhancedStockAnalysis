@@ -75,6 +75,11 @@ from src.technical_analyzer import get_ohlcv, calculate_indicators, compute_tech
 # V5.0: CorrectedScoringEngine removed (anti-predictive IC=-0.13)
 # V5.0: ImprovedScoringEngine removed (90% unstable, score swings >20pts/month)
 from hybrid_optimized_scoring import HybridOptimizedScoringEngine  # 🚀 LATEST: V4.0 - Multi-market validated
+try:
+    from hybrid_scoring_v2 import HybridOptimizedScoringEngineV2  # Phase 1: parallel v2 engine (shadow mode)
+except Exception as _v2_import_err:
+    HybridOptimizedScoringEngineV2 = None
+    logging.debug(f"v2 engine import failed (will run v1-only): {_v2_import_err}")
 from adaptive_market_strategy import AdaptiveMarketRegimeStrategy  # 🎯 NEW: Market regime adaptation
 from ml_predictor import get_ml_predictor  # Phase 2: ML Price Prediction
 from pattern_recognition import analyze_patterns  # Phase 2: Advanced Pattern Recognition
@@ -123,8 +128,19 @@ class StockDataBundle:
                 self.hist_5y = self.ticker.history(period='5y', interval='1d',
                                                     timeout=_config.TIMEOUT_SECONDS)
                 if len(self.hist_5y) >= _MIN_ROWS_ACCEPTABLE:
-                break
-                logging.warning(f"Insufficient data for {symbol}: got {len(self.hist_5y)} rows (need {_MIN_ROWS_ACCEPTABLE}), retrying...")
+                    break
+                # [F-NEW-11] If yfinance returned ANY rows but below the threshold,
+                # the stock is newly-listed and no amount of retrying will produce
+                # more historical days. Short-circuit to skip rather than burn 4
+                # attempts x 2s sleep per stock. Only retry when we got 0 rows
+                # (likely transient empty response).
+                if len(self.hist_5y) > 0:
+                    logging.warning(
+                        f"Insufficient data for {symbol}: got {len(self.hist_5y)} rows "
+                        f"(need {_MIN_ROWS_ACCEPTABLE}); newly-listed - not retrying"
+                    )
+                    break
+                logging.warning(f"Insufficient data for {symbol}: got 0 rows, retrying...")
                 time.sleep(2)
                 continue
             except _RETRYABLE as _e:
@@ -216,8 +232,14 @@ class StockDataBundle:
             if days_stale > self.STALE_DAYS:
                 self.quality_warnings.append(f"stale_data:{days_stale}d")
 
-        _cp = self.info.get('currentPrice')
-        _rmp = self.info.get('regularMarketPrice')
+        # [Investor-audit Q126] self.info can be None when yfinance was
+        # rate-limited or returned a stub. Line 213 already flagged it,
+        # but we kept executing - direct .get() then crashed with
+        # AttributeError: 'NoneType' object has no attribute 'get'.
+        # Production hit: WHIRLPOOL on 15-May run. Guard with `or {}`.
+        _info_safe = self.info or {}
+        _cp = _info_safe.get('currentPrice')
+        _rmp = _info_safe.get('regularMarketPrice')
         current_price = (_cp if _cp is not None and not (isinstance(_cp, float) and np.isnan(_cp)) else
                          _rmp if _rmp is not None and not (isinstance(_rmp, float) and np.isnan(_rmp)) else 0)
         if current_price is not None and current_price <= 0:
@@ -253,6 +275,11 @@ class EnhancedTop200StockAnalyzer:
         self.max_workers = max_workers if max_workers is not None else _config.MAX_WORKERS
         # V5.0: corrected/improved engines removed from pipeline (kept on disk for reference)
         self.hybrid_scoring_engine = HybridOptimizedScoringEngine()  # [LATEST] LATEST: V4.0 Multi-market validated
+        try:
+            self.hybrid_scoring_engine_v2 = HybridOptimizedScoringEngineV2() if HybridOptimizedScoringEngineV2 is not None else None
+        except Exception as _v2_init_err:
+            logging.debug(f"v2 engine init failed (will skip v2 shadow scoring): {_v2_init_err}")
+            self.hybrid_scoring_engine_v2 = None
         self.adaptive_strategy = AdaptiveMarketRegimeStrategy()  # [NEW] NEW: Regime-adaptive recommendations
         self.ml_predictor = get_ml_predictor()  # [PHASE 2] Phase 2: ML Price Prediction
         self.regime_detector = MarketRegimeDetector()  # [PHASE 2] Phase 2: Market Regime Detection
@@ -319,11 +346,22 @@ class EnhancedTop200StockAnalyzer:
         if risk_profile == "aggressive" or focus_growth or focus_momentum:
             logging.info(f"HIGH-RISK MODE: Profile={risk_profile}, Growth={focus_growth}, Momentum={focus_momentum}, MinVol={min_volatility}")
         
-        # Default to stock_list_template.csv in the project root if exists
-        default_csv = "stock_list_template.csv"
-        if not csv_file and os.path.exists(default_csv):
-            csv_file = default_csv
-            logging.info(f"Using default stock list from {default_csv}")
+        # [Rule 2a] Default universe is Nifty 500 (stock_list_template500.csv,
+        # ~400 stocks). Falls back to the legacy 200-stock template if the 500
+        # file is absent. Operator contract Rule 2a mandates Nifty 500 / BSE 500.
+        default_csv_500 = "stock_list_template500.csv"
+        default_csv_200 = "stock_list_template.csv"
+        if not csv_file:
+            if os.path.exists(default_csv_500):
+                csv_file = default_csv_500
+                logging.info(f"Using default Nifty 500 stock list from {default_csv_500}")
+            elif os.path.exists(default_csv_200):
+                csv_file = default_csv_200
+                logging.warning(
+                    f"Nifty 500 template missing - falling back to legacy "
+                    f"Nifty 200 list ({default_csv_200}). Restore "
+                    f"stock_list_template500.csv to comply with contract Rule 2a."
+                )
         
         # Load stocks from CSV if provided, otherwise use hardcoded list
         self.stock_list = self.load_stocks_from_csv(csv_file) if csv_file else self.get_default_stock_list()
@@ -349,6 +387,526 @@ class EnhancedTop200StockAnalyzer:
                 else:
                     logging.warning(f"yf.Ticker({ns_sym}) failed after {retries} attempts: {e}")
                     raise
+
+    # [Rule 1] CORE / TACTICAL sleeve classifier. Operates on the hybrid
+    # factor scores + risk metrics already on `stock_data` after
+    # `calculate_hybrid_score`. Returns 'CORE' for steady, value-friendly,
+    # low-beta names; 'TACTICAL' for everything else with enough data;
+    # 'UNKNOWN' when the required inputs are missing. The defaults match
+    # the operator's contract thresholds: quality >= 65, value >= 55,
+    # beta <= 1.2, volatility <= 35.
+    _SLEEVE_CORE_QUALITY_MIN = 65.0
+    _SLEEVE_CORE_VALUE_MIN = 55.0
+    _SLEEVE_CORE_BETA_MAX = 1.2
+    _SLEEVE_CORE_VOL_MAX = 35.0
+
+    @classmethod
+    def classify_sleeve(cls, stock_data):
+        """Return 'CORE', 'TACTICAL', or 'UNKNOWN' for a single stock."""
+        if not isinstance(stock_data, dict):
+            return 'UNKNOWN'
+
+        def _f(key):
+            v = stock_data.get(key)
+            if v is None:
+                return None
+            try:
+                fv = float(v)
+                if fv != fv:  # NaN
+                    return None
+                return fv
+            except (TypeError, ValueError):
+                return None
+
+        quality = _f('hybrid_fundamental_quality')
+        value = _f('hybrid_value')
+        beta = _f('beta')
+        vol = _f('volatility_6m')
+        if vol is None:
+            vol = _f('volatility')
+        if quality is None or beta is None or vol is None:
+            return 'UNKNOWN'
+        # Value can be absent in legacy data; treat as 50 (neutral) so
+        # CORE classification stays available for blue-chip names.
+        if value is None:
+            value = 50.0
+        if (quality >= cls._SLEEVE_CORE_QUALITY_MIN
+                and value >= cls._SLEEVE_CORE_VALUE_MIN
+                and beta <= cls._SLEEVE_CORE_BETA_MAX
+                and vol <= cls._SLEEVE_CORE_VOL_MAX):
+            return 'CORE'
+        return 'TACTICAL'
+
+    # [Rule 6d] BEAR-regime stop tightening (pp).  Applied additively (more
+    # negative) on top of the configured thresholds: tighter = exit sooner.
+    _BEAR_EMERGENCY_TIGHTEN = 0.03   # -15% -> -12%
+    _BEAR_SOFT_TIGHTEN = 0.02        # -10% -> -8%
+    _BEAR_HARD_TIGHTEN = 0.02        # -7%  -> -5%
+
+    @staticmethod
+    def _evaluate_hard_stop(profit_pct: float,
+                             score: float,
+                             rsi: float,
+                             pattern_signal: str = "",
+                             cfg=None,
+                             sleeve: str = "TACTICAL",
+                             market_regime: str = ""):
+        """[Rule 6a/6c/6d] Sleeve- and regime-aware unified stop policy.
+
+        Returns dict with:
+            tier: 'EMERGENCY' | 'HARD_STOP' | 'SOFT_STOP' | 'NONE'
+            action: canonical recommendation string ('SELL' / 'REDUCE' / 'HOLD')
+            reason: human-readable explanation
+            book_pct: integer percentage of position to liquidate
+
+        Sleeves:
+          - TACTICAL / UNKNOWN: legacy P&L tiers (EMERGENCY/SOFT_STOP/HARD_STOP).
+            BEAR regime tightens each threshold by the BEAR_*_TIGHTEN constants.
+          - CORE: NO price stop. Always returns tier='NONE', action='HOLD' with
+            a reason pointing to `_evaluate_thesis_break` for exits.
+
+        TACTICAL tiers (loss is negative profit_pct):
+        - EMERGENCY (loss <= -15% / BEAR -12%):                -> SELL   (100%)
+        - SOFT_STOP (loss <= SOFT_STOP_PCT, e.g. -10% / BEAR -8%):
+              * If score>=override AND RSI>40 AND not bearish -> REDUCE  (50%)
+              * Else                                          -> SELL   (100%)
+        - HARD_STOP (loss <= HARD_STOP_PCT, e.g. -7% / BEAR -5%):
+              * If score>=override AND RSI>40 AND not bearish -> HOLD   (extend to soft)
+              * Else                                          -> SELL   (100%)
+        - NONE (loss > HARD_STOP_PCT)                         -> HOLD
+        """
+        try:
+            from config import get_config as _gc
+            cfg = cfg or _gc()
+            hard_pct = float(cfg.HARD_STOP_PCT)
+            soft_pct = float(cfg.SOFT_STOP_PCT)
+            override_score = float(cfg.HARD_STOP_OVERRIDE_SCORE)
+            # [v3 Layer 3] Pure-P&L mode disables the score-based override entirely.
+            # When True, losing positions exit on threshold breach alone — used for
+            # the action-decoupled safety layer of the v3 architecture.
+            # PAPER_TRADING_MODE composite flag forces it ON regardless.
+            pure_pnl_mode = bool(getattr(cfg, 'HARD_STOP_PURE_PNL', False)) or \
+                            bool(getattr(cfg, 'PAPER_TRADING_MODE', False))
+        except Exception:
+            hard_pct = -0.07
+            soft_pct = -0.10
+            override_score = 65.0
+            pure_pnl_mode = False
+
+        # [Rule 6c] CORE sleeve: short-circuit BEFORE any price-stop logic.
+        # CORE positions exit only on thesis break; price drops are accepted.
+        sleeve_norm = str(sleeve or '').upper()
+        if sleeve_norm == 'CORE':
+            return {
+                'tier': 'NONE',
+                'action': 'HOLD',
+                'reason': 'CORE sleeve: price stop disabled - exit only on thesis break',
+                'book_pct': 0,
+            }
+
+        try:
+            p = float(profit_pct)
+        except (TypeError, ValueError):
+            return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'invalid profit_pct', 'book_pct': 0}
+        try:
+            s = float(score) if score is not None else 0.0
+        except (TypeError, ValueError):
+            s = 0.0
+        try:
+            r = float(rsi) if rsi is not None else 50.0
+        except (TypeError, ValueError):
+            r = 50.0
+
+        is_bearish = isinstance(pattern_signal, str) and pattern_signal.lower() == 'bearish'
+
+        # [Rule 6d] BEAR regime tightens thresholds. The class constants are
+        # additive in pp space; subtract from each existing (negative) threshold
+        # so the trigger fires earlier (closer to zero).
+        regime_norm = str(market_regime or '').upper()
+        emergency_thr = -0.15
+        if regime_norm in ('BEAR', 'BEARISH', 'VOLATILE'):
+            emergency_thr += EnhancedTop200StockAnalyzer._BEAR_EMERGENCY_TIGHTEN
+            soft_pct += EnhancedTop200StockAnalyzer._BEAR_SOFT_TIGHTEN
+            hard_pct += EnhancedTop200StockAnalyzer._BEAR_HARD_TIGHTEN
+
+        # In pure-P&L mode, the override is forced off so any loss past the
+        # threshold exits unconditionally. Otherwise, retain the legacy gate.
+        override = (
+            False if pure_pnl_mode
+            else (s >= override_score) and (r > 40) and (not is_bearish)
+        )
+
+        if p <= emergency_thr:
+            return {
+                'tier': 'EMERGENCY',
+                'action': 'SELL',
+                'reason': f'EMERGENCY EXIT: loss {p*100:.1f}% <= {emergency_thr*100:.0f}% — capital preservation override',
+                'book_pct': 100,
+            }
+
+        if p <= soft_pct:
+            if override:
+                return {
+                    'tier': 'SOFT_STOP',
+                    'action': 'REDUCE',
+                    'reason': (
+                        f'SOFT STOP override: loss {p*100:.1f}% <= {soft_pct*100:.0f}% but score {s:.1f}>={override_score:.0f}, '
+                        f'RSI {r:.0f}>40, no bearish pattern — REDUCE 50% instead of full exit'
+                    ),
+                    'book_pct': 50,
+                }
+            return {
+                'tier': 'HARD_STOP',
+                'action': 'SELL',
+                'reason': f'HARD STOP: loss {p*100:.1f}% <= {soft_pct*100:.0f}% with score {s:.1f} (no override) — full exit',
+                'book_pct': 100,
+            }
+
+        if p <= hard_pct:
+            if override:
+                return {
+                    'tier': 'NONE',
+                    'action': 'HOLD',
+                    'reason': (
+                        f'HARD STOP overridden: loss {p*100:.1f}% but score {s:.1f}>={override_score:.0f}, '
+                        f'RSI {r:.0f}>40, no bearish pattern — extend stop to {soft_pct*100:.0f}%'
+                    ),
+                    'book_pct': 0,
+                }
+            return {
+                'tier': 'HARD_STOP',
+                'action': 'SELL',
+                'reason': f'HARD STOP: loss {p*100:.1f}% <= {hard_pct*100:.0f}% threshold',
+                'book_pct': 100,
+            }
+
+        return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'within risk tolerance', 'book_pct': 0}
+
+    # ------------------------------------------------------------------
+    # [Rule 6b] Peak-price tracking + trailing stop helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _booking_history_path():
+        return os.path.join('data', 'booking_history.json')
+
+    @classmethod
+    def _load_booking_history(cls):
+        path = cls._booking_history_path()
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, 'r') as fp:
+                return json.load(fp) or {}
+        except Exception as e:
+            logging.warning(f"[peak-track] cannot read booking_history.json: {e}")
+            return {}
+
+    @classmethod
+    def _save_booking_history(cls, data):
+        path = cls._booking_history_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w') as fp:
+                json.dump(data, fp, indent=2, default=str)
+        except Exception as e:
+            logging.warning(f"[peak-track] cannot persist booking_history.json: {e}")
+
+    @classmethod
+    def _purge_stale_booking_history(cls, current_holdings_syms):
+        """[Investor-audit Q82] Purge booking_history entries for symbols
+        no longer in the holdings set. Prevents stale `peak_v2` / `peak_price`
+        from a months-old position from corrupting SCALE_OUT_20 or
+        TRAILING_STOP logic if the investor re-buys the same symbol later.
+        Returns the count of purged entries."""
+        try:
+            held = {str(s).upper().strip() for s in (current_holdings_syms or []) if s}
+            if not held:
+                return 0
+            bh = cls._load_booking_history()
+            if not bh:
+                return 0
+            stale = [k for k in bh.keys() if str(k).upper().strip() not in held]
+            if not stale:
+                return 0
+            for k in stale:
+                bh.pop(k, None)
+            cls._save_booking_history(bh)
+            logging.info(f"[peak-track] purged {len(stale)} stale booking_history entries: {stale}")
+            return len(stale)
+        except Exception as e:
+            logging.warning(f"[peak-track] purge failed: {e}")
+            return 0
+
+    @classmethod
+    def _update_peak_price(cls, symbol, current_price, bh_data=None):
+        """Idempotent peak-price update for `symbol`. Returns the new peak.
+        When `bh_data` is provided, mutates it in place (caller persists)."""
+        try:
+            p = float(current_price)
+        except (TypeError, ValueError):
+            return None
+        if p <= 0:
+            return None
+        owns_bh = bh_data is None
+        if bh_data is None:
+            bh_data = cls._load_booking_history()
+        entry = bh_data.setdefault(symbol, {})
+        prev_peak = entry.get('peak_price')
+        try:
+            prev_peak_f = float(prev_peak) if prev_peak is not None else None
+        except (TypeError, ValueError):
+            prev_peak_f = None
+        new_peak = p if prev_peak_f is None else max(prev_peak_f, p)
+        if new_peak != prev_peak_f:
+            entry['peak_price'] = new_peak
+            entry['peak_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            bh_data[symbol] = entry
+            if owns_bh:
+                cls._save_booking_history(bh_data)
+        return new_peak
+
+    @staticmethod
+    def _evaluate_trailing_stop(current_price,
+                                 peak_price,
+                                 trail_pct=0.15,
+                                 profit_pct=None):
+        """[Rule 6b] Return {tier, action, reason, book_pct} for trailing stop.
+
+        Fires only when:
+          - peak_price is a valid number AND
+          - current_price < peak_price * (1 - trail_pct) AND
+          - profit_pct, if provided, is >= 0 (do not trail a losing position)
+        """
+        try:
+            cp = float(current_price)
+            pk = float(peak_price)
+            tr = float(trail_pct)
+        except (TypeError, ValueError):
+            return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'invalid trailing-stop inputs', 'book_pct': 0}
+        if cp <= 0 or pk <= 0 or tr <= 0:
+            return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'trailing stop disabled', 'book_pct': 0}
+        if profit_pct is not None:
+            try:
+                if float(profit_pct) < 0:
+                    return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'position not in profit', 'book_pct': 0}
+            except (TypeError, ValueError):
+                pass
+        threshold = pk * (1.0 - tr)
+        if cp < threshold:
+            drop_pct = (cp - pk) / pk * 100.0
+            return {
+                'tier': 'TRAILING_STOP',
+                'action': 'SELL',
+                'reason': (
+                    f'TRAILING STOP: price {cp:.2f} dropped {drop_pct:.1f}% '
+                    f'from peak {pk:.2f} (trail={tr*100:.0f}%)'
+                ),
+                'book_pct': 100,
+            }
+        return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'within trailing band', 'book_pct': 0}
+
+    # [Investor-audit Q18] Extreme-loss override for CORE sleeve. The
+    # operating contract says CORE positions exit only on thesis break, but
+    # a 20%+ loss is itself a thesis break - the market is telling us
+    # something the fundamental factors haven't yet picked up. This caps the
+    # implicit "ride it out" tolerance at this magnitude.
+    _CORE_EXTREME_LOSS_PCT = -0.20  # -20% triggers automatic THESIS_BREAK
+
+    @staticmethod
+    def _evaluate_thesis_break(stock_data, history_rows=None, profit_pct=None):
+        """[Rule 6c] CORE-sleeve thesis-break detector. Returns a dict shaped
+        like _evaluate_hard_stop. Triggers a SELL only when fundamental thesis
+        clearly broke:
+          1) fundamental_data_failed in 2+ consecutive recent runs, OR
+          2) hybrid_fundamental_quality dropped >= 15pts vs first record, OR
+          3) hybrid_fundamental_quality < 40 today (steep deterioration), OR
+          4) [Q18] profit_pct <= -20% (extreme loss override regardless of
+             fundamentals - the market is informing us before factors catch up).
+        """
+        def _f(d, key, default=None):
+            if not isinstance(d, dict):
+                return default
+            v = d.get(key)
+            if v is None:
+                return default
+            try:
+                fv = float(v)
+                if fv != fv:
+                    return default
+                return fv
+            except (TypeError, ValueError):
+                return default
+
+        current_quality = _f(stock_data, 'hybrid_fundamental_quality')
+        dq_today = bool(stock_data.get('fundamental_data_failed') or
+                        (stock_data.get('data_quality') == 'FAILED'))
+
+        first_quality = None
+        prior_dq_fail = False
+        if history_rows:
+            try:
+                rows = list(history_rows)
+                if rows:
+                    first_quality = _f(rows[0], 'hybrid_fundamental_quality')
+                    # Was the prior most-recent run a DQ fail?
+                    prev = rows[-1] if len(rows) >= 1 else None
+                    if prev:
+                        prior_dq_fail = bool(prev.get('fundamental_data_failed') or
+                                             (prev.get('data_quality') == 'FAILED'))
+            except Exception:
+                first_quality = None
+
+        if dq_today and prior_dq_fail:
+            return {
+                'tier': 'THESIS_BREAK',
+                'action': 'SELL',
+                'reason': 'THESIS BREAK: fundamental_data_failed for 2 consecutive runs',
+                'book_pct': 100,
+            }
+        if current_quality is not None and first_quality is not None and \
+                (first_quality - current_quality) >= 15.0:
+            return {
+                'tier': 'THESIS_BREAK',
+                'action': 'SELL',
+                'reason': (
+                    f'THESIS BREAK: quality dropped {first_quality - current_quality:.1f}pts '
+                    f'({first_quality:.1f} -> {current_quality:.1f})'
+                ),
+                'book_pct': 100,
+            }
+        if current_quality is not None and current_quality < 40.0:
+            return {
+                'tier': 'THESIS_BREAK',
+                'action': 'SELL',
+                'reason': f'THESIS BREAK: quality {current_quality:.1f} < 40 (steep deterioration)',
+                'book_pct': 100,
+            }
+
+        # [Investor-audit Q76 + Q99] Score-collapse safety. CORE sleeve
+        # normally ignores momentum-driven exits, but if the V2 overall
+        # score has collapsed below 40 today, the position no longer fits
+        # the strategy. Catches value-trap pattern where quality lags but
+        # market is selling.
+        # Q99 anti-whipsaw: require TWO consecutive runs with V2 < 40
+        # (or single-run V2 < 30 = extreme). Without this guard, MAHABANK
+        # whipsawed INCREASE -> THESIS_BREAK SELL in 24 hours when V2
+        # dropped 65 -> 38 in a single run - the raw v2 score has no
+        # smoothing layer (only `final_blended_score` is smoothed), so a
+        # one-day spike to <40 was over-trading a profitable CORE
+        # position with strong fundamentals.
+        current_v2 = _f(stock_data, 'hybrid_overall_score_v2')
+        if current_v2 is not None and current_v2 < 40.0:
+            _extreme = current_v2 < 30.0
+            _prior_v2 = None
+            _today_iso = datetime.now().strftime('%Y-%m-%d')
+            if history_rows:
+                try:
+                    _rows = list(history_rows)
+                    # history sorted DESC; skip today's record then take latest.
+                    for _r in _rows:
+                        if not isinstance(_r, dict):
+                            continue
+                        _d = str(_r.get('date', ''))[:10]
+                        if _d == _today_iso:
+                            continue
+                        for _k in ('hybrid_overall_score_v2', 'score_v2', 'overall_score_v2'):
+                            if _r.get(_k) is not None:
+                                _prior_v2 = _f(_r, _k)
+                                break
+                        if _prior_v2 is not None:
+                            break
+                except Exception:
+                    _prior_v2 = None
+            _prior_also_low = _prior_v2 is not None and _prior_v2 < 40.0
+            if _extreme or _prior_also_low:
+                _reason = (
+                    f'THESIS BREAK: V2 score {current_v2:.1f} < 30 (extreme collapse)'
+                    if _extreme else
+                    f'THESIS BREAK: V2 score {current_v2:.1f} < 40 (confirmed 2nd consecutive run, prior={_prior_v2:.1f})'
+                )
+                return {
+                    'tier': 'THESIS_BREAK',
+                    'action': 'SELL',
+                    'reason': _reason,
+                    'book_pct': 100,
+                }
+
+        # [Q18] Extreme-loss safety override - the market sometimes leads
+        # the fundamentals. A 20%+ paper loss on a CORE position is itself
+        # informational and should not be silently held.
+        if profit_pct is not None:
+            try:
+                _pp = float(profit_pct)
+                _thr = EnhancedTop200StockAnalyzer._CORE_EXTREME_LOSS_PCT
+                if _pp <= _thr:
+                    return {
+                        'tier': 'THESIS_BREAK',
+                        'action': 'SELL',
+                        'reason': (
+                            f'THESIS BREAK: extreme loss {_pp*100:.1f}% <= '
+                            f'{_thr*100:.0f}% override on CORE - market signal '
+                            f'precedes fundamental confirmation'
+                        ),
+                        'book_pct': 100,
+                    }
+            except (TypeError, ValueError):
+                pass
+
+        return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'thesis intact', 'book_pct': 0}
+
+    @staticmethod
+    def _should_rotate(holding_score: float,
+                       candidate_score: float,
+                       holding_rsi: float = 50.0,
+                       holding_profit_pct: float = 0.0,
+                       cfg=None):
+        """Phase 3c: Rotation friction gate.
+
+        Returns dict with:
+            should_rotate: bool
+            reason: human-readable explanation
+            score_delta: candidate_score - holding_score
+
+        A rotation is only justified when ALL of:
+        - candidate_score - holding_score >= ROTATION_FRICTION_POINTS (default 5)
+        - holding shows weakness: profit < 5% OR RSI > 75 OR holding_score < 50
+        """
+        try:
+            from config import get_config as _gc
+            cfg = cfg or _gc()
+            friction = float(cfg.ROTATION_FRICTION_POINTS)
+        except Exception:
+            friction = 5.0
+
+        try:
+            hs = float(holding_score) if holding_score is not None else 0.0
+            cs = float(candidate_score) if candidate_score is not None else 0.0
+            hr = float(holding_rsi) if holding_rsi is not None else 50.0
+            hp = float(holding_profit_pct) if holding_profit_pct is not None else 0.0
+        except (TypeError, ValueError):
+            return {'should_rotate': False, 'reason': 'invalid inputs', 'score_delta': 0.0}
+
+        delta = cs - hs
+        if delta < friction:
+            return {
+                'should_rotate': False,
+                'reason': f'insufficient edge: delta={delta:.1f} < friction={friction:.1f}',
+                'score_delta': delta,
+            }
+
+        weakness = (hp < 0.05) or (hr > 75) or (hs < 50)
+        if not weakness:
+            return {
+                'should_rotate': False,
+                'reason': f'edge present (delta={delta:.1f}) but holding healthy (P&L {hp*100:.1f}%, RSI {hr:.0f}, score {hs:.1f})',
+                'score_delta': delta,
+            }
+
+        return {
+            'should_rotate': True,
+            'reason': f'rotate: delta={delta:.1f} >= {friction:.1f} AND holding weak (P&L {hp*100:.1f}%, RSI {hr:.0f}, score {hs:.1f})',
+            'score_delta': delta,
+        }
 
     def load_stocks_from_csv(self, csv_file):
         """Load stock symbols from a CSV file"""
@@ -380,9 +938,27 @@ class EnhancedTop200StockAnalyzer:
                 
                 if invalid_entries:
                     logging.warning(f"Filtered out {len(invalid_entries)} invalid symbols: {invalid_entries[:5]}")
-                
+
+                try:
+                    from src.universe_filter import is_excluded_instrument as _is_excluded_universe
+                    from config import get_config as _get_config_universe
+                    if _get_config_universe().EXCLUDE_ETFS:
+                        _kept = []
+                        _dropped_etf = []
+                        for _s in valid_symbols:
+                            _ex, _r = _is_excluded_universe(_s)
+                            if _ex:
+                                _dropped_etf.append((_s, _r))
+                            else:
+                                _kept.append(_s)
+                        if _dropped_etf:
+                            logging.info(f"[UNIVERSE FILTER] Excluded {len(_dropped_etf)} ETF/InvIT/REIT instruments: {[s for s, _ in _dropped_etf[:8]]}")
+                        valid_symbols = _kept
+                except Exception as _e:
+                    logging.debug(f"Universe filter not applied at CSV load: {_e}")
+
                 symbols = valid_symbols
-                
+
                 # If there's a company name column, create a mapping
                 if 'Company Name' in df.columns:
                     self.company_names = dict(zip(df['Symbol'].str.strip(), df['Company Name']))
@@ -446,20 +1022,55 @@ class EnhancedTop200StockAnalyzer:
                         with open(cache_path, 'r', encoding='utf-8') as f:
                             data = json.load(f)
                 else:
-                with open(cache_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.performance_metrics['cache_hits'] += 1
-                    logging.info(f"Cache hit for {symbol} ({analysis_type})")
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                self.performance_metrics['cache_hits'] += 1
+                logging.info(f"Cache hit for {symbol} ({analysis_type})")
                 if not getattr(_config, 'ML_TAG_IN_RECOMMENDATION', False):
                     _ml_pat = re.compile(r'\s*\(ML:.*?\)')
                     for _fld in ('phase2_recommendation', 'final_recommendation'):
                         if _fld in data and isinstance(data[_fld], str):
                             data[_fld] = _ml_pat.sub('', data[_fld])
-                    return data
+                return data
             except Exception as e:
                 logging.warning(f"Failed to load cache for {symbol}: {e}")
         
         return None
+
+    def load_expired_cache(self, symbol: str, analysis_type: str = "comprehensive") -> Optional[Dict]:
+        """[Investor-audit Q53] Load an EXPIRED cache file (ignoring TTL).
+
+        Used as a last-resort fallback when:
+          - load_from_cache() returns None because TTL expired
+          - fresh yfinance fetch fails (rate-limited / network)
+          - we'd otherwise emit a `data_invalid` stub and drop the stock
+
+        Stale data is better than no data: an N-hour-old reading still
+        carries valid fundamentals, sector, sleeve, and history-dependent
+        scores. The stop-loss / hard-stop logic doesn't care about freshness
+        beyond intraday volume - and that's exactly what Q52's previous-day
+        fallback handles anyway.
+        """
+        if not self.cache_enabled:
+            return None
+        cache_path = self.get_cache_path(symbol, analysis_type)
+        if not os.path.exists(cache_path):
+            return None
+        try:
+            if _HAS_FILELOCK:
+                with FileLock(cache_path + ".lock", timeout=5):
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+            else:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            # Sanity check: don't restore a previously-poisoned stub.
+            if data.get('status') == 'data_invalid' or data.get('overall_score') == 0:
+                return None
+            return data
+        except Exception as e:
+            logging.debug(f"Failed to load expired cache for {symbol}: {e}")
+            return None
     
     def _make_json_safe(self, value):
         """
@@ -516,7 +1127,7 @@ class EnhancedTop200StockAnalyzer:
             _tmp_fd, _tmp_path = tempfile.mkstemp(dir=self.cache_dir, suffix='.json.tmp')
             try:
                 with os.fdopen(_tmp_fd, 'w', encoding='utf-8') as f:
-                json.dump(serializable_data, f, ensure_ascii=False, indent=2)
+                    json.dump(serializable_data, f, ensure_ascii=False, indent=2)
                 if _HAS_FILELOCK:
                     with FileLock(cache_path + ".lock", timeout=10):
                         os.replace(_tmp_path, cache_path)
@@ -939,9 +1550,9 @@ class EnhancedTop200StockAnalyzer:
 
             sector_concentration = 0.0
             if total_holdings > 0 and holdings_have_sector:
-            sector_holdings = [h for h in current_holdings.values() 
-                             if h.get('sector') == stock_sector]
-            sector_count = len(sector_holdings)
+                sector_holdings = [h for h in current_holdings.values() 
+                                   if h.get('sector') == stock_sector]
+                sector_count = len(sector_holdings)
                 sector_concentration = sector_count / total_holdings
                 
                 if sector_concentration > 0.40:
@@ -1301,17 +1912,204 @@ class EnhancedTop200StockAnalyzer:
             start_time = time.time()
 
             cached = self.load_from_cache(symbol)
+            # [Investor-audit Q14] Force a cache miss when critical price
+            # history fields are missing OR pinned to their 0.0 fallback.
+            # The exception path in _calculate_support_resistance / the
+            # hist-too-short branch both set enhanced_price_change_20d = 0.0.
+            # Without this, every BUY/HOLD shows "20D CHG %" = 0.0% silently.
+            # [Investor-audit Q37] If cache-refresh triggers but the fresh
+            # network call rate-limits and bundle validation fails, the stub
+            # `data_invalid` result would otherwise REPLACE the previously
+            # valid cached row, causing a stock to vanish from BUY/HOLD pools
+            # entirely. We preserve the original cache as `_cached_fallback`
+            # so the bundle-failure branch below can restore it instead of
+            # propagating a poisoned stub. Behaviour is fully backward
+            # compatible when fresh analysis succeeds.
+            _cached_fallback = None
+            if cached is not None:
+                _missing_critical = (
+                    cached.get('enhanced_price_change_20d') is None
+                    or cached.get('enhanced_price_change_20d') == 0.0
+                    or not cached.get('52_week_high')
+                    or not cached.get('volatility')
+                )
+                if _missing_critical:
+                    logging.info(f"[cache-refresh] {symbol}: critical fields missing, forcing recompute")
+                    # Keep the old cache as a graceful fallback if fresh
+                    # analysis fails (e.g. rate-limited).
+                    _cached_fallback = dict(cached)
+                    cached = None
             if cached is not None:
                 if cached.get('improved_overall_score', 0) == 0:
                     cached['improved_overall_score'] = cached.get('final_blended_score', cached.get('risk_adjusted_score', 0))
                 if cached.get('corrected_overall_score', 0) == 0:
                     cached['corrected_overall_score'] = cached.get('final_blended_score', cached.get('risk_adjusted_score', 0))
+                # Phase 1 (shadow): ensure v2 score + delta are populated on cache hits
+                # so the shadow comparison renders without requiring a cold rebuild.
+                # v2 NEVER drives actions while V2_SHADOW_MODE is True — purely additive reporting.
+                # Failures here MUST NOT break the v1 cache path.
+                try:
+                    if self.hybrid_scoring_engine_v2 is not None:
+                        # Compute v2 score only if missing (older cache files predate v2).
+                        if cached.get('hybrid_overall_score_v2') is None:
+                            # [v3 Layer 4] Do NOT pass adaptive_weights to v2.
+                            # Adaptive (positive) weights would short-circuit the
+                            # calibrated-weights path and prevent v2's signed
+                            # weights file (data/calibrated_weights_v2.json) from
+                            # ever loading. Letting v2 see adaptive_weights=None
+                            # makes calculate_hybrid_score fall through to its
+                            # _load_calibrated_weights() (which is v2-specific).
+                            _v2_res = self.hybrid_scoring_engine_v2.calculate_hybrid_score(
+                                symbol, cached
+                            )
+                            cached['hybrid_overall_score_v2'] = _v2_res.get('hybrid_score', None)
+                            cached['v2_scoring_failed'] = bool(_v2_res.get('scoring_failed', False))
+                        # Always (re)compute the delta when both scores are present — covers the
+                        # case where cache has v2 score from a prior run but no delta column yet.
+                        if (cached.get('hybrid_overall_score') is not None
+                                and cached.get('hybrid_overall_score_v2') is not None):
+                            try:
+                                cached['v2_score_delta'] = round(
+                                    float(cached['hybrid_overall_score_v2'])
+                                    - float(cached['hybrid_overall_score']),
+                                    2,
+                                )
+                            except (TypeError, ValueError):
+                                cached['v2_score_delta'] = None
+                        else:
+                            cached.setdefault('v2_score_delta', None)
+                except Exception as _v2_cache_err:
+                    logging.debug(f"[v2 shadow:cache] {symbol}: {_v2_cache_err}")
+                    cached.setdefault('hybrid_overall_score_v2', None)
+                    cached.setdefault('v2_score_delta', None)
+                    cached['v2_scoring_failed'] = True
+                # [v2 Promotion] Mirror the live-engine swap on cache hits so
+                # warm-cache reads pick up v2 immediately after promotion
+                # without forcing a cold rebuild.
+                try:
+                    from config import get_config as _gc_v2_cache_swap
+                    _v2_shadow_cache = bool(getattr(_gc_v2_cache_swap(), 'V2_SHADOW_MODE', True))
+                except Exception:
+                    _v2_shadow_cache = True
+                _v2_raw_cache = cached.get('hybrid_overall_score_v2')
+                _v2_failed_cache = bool(cached.get('v2_scoring_failed', False))
+                if (not _v2_shadow_cache) and (_v2_raw_cache is not None) and (not _v2_failed_cache):
+                    try:
+                        _v2_raw_f = float(_v2_raw_cache)
+                        # NaN-safe coerce so a NaN crisis/regime adjustment
+                        # doesn't propagate into the blended score.
+                        _crisis_adj_raw = pd.to_numeric(cached.get('crisis_score_adjustment'), errors='coerce')
+                        _regime_adj_raw = pd.to_numeric(cached.get('regime_adjustment_amount'), errors='coerce')
+                        _crisis_adj_c = float(_crisis_adj_raw) if pd.notna(_crisis_adj_raw) else 0.0
+                        _regime_adj_c = float(_regime_adj_raw) if pd.notna(_regime_adj_raw) else 0.0
+                        _blended_v2 = _v2_raw_f + _crisis_adj_c + _regime_adj_c
+                        cached['final_blended_score'] = _blended_v2
+                        cached['overall_score'] = _blended_v2
+                        # Keep overall_score_with_value in sync so downstream
+                        # ranking (which prefers _with_value) also tracks v2.
+                        cached['overall_score_with_value'] = _blended_v2
+                        cached['live_engine'] = 'v2'
+
+                        # [v2 Promotion] Recompute the recommendation tier from
+                        # the new blended score so the cache-hit branch surfaces
+                        # the v2-driven label. Without this, the new_candidates
+                        # filter (which gates on `final_recommendation.contains('BUY')`)
+                        # silently excludes v2's top picks because the cached
+                        # label is still the stale v1-era WEAK SELL.
+                        try:
+                            from config import get_config as _gc_v2_rec
+                            _cfg_rec = _gc_v2_rec()
+                            _strong_t = float(getattr(_cfg_rec, 'STRONG_BUY_THRESHOLD', 70))
+                            _buy_t = float(getattr(_cfg_rec, 'BUY_THRESHOLD', 60))
+                            _hold_t = float(getattr(_cfg_rec, 'HOLD_THRESHOLD', 50))
+                            _sell_t = float(getattr(_cfg_rec, 'SELL_THRESHOLD', 40))
+                            _underval_t = float(getattr(_cfg_rec, 'UNDERVALUED_THRESHOLD', 65))
+                        except Exception:
+                            _strong_t, _buy_t, _hold_t, _sell_t, _underval_t = 70, 60, 50, 40, 65
+                        _regime_cache = str(cached.get('market_regime_detected') or cached.get('market_regime') or '').upper()
+                        # GAP-6 regime-thresholds: stricter in BEAR (+5), easier in BULL (-2).
+                        _is_bear_c = _regime_cache in ('BEAR', 'BEARISH')
+                        _is_bull_c = _regime_cache in ('BULL', 'BULLISH')
+                        _delta_c = 5 if _is_bear_c else (-2 if _is_bull_c else 0)
+                        _strong_eff = _strong_t + _delta_c
+                        _buy_eff = _buy_t + _delta_c
+                        _hold_eff = _hold_t + (3 if _is_bear_c else 0)
+                        _underval_raw = pd.to_numeric(cached.get('undervaluation_score'), errors='coerce')
+                        _underval_c = (float(_underval_raw) if pd.notna(_underval_raw) else 0.0) >= _underval_t
+                        if _blended_v2 >= _strong_eff and _underval_c:
+                            _new_rec = "🟢 STRONG BUY (UNDERVALUED)"
+                        elif _blended_v2 >= _strong_eff:
+                            _new_rec = "🟢 STRONG BUY"
+                        elif _blended_v2 >= _buy_eff and _underval_c:
+                            _new_rec = "🟢 BUY (VALUE)"
+                        elif _blended_v2 >= _buy_eff:
+                            _new_rec = "🟢 BUY"
+                        elif _blended_v2 >= _hold_eff:
+                            _new_rec = "🟡 HOLD"
+                        elif _blended_v2 >= _sell_t:
+                            _new_rec = "🟠 WEAK SELL"
+                        else:
+                            _new_rec = "🔴 SELL"
+                        cached['phase2_recommendation'] = _new_rec
+                        cached['final_recommendation'] = _new_rec
+                    except (TypeError, ValueError):
+                        cached['live_engine'] = 'v1'
+                else:
+                    cached['live_engine'] = 'v1'
                 return cached
 
             bundle = StockDataBundle(symbol)
 
             if not bundle.is_valid:
                 logging.warning(f"Skipping {symbol}: data validation failed — {bundle.quality_warnings}")
+                # [Investor-audit Q37] If we invalidated the cache earlier
+                # (Q14 fix) and fresh analysis failed because of a transient
+                # rate-limit / network glitch, return the OLD cached row
+                # instead of poisoning the universe with a `data_invalid`
+                # stub. The stale row will show outdated 20D CHG % but
+                # otherwise preserves the stock in the BUY/HOLD pools so
+                # one bad API call doesn't drop a name from the report.
+                if _cached_fallback is not None:
+                    logging.warning(
+                        f"[cache-refresh-fallback] {symbol}: fresh analysis "
+                        f"failed ({bundle.quality_warnings}); reusing stale "
+                        f"cache rather than emitting data_invalid stub"
+                    )
+                    _cached_fallback['analysis_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    _cached_fallback['cache_fallback'] = True
+                    _cached_fallback.setdefault('quality_warnings', []).append('stale_cache_used')
+                    return _cached_fallback
+                # [Investor-audit Q53] Last-resort: try the EXPIRED cache.
+                # Q37 fallback above only helps when we invalidated a still-
+                # valid cache earlier in this run. If the cache was already
+                # past TTL (load_from_cache returned None before we got here)
+                # we'd never have set _cached_fallback. Pull the expired file
+                # directly so the stock isn't silently dropped from the
+                # universe just because yfinance rate-limited THIS run.
+                _expired = self.load_expired_cache(symbol)
+                if _expired is not None:
+                    logging.warning(
+                        f"[cache-expired-fallback] {symbol}: fresh fetch "
+                        f"failed ({bundle.quality_warnings}); reusing "
+                        f"EXPIRED cache rather than data_invalid stub"
+                    )
+                    _expired['analysis_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    _expired['cache_fallback'] = True
+                    # [Investor-audit Q125] Some cached entries serialize
+                    # `quality_warnings` as a string (e.g., when single
+                    # warning was written without list-wrapping). Coerce
+                    # to a list before append. Without this guard the
+                    # expired-cache fallback path crashes with
+                    # AttributeError: 'str' object has no attribute 'append'
+                    # and the stock falls through to data_invalid stub.
+                    _qw = _expired.get('quality_warnings', [])
+                    if isinstance(_qw, str):
+                        _qw = [_qw] if _qw else []
+                    elif not isinstance(_qw, list):
+                        _qw = []
+                    _qw.append('expired_cache_used')
+                    _expired['quality_warnings'] = _qw
+                    return _expired
                 return {
                     'symbol': symbol,
                     'company_name': self.company_names.get(symbol) or symbol,
@@ -1886,17 +2684,43 @@ class EnhancedTop200StockAnalyzer:
                         stock_data, 
                         self.market_regime
                     )
-                    
+
+                    # [Investor-audit Q55] When v2 is the LIVE engine AND
+                    # there is a regime-specific weights file loaded for the
+                    # current regime, v2 already encodes regime sensitivity
+                    # through its calibrated weights. Applying the FULL
+                    # additive regime_adjustment on top triple-counts the
+                    # BEAR penalty (KALYANKJIL: V2=68.9 -> overall=64.0,
+                    # fails BUY threshold despite a clean v2 BUY signal).
+                    # Halve the additive layer in v2-live mode. This
+                    # preserves the qualitative directional signal
+                    # (value/oversold credits) at lower magnitude.
+                    _regime_adj_raw = float(regime_adjustment_result['regime_adjustment'])
+                    _regime_reasons = regime_adjustment_result['adjustment_reasons']
+                    try:
+                        from config import get_config as _gc_v2_reg
+                        _v2_live_reg = not bool(getattr(_gc_v2_reg(), 'V2_SHADOW_MODE', True))
+                    except Exception:
+                        _v2_live_reg = False
+                    if _v2_live_reg:
+                        _regime_adj_applied = _regime_adj_raw * 0.5
+                        if _regime_adj_applied != _regime_adj_raw:
+                            _regime_reasons = list(_regime_reasons) + [
+                                f'v2-live: halved from {_regime_adj_raw:+.1f}'
+                            ]
+                    else:
+                        _regime_adj_applied = _regime_adj_raw
+
                     # Update stock data with regime-adjusted scores
                     stock_data.update({
-                        'regime_adjusted_score': regime_adjustment_result['adjusted_score'],
-                        'regime_adjustment_amount': regime_adjustment_result['regime_adjustment'],
-                        'regime_adjustment_reasons': ', '.join(regime_adjustment_result['adjustment_reasons']),
+                        'regime_adjusted_score': phase1_adjusted_score + _regime_adj_applied,
+                        'regime_adjustment_amount': _regime_adj_applied,
+                        'regime_adjustment_reasons': ', '.join(_regime_reasons),
                         'regime_context': regime_adjustment_result['regime_context']
                     })
-                    
-                    if regime_adjustment_result['regime_adjustment'] != 0:
-                        logging.info(f"Regime adjustment for {symbol}: {regime_adjustment_result['regime_adjustment']:+.1f} points "
+
+                    if _regime_adj_applied != 0:
+                        logging.info(f"Regime adjustment for {symbol}: {_regime_adj_applied:+.1f} points "
                                    f"({stock_data['market_regime']}). Reasons: {stock_data['regime_adjustment_reasons']}")
                 else:
                     stock_data['regime_adjusted_score'] = phase1_adjusted_score
@@ -1920,58 +2744,58 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['sentiment_context'] = 'DISABLED'
             else:
                 try:
-                base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
-                
-                sentiment_data = {
-                    'composite_score': stock_data.get('sentiment_composite_score', 50),
-                    'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
-                    'confidence': stock_data.get('sentiment_confidence', 40),
-                    'news_sentiment': {
-                        'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
+                    base_score_for_sentiment = stock_data.get('regime_adjusted_score', phase1_adjusted_score)
+                    
+                    sentiment_data = {
+                        'composite_score': stock_data.get('sentiment_composite_score', 50),
+                        'overall_sentiment': stock_data.get('overall_sentiment', 'NEUTRAL'),
+                        'confidence': stock_data.get('sentiment_confidence', 40),
+                        'news_sentiment': {
+                            'signal': stock_data.get('news_sentiment_signal', 'NEUTRAL'),
                             'volume_surge': ({'VERY_HIGH': 3.0, 'HIGH': 2.5, 'ABOVE_AVERAGE': 1.5,
                                               'AVERAGE': 1.0, 'BELOW_AVERAGE': 0.7, 'LOW': 0.5, 'VERY_LOW': 0.3}
                                              .get(str(stock_data.get('volume_trend', 'AVERAGE')).upper(), 1.0)
                                              if isinstance(stock_data.get('volume_trend'), str)
                                              else _nv(stock_data.get('volume_trend'), 1.0))
-                    },
-                    'analyst_sentiment': {
-                        'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
-                        'total_recommendations': (
-                            stock_data.get('analyst_buy_count', 0) +
-                            stock_data.get('analyst_hold_count', 0) +
-                            stock_data.get('analyst_sell_count', 0)
-                        )
-                    },
-                    'earnings_sentiment': {
-                        'earnings_growth': stock_data.get('earnings_growth', 0)
+                        },
+                        'analyst_sentiment': {
+                            'signal': stock_data.get('analyst_sentiment_signal', 'NEUTRAL'),
+                            'total_recommendations': (
+                                stock_data.get('analyst_buy_count', 0) +
+                                stock_data.get('analyst_hold_count', 0) +
+                                stock_data.get('analyst_sell_count', 0)
+                            )
+                        },
+                        'earnings_sentiment': {
+                            'earnings_growth': stock_data.get('earnings_growth', 0)
+                        }
                     }
-                }
+                    
+                    sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
+                        base_score_for_sentiment,
+                        sentiment_data
+                    )
+                    
+                    stock_data.update({
+                        'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
+                        'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
+                        'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
+                        'sentiment_context': sentiment_adjustment_result['sentiment_context']
+                    })
+                    
+                    if sentiment_adjustment_result['sentiment_adjustment'] != 0:
+                        logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
+                                   f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
                 
-                sentiment_adjustment_result = self.sentiment_analyzer.adjust_score_by_sentiment(
-                    base_score_for_sentiment,
-                    sentiment_data
-                )
-                
-                stock_data.update({
-                    'sentiment_adjusted_score': sentiment_adjustment_result['adjusted_score'],
-                    'sentiment_adjustment_amount': sentiment_adjustment_result['sentiment_adjustment'],
-                    'sentiment_adjustment_reasons': ', '.join(sentiment_adjustment_result['adjustment_reasons']),
-                    'sentiment_context': sentiment_adjustment_result['sentiment_context']
-                })
-                
-                if sentiment_adjustment_result['sentiment_adjustment'] != 0:
-                    logging.info(f"Sentiment adjustment for {symbol}: {sentiment_adjustment_result['sentiment_adjustment']:+.1f} points "
-                               f"({sentiment_data['overall_sentiment']}). Reasons: {stock_data['sentiment_adjustment_reasons']}")
-            
-            except Exception as e:
-                logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
-                stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
-                stock_data['sentiment_adjustment_amount'] = 0.0
-                stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
-                stock_data['sentiment_context'] = 'Error'
+                except Exception as e:
+                    logging.warning(f"Sentiment adjustment failed for {symbol}: {e}")
+                    stock_data['sentiment_adjusted_score'] = base_score_for_sentiment
+                    stock_data['sentiment_adjustment_amount'] = 0.0
+                    stock_data['sentiment_adjustment_reasons'] = f'Error: {str(e)}'
+                    stock_data['sentiment_context'] = 'Error'
             
             # PHASE 2 - TASK 5: Apply Volume Profile & Order Flow Adjustments
-                base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
+            base_score_for_volume = stock_data.get('sentiment_adjusted_score', base_score_for_sentiment)
             try:
                 
                 # Prepare volume data for adjustment
@@ -2067,6 +2891,32 @@ class EnhancedTop200StockAnalyzer:
                 hybrid_results = self.hybrid_scoring_engine.calculate_hybrid_score(
                     symbol, stock_data, adaptive_weights=_adaptive_wts
                 )
+
+                # Phase 1 (shadow mode): compute v2 score in parallel — never feeds actions/allocations
+                # while V2_SHADOW_MODE is True. Failures here NEVER block v1.
+                try:
+                    if self.hybrid_scoring_engine_v2 is not None:
+                        # [v3 Layer 4] adaptive_weights NOT passed to v2: see
+                        # the cache-hit branch above for the full rationale.
+                        # v2 must fall through to its own signed-weight file.
+                        hybrid_results_v2 = self.hybrid_scoring_engine_v2.calculate_hybrid_score(
+                            symbol, stock_data
+                        )
+                        stock_data['hybrid_overall_score_v2'] = hybrid_results_v2.get('hybrid_score', None)
+                        stock_data['v2_scoring_failed'] = bool(hybrid_results_v2.get('scoring_failed', False))
+                        if stock_data.get('hybrid_overall_score') is not None and stock_data.get('hybrid_overall_score_v2') is not None:
+                            try:
+                                stock_data['v2_score_delta'] = round(
+                                    float(stock_data['hybrid_overall_score_v2']) - float(stock_data['hybrid_overall_score']),
+                                    2,
+                                )
+                            except (TypeError, ValueError):
+                                stock_data['v2_score_delta'] = None
+                except Exception as _v2_score_err:
+                    logging.debug(f"[v2 shadow] {symbol}: {_v2_score_err}")
+                    stock_data['hybrid_overall_score_v2'] = None
+                    stock_data['v2_scoring_failed'] = True
+                    stock_data['v2_score_delta'] = None
                 
                 # Create adaptive recommendation based on market regime
                 position_size = self.adaptive_strategy.get_position_sizing_strategy(regime_key)
@@ -2098,6 +2948,21 @@ class EnhancedTop200StockAnalyzer:
                     'hybrid_multi_timeframe': hybrid_results['components'].get('multi_timeframe', 50),
                     'hybrid_ml_signal': hybrid_results['components'].get('ml_signal', 50),
                     'hybrid_risk_adjustment': hybrid_results['components'].get('risk_adjustment', 50),
+                    # [Rule 3a] Growth + Value factors surfaced into stock_data
+                    # so downstream consumers (results_df, record_recommendation,
+                    # Excel renaming) can read them.
+                    'hybrid_growth':           hybrid_results['components'].get('growth', 50),
+                    'hybrid_value':            hybrid_results['components'].get('value', 50),
+                    # [Rule 1] CORE/TACTICAL sleeve classification - tagged once
+                    # the hybrid factors are settled. Drives sleeve-aware exit
+                    # logic in Phase G.
+                    'sleeve': self.__class__.classify_sleeve({
+                        'hybrid_fundamental_quality': hybrid_results['components'].get('fundamental_quality', 0),
+                        'hybrid_value':               hybrid_results['components'].get('value', 50),
+                        'beta':                       stock_data.get('beta'),
+                        'volatility_6m':              stock_data.get('volatility_6m'),
+                        'volatility':                 stock_data.get('volatility'),
+                    }),
                     'hybrid_sector_multiplier': hybrid_results['adjustments'].get('sector_multiplier', 1.0),
                     'market_regime_detected': self.current_market_regime,
                     'adaptive_position_size': adaptive_recommendation['position_size'],
@@ -2119,6 +2984,9 @@ class EnhancedTop200StockAnalyzer:
                     'hybrid_momentum_technical': 0,
                     'hybrid_volume_strength': 0,
                     'hybrid_risk_adjustment': 0,
+                    'hybrid_growth': 0,
+                    'hybrid_value': 0,
+                    'sleeve': 'UNKNOWN',
                     'hybrid_sector_multiplier': 1.0,
                     'market_regime_detected': 'UNKNOWN',
                     'adaptive_position_size': 'SMALL',
@@ -2129,9 +2997,19 @@ class EnhancedTop200StockAnalyzer:
                 })
             
             # ✅ PORTFOLIO ALLOCATION ENHANCEMENT: Add missing fields for retail investors
-            # Fetch historical data if not already present to calculate additional metrics
+            # [Investor-audit Q14] Don't gate the historical computation on
+            # `52_week_high` alone. Older cache rows may have 52w-high but
+            # missing `enhanced_price_change_20d` -> the 20D CHG % column
+            # silently shows 0.0% for every holding. We now trigger the
+            # recompute when ANY of (52_week_high, volatility, 20d change)
+            # is missing, so a stale-cache row gets backfilled on next run.
             try:
-                if '52_week_high' not in stock_data or not stock_data.get('52_week_high'):
+                _need_hist = (
+                    not stock_data.get('52_week_high')
+                    or stock_data.get('volatility') in (None, 0, 0.0)
+                    or stock_data.get('enhanced_price_change_20d') is None
+                )
+                if _need_hist:
                     hist = bundle.hist_1y   # A-005: reuse pre-downloaded 1Y slice
                     info = bundle.info      # A-005: reuse pre-downloaded ticker.info
                     
@@ -2198,7 +3076,27 @@ class EnhancedTop200StockAnalyzer:
             # 🚀 HYBRID OPTIMIZED SCORING: Use latest validated scoring system (primary) + ML adjustment
             # Keep legacy scores for comparison and backtesting validation
             improved_score = 0
-            hybrid_score = _nv(stock_data.get('hybrid_overall_score'), 50)
+            # [v2 Promotion] When V2_SHADOW_MODE=False AND v2 produced a valid
+            # score, swap the live blended-score input to v2. V1 RAW / V2 RAW
+            # report columns are unchanged - they still read directly from
+            # `hybrid_overall_score` (v1) and `hybrid_overall_score_v2` (v2),
+            # so the operator can always audit the gap. Only the actual action-
+            # driving `hybrid_score` (which feeds `final_blended_score` below)
+            # flips. Falls back to v1 if v2 failed or the flag is True.
+            try:
+                from config import get_config as _gc_v2_live
+                _v2_shadow_now = bool(getattr(_gc_v2_live(), 'V2_SHADOW_MODE', True))
+            except Exception:
+                _v2_shadow_now = True
+            _v2_raw_now = stock_data.get('hybrid_overall_score_v2')
+            _v2_failed_now = bool(stock_data.get('v2_scoring_failed', False))
+            _v2_live_now = (not _v2_shadow_now) and (_v2_raw_now is not None) and (not _v2_failed_now)
+            if _v2_live_now:
+                hybrid_score = _nv(_v2_raw_now, 50)
+                stock_data['live_engine'] = 'v2'
+            else:
+                hybrid_score = _nv(stock_data.get('hybrid_overall_score'), 50)
+                stock_data['live_engine'] = 'v1'
             _scoring_failed = stock_data.get('scoring_failed', False)
             if not _scoring_failed and (hybrid_score <= 0 or np.isnan(hybrid_score)):
                 hybrid_score = 50
@@ -2215,21 +3113,36 @@ class EnhancedTop200StockAnalyzer:
             # Sentiment analyzer still runs for data collection; it just doesn't affect the score.
             _sent_adj = 0.0
             _vol_adj  = 0.0
-                _pattern_adj = 0.0
+            _pattern_adj = 0.0
             stock_data['sentiment_score_contribution'] = 0.0
             stock_data['volume_score_contribution']    = 0.0
             stock_data['pattern_score_contribution']   = 0.0
 
-            # Crisis adjustment kept — it's a genuine macro signal
+            # [Contract Rule 7] Crisis (cross-asset) overlay is OFF by default.
+            # Rule 7 limits macro inputs to Nifty regime + India VIX. The
+            # `cfg.ENABLE_CRISIS_DETECTOR` flag (default False) lets us re-enable
+            # for ablation. When disabled, the adjustment is zero and the
+            # surfaced crisis_type/severity reflect "DISABLED" rather than a
+            # stale reading.
             _cd = self.crisis_data if self.crisis_data else {'crisis_detected': False, 'crisis_type': 'NONE', 'severity': 0}
             _stock_sector = stock_data.get('sector', '')
             try:
-            _crisis_adj = self.crisis_detector.get_stock_crisis_adjustment(symbol, _stock_sector, _cd)
-            except Exception as _ce:
-                logging.warning(f"Crisis adjustment failed for {symbol}: {_ce}")
+                from config import get_config as _gc_cr
+                _crisis_enabled = bool(getattr(_gc_cr(), 'ENABLE_CRISIS_DETECTOR', False))
+            except Exception:
+                _crisis_enabled = False
+            if _crisis_enabled:
+                try:
+                    _crisis_adj = self.crisis_detector.get_stock_crisis_adjustment(symbol, _stock_sector, _cd)
+                except Exception as _ce:
+                    logging.warning(f"Crisis adjustment failed for {symbol}: {_ce}")
+                    _crisis_adj = 0.0
+                stock_data['crisis_type_detected']   = _cd.get('crisis_type', 'NONE')
+                stock_data['crisis_severity']         = _cd.get('severity_label', 'NONE')
+            else:
                 _crisis_adj = 0.0
-            stock_data['crisis_type_detected']   = _cd.get('crisis_type', 'NONE')
-            stock_data['crisis_severity']         = _cd.get('severity_label', 'NONE')
+                stock_data['crisis_type_detected']   = 'DISABLED'
+                stock_data['crisis_severity']         = 'DISABLED'
             stock_data['crisis_score_adjustment'] = _crisis_adj
 
             # V5.1: ML is inside hybrid engine; crisis + regime adjustments are external.
@@ -2256,7 +3169,7 @@ class EnhancedTop200StockAnalyzer:
             stock_data['quality_adj_recorded'] = round(_quality_adj, 2)
 
             _sector_adj = _nv(stock_data.get('sector_performance_adj'), 0.0)
-                final_blended_score += _sector_adj
+            final_blended_score += _sector_adj
             stock_data['sector_adj_recorded'] = _sector_adj
 
             final_blended_score = _nv(final_blended_score, 50)
@@ -2277,6 +3190,8 @@ class EnhancedTop200StockAnalyzer:
                 _max_age_days = getattr(_config, 'SCORE_SMOOTHING_MAX_AGE_DAYS', 3)
                 _smooth_w_cfg = getattr(_config, 'SCORE_SMOOTHING_WEIGHT', 0.55)
                 _smooth_w_bear = getattr(_config, 'SCORE_SMOOTHING_WEIGHT_BEAR', 0.80)
+                _smooth_w_down = getattr(_config, 'SCORE_SMOOTHING_WEIGHT_DOWN', 0.75)
+                _smooth_w_up = getattr(_config, 'SCORE_SMOOTHING_WEIGHT_UP', 0.45)
                 _cur_regime = (self.market_regime or {}).get('regime', '') if hasattr(self, 'market_regime') else ''
                 _smooth_w = _smooth_w_bear if _cur_regime == 'BEAR' else _smooth_w_cfg
                 stock_data['score_smoothing_effective_weight'] = _smooth_w
@@ -2302,15 +3217,25 @@ class EnhancedTop200StockAnalyzer:
                         _cached = None
                         continue
                 if _cached and isinstance(_cached, dict) and not _cached.get('scoring_failed', False):
+                    _exh = _cached.get('exhaustion_score', 0)
+                    stock_data['prev_exhaustion_score'] = float(np.nan_to_num(_exh, nan=0.0)) if _exh is not None else 0.0
                     _prev_score = _cached.get('final_blended_score')
                     if _prev_score is not None and not (isinstance(_prev_score, float) and np.isnan(_prev_score)):
                         _prev_score = float(_prev_score)
                         if 0 < _prev_score <= 100:
                             _delta = abs(final_blended_score - _prev_score)
                             _is_crisis = _cd.get('crisis_detected', False) and _cd.get('severity', 0) >= 2
-                            if _delta > 10:
-                                stock_data['score_smoothing_skipped'] = 'circuit_breaker'
-                                logging.info(f"[CB-04] {symbol}: smoothing skipped, delta={_delta:.1f} > 10")
+                            _is_declining = final_blended_score < _prev_score
+                            if _delta > 20:
+                                stock_data['score_smoothing_skipped'] = 'extreme_delta'
+                                logging.info(f"[CB-04] {symbol}: smoothing skipped, delta={_delta:.1f} > 20")
+                            elif _delta > 10:
+                                _graduated_w = 0.80
+                                final_blended_score = _graduated_w * final_blended_score + (1 - _graduated_w) * _prev_score
+                                stock_data['score_smoothed'] = True
+                                stock_data['score_smoothing_graduated'] = True
+                                stock_data['prev_score_used'] = _prev_score
+                                logging.info(f"[CB-04] {symbol}: graduated smoothing, delta={_delta:.1f}")
                             elif _is_crisis:
                                 _crisis_smooth = max(0.90, _smooth_w)
                                 final_blended_score = _crisis_smooth * final_blended_score + (1 - _crisis_smooth) * _prev_score
@@ -2318,8 +3243,12 @@ class EnhancedTop200StockAnalyzer:
                                 stock_data['score_smoothing_crisis_reduced'] = True
                                 stock_data['prev_score_used'] = _prev_score
                             else:
-                                final_blended_score = _smooth_w * final_blended_score + (1 - _smooth_w) * _prev_score
+                                _eff_w = _smooth_w_down if _is_declining else _smooth_w_up
+                                if _cur_regime == 'BEAR':
+                                    _eff_w = max(_eff_w, _smooth_w_bear)
+                                final_blended_score = _eff_w * final_blended_score + (1 - _eff_w) * _prev_score
                                 stock_data['score_smoothed'] = True
+                                stock_data['score_smoothing_asymmetric'] = 'down' if _is_declining else 'up'
                                 stock_data['prev_score_used'] = _prev_score
             except Exception as _smooth_err:
                 logging.debug(f"Score smoothing failed for {symbol}: {_smooth_err}")
@@ -2394,32 +3323,54 @@ class EnhancedTop200StockAnalyzer:
                                  'HOLD': 'HOLD', 'WEAK SELL': 'WEAK_SELL', 'SELL': 'SELL'}
                     _prev_tier = _TIER_MAP.get(_canon, '')
 
-                # F-10 FIX: Bidirectional hysteresis — sticky in BOTH directions.
-                # If prev was STRONG_BUY, lower the SB threshold (harder to lose SB).
-                # If prev was BUY, lower the BUY threshold AND raise the SB threshold (harder to leave BUY).
-                _eff_strong_buy_thr = (_strong_buy_thr - _hyst if _prev_tier == 'STRONG_BUY' else
-                                      _strong_buy_thr + _hyst if _prev_tier == 'BUY' else _strong_buy_thr)
-                _eff_buy_thr = (_buy_thr - _hyst if _prev_tier in ('BUY', 'STRONG_BUY') else
-                                _buy_thr + _hyst if _prev_tier == 'HOLD' else _buy_thr)
-                _eff_hold_thr = (_hold_thr - _hyst if _prev_tier in ('HOLD', 'BUY') else
-                                 _hold_thr + _hyst if _prev_tier in ('WEAK_SELL', 'SELL') else _hold_thr)
                 _sell_thr = getattr(_config, 'SELL_THRESHOLD', 40)
-                _eff_sell_thr = _sell_thr - _hyst if _prev_tier in ('WEAK_SELL', 'HOLD') else (_sell_thr + _hyst if _prev_tier == 'SELL' else _sell_thr)
+                # PAPER_TRADING_MODE composite flag forces unidirectional ON.
+                # [Investor-audit Q7] When v2 is the live engine, prior-tier
+                # carryover from v1-era runs biases recommendations against
+                # stocks v1 had downgraded. Auto-enable unidirectional
+                # hysteresis whenever V2_SHADOW_MODE is False so downgrades
+                # fall through without resistance and v2's fresh calls aren't
+                # weighed down by stale v1 labels.
+                _v2_live_hyst = not bool(getattr(_config, 'V2_SHADOW_MODE', True))
+                _unidirectional = (bool(getattr(_config, 'UNIDIRECTIONAL_HYSTERESIS', False))
+                                   or bool(getattr(_config, 'PAPER_TRADING_MODE', False))
+                                   or _v2_live_hyst)
+                if _unidirectional:
+                    # [v3 Layer 3] Unidirectional buffer — resists upgrades only.
+                    # Downgrades fall through with no resistance, so a deteriorating
+                    # score promptly drops to a lower tier (no sticky-winner trap).
+                    _TIER_RANK = {'SELL': 0, 'WEAK_SELL': 1, 'HOLD': 2, 'BUY': 3, 'STRONG_BUY': 4}
+                    _prev_rank = _TIER_RANK.get(_prev_tier, 2)  # default to HOLD-equivalent
+                    _eff_strong_buy_thr = _strong_buy_thr + (_hyst if _prev_rank < _TIER_RANK['STRONG_BUY'] else 0)
+                    _eff_buy_thr        = _buy_thr        + (_hyst if _prev_rank < _TIER_RANK['BUY']        else 0)
+                    _eff_hold_thr       = _hold_thr       + (_hyst if _prev_rank < _TIER_RANK['HOLD']       else 0)
+                    _eff_sell_thr       = _sell_thr       + (_hyst if _prev_rank < _TIER_RANK['WEAK_SELL']  else 0)
+                else:
+                    # F-10 FIX: Bidirectional hysteresis — sticky in BOTH directions.
+                    # If prev was STRONG_BUY, lower the SB threshold (harder to lose SB).
+                    # If prev was BUY, lower the BUY threshold AND raise the SB threshold (harder to leave BUY).
+                    _eff_strong_buy_thr = (_strong_buy_thr - _hyst if _prev_tier == 'STRONG_BUY' else
+                                          _strong_buy_thr + _hyst if _prev_tier == 'BUY' else _strong_buy_thr)
+                    _eff_buy_thr = (_buy_thr - _hyst if _prev_tier in ('BUY', 'STRONG_BUY') else
+                                    _buy_thr + _hyst if _prev_tier == 'HOLD' else _buy_thr)
+                    _eff_hold_thr = (_hold_thr - _hyst if _prev_tier in ('HOLD', 'BUY') else
+                                     _hold_thr + _hyst if _prev_tier in ('WEAK_SELL', 'SELL') else _hold_thr)
+                    _eff_sell_thr = _sell_thr - _hyst if _prev_tier in ('WEAK_SELL', 'HOLD') else (_sell_thr + _hyst if _prev_tier == 'SELL' else _sell_thr)
 
                 if final_blended_score >= _eff_strong_buy_thr and is_undervalued:
-                phase2_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
+                    phase2_recommendation = "🟢 STRONG BUY (UNDERVALUED)"
                 elif final_blended_score >= _eff_strong_buy_thr:
-                phase2_recommendation = "🟢 STRONG BUY"
+                    phase2_recommendation = "🟢 STRONG BUY"
                 elif final_blended_score >= _eff_buy_thr and is_undervalued:
-                phase2_recommendation = "🟢 BUY (VALUE)"
+                    phase2_recommendation = "🟢 BUY (VALUE)"
                 elif final_blended_score >= _eff_buy_thr:
-                phase2_recommendation = "🟢 BUY"
+                    phase2_recommendation = "🟢 BUY"
                 elif final_blended_score >= _eff_hold_thr:
-                phase2_recommendation = "🟡 HOLD"
+                    phase2_recommendation = "🟡 HOLD"
                 elif final_blended_score >= _eff_sell_thr:
-                phase2_recommendation = "🟠 WEAK SELL"
-            else:
-                phase2_recommendation = "🔴 SELL"
+                    phase2_recommendation = "🟠 WEAK SELL"
+                else:
+                    phase2_recommendation = "🔴 SELL"
             
                 if _prev_tier:
                     stock_data['hysteresis_applied'] = True
@@ -2477,10 +3428,10 @@ class EnhancedTop200StockAnalyzer:
             if getattr(_config, 'ML_TAG_IN_RECOMMENDATION', False):
                 ml_prediction_quality = str(ml_prediction_quality or '').lower()
                 if ml_prediction_quality == 'high' and ml_confidence > 75:
-                if ml_signal == 'BUY' and 'BUY' in phase2_recommendation:
-                    phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
-                elif ml_signal == 'SELL' and 'SELL' in phase2_recommendation:
-                    phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
+                    if ml_signal == 'BUY' and 'BUY' in phase2_recommendation:
+                        phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
+                    elif ml_signal == 'SELL' and 'SELL' in phase2_recommendation:
+                        phase2_recommendation += f" (ML: {ml_confidence:.0f}%)"
             
             # Add regime adjustment to final recommendation
             if regime_adjustment:
@@ -2714,10 +3665,10 @@ class EnhancedTop200StockAnalyzer:
                     _bm_lock = FileLock(cache_file + '.lock', timeout=5) if _HAS_FILELOCK else None
                     _ctx = _bm_lock if _bm_lock else open(os.devnull)
                     with _ctx:
-                    with open(cache_file, 'rb') as f:
-                        cached_benchmarks = pickle.load(f)
-                        logging.debug(f"Using cached dynamic benchmarks for {sector}")
-                        return cached_benchmarks
+                        with open(cache_file, 'rb') as f:
+                            cached_benchmarks = pickle.load(f)
+                            logging.debug(f"Using cached dynamic benchmarks for {sector}")
+                            return cached_benchmarks
         except Exception as e:
             logging.warning(f"Failed to load cached benchmarks: {e}")
         
@@ -2730,8 +3681,8 @@ class EnhancedTop200StockAnalyzer:
                 _bm_lock = FileLock(cache_file + '.lock', timeout=5) if _HAS_FILELOCK else None
                 _ctx = _bm_lock if _bm_lock else open(os.devnull)
                 with _ctx:
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(dynamic_benchmarks, f)
+                    with open(cache_file, 'wb') as f:
+                        pickle.dump(dynamic_benchmarks, f)
                 logging.info(f"Cached dynamic benchmarks for {sector}")
             except Exception as e:
                 logging.warning(f"Failed to cache benchmarks: {e}")
@@ -3166,13 +4117,42 @@ class EnhancedTop200StockAnalyzer:
             }
     
     def _calculate_volume_indicators(self, volume: pd.Series, prices: pd.Series) -> dict:
-        """Calculate Volume-based indicators"""
+        """Calculate Volume-based indicators.
+
+        [Investor-audit Q52] When the analyzer runs INTRADAY (e.g. 11 AM
+        when NSE closes at 3:30 PM), yfinance returns today's PARTIAL-day
+        volume as the latest series entry while the 20-day moving average
+        was computed on FULL-day volumes. The resulting volume_ratio is
+        biased catastrophically low (~0.4-0.6), which crashes v2's
+        volume_strength component (largest positive weight +0.29) and
+        drops the score 10-30 points. Effect: zero BUY recommendations
+        for the entire day.
+
+        Fix: when today's volume looks abnormally small vs the 20-day
+        average AND a previous-day value is available, use YESTERDAY's
+        completed-day volume for the ratio. This sacrifices intraday
+        responsiveness for accuracy, which is the right trade-off for
+        v2's signed-weight model.
+        """
         try:
             # Volume moving average
             volume_ma = volume.rolling(window=20).mean()
             current_volume = volume.iloc[-1]
             avg_volume = volume_ma.iloc[-1]
-            
+
+            # [Q52] Intraday partial-day guard. If today's volume is less
+            # than 60% of the 20d average AND a previous full-day exists,
+            # prefer that. 60% is a conservative threshold: legit slow
+            # trading days (mid-week, no news) hover ~70-85% of average,
+            # whereas partial-day intraday queries land at 30-50%.
+            if (avg_volume is not None and avg_volume > 0
+                    and pd.notna(current_volume)
+                    and current_volume < avg_volume * 0.60
+                    and len(volume) >= 2):
+                _prev_volume = volume.iloc[-2]
+                if pd.notna(_prev_volume) and _prev_volume > 0:
+                    current_volume = _prev_volume
+
             # Volume trend
             if current_volume > avg_volume * 1.5:
                 volume_trend = "HIGH"
@@ -3186,7 +4166,7 @@ class EnhancedTop200StockAnalyzer:
             # On Balance Volume (OBV)
             price_change = prices.diff()
             obv = (volume * np.sign(price_change)).cumsum()
-            obv_trend = "RISING" if obv.iloc[-1] > obv.iloc[-10] else "FALLING"
+            obv_trend = "RISING" if len(obv) >= 10 and obv.iloc[-1] > obv.iloc[-10] else "FALLING"
             
             return {
                 'volume_ratio': round(current_volume / avg_volume, 2) if avg_volume and avg_volume != 0 and not np.isnan(avg_volume) else 1.0,
@@ -3231,13 +4211,24 @@ class EnhancedTop200StockAnalyzer:
                 'distance_to_resistance': round((resistance - current_price) / current_price * 100, 2) if current_price != 0 else 0.0
             }
         except Exception as e:
-            # Ensure fallback current_price is also float
-            current_price = float(close.iloc[-1]) if not close.empty else 100.0
+            # [Investor-audit Q2] When the price series is empty, returning
+            # support=95 / resistance=105 (from default current_price=100)
+            # silently poisons every downstream stop-loss calculation. Return
+            # None instead so callers know S/R is unknown and can fall back to
+            # price-anchored stops only.
+            if close is None or close.empty:
+                return {
+                    'support_level': None,
+                    'resistance_level': None,
+                    'distance_to_support': None,
+                    'distance_to_resistance': None,
+                }
+            current_price = float(close.iloc[-1])
             return {
                 'support_level': round(current_price * 0.95, 2),
                 'resistance_level': round(current_price * 1.05, 2),
                 'distance_to_support': 5.0,
-                'distance_to_resistance': 5.0
+                'distance_to_resistance': 5.0,
             }
     
     def _calculate_momentum_indicators(self, prices: pd.Series) -> dict:
@@ -3751,9 +4742,9 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 hist = bundle.hist_6mo
             else:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            hist = ticker.history(period="6mo", interval="1d")
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="6mo", interval="1d")
             
             if hist.empty or len(hist) < 60:
                 return {'fii_activity': 'NEUTRAL', 'dii_activity': 'NEUTRAL'}
@@ -3810,9 +4801,9 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 hist = bundle.hist_3mo
             else:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            hist = ticker.history(period="3mo", interval="1d")
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="3mo", interval="1d")
             
             if hist.empty or len(hist) < 30:
                 return {'bulk_deals_signal': 'NEUTRAL', 'large_block_activity': 'NEUTRAL'}
@@ -3866,8 +4857,8 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 info = bundle.info or {}
             else:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
                 info = ticker.info or {}
             
             ownership_data = {
@@ -3909,9 +4900,9 @@ class EnhancedTop200StockAnalyzer:
             if bundle is not None:
                 hist = bundle.hist_3mo
             else:
-            import yfinance as yf
-            ticker = yf.Ticker(f"{symbol}.NS")
-            hist = ticker.history(period="3mo", interval="1d")
+                import yfinance as yf
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="3mo", interval="1d")
             
             if hist.empty or len(hist) < 30:
                 return {'smart_money_flow': 'NEUTRAL'}
@@ -5062,6 +6053,19 @@ class EnhancedTop200StockAnalyzer:
                 
                 self._warn_if_stale(latest_holdings)
                 self._holdings_source_path = latest_holdings
+                # [Investor-audit Q82] Purge booking_history entries for
+                # symbols no longer in current holdings. Prevents stale
+                # peak_v2 from corrupting SCALE_OUT_20 trigger on re-entry.
+                try:
+                    _sym_col = 'Instrument' if 'Instrument' in holdings_df.columns else (
+                        'Symbol' if 'Symbol' in holdings_df.columns else None
+                    )
+                    if _sym_col:
+                        self.__class__._purge_stale_booking_history(
+                            holdings_df[_sym_col].astype(str).tolist()
+                        )
+                except Exception as _purge_err:
+                    logging.debug(f'[peak-track] purge skipped: {_purge_err}')
                 return holdings_df
             
             # Fallback: Try multiple possible locations and names for holdings file
@@ -5128,6 +6132,8 @@ class EnhancedTop200StockAnalyzer:
             sell_hit = (sell_df['return_30d'] < 0).mean() * 100 if len(sell_df) > 0 else 0
 
             q5_avg = q1_avg = 0.0
+            q5_avg_v2 = q1_avg_v2 = 0.0
+            n_v2 = 0
             if len(df_30) >= 5 and 'score' in df_30.columns:
                 df_30['_q'] = pd.qcut(df_30['score'], 5, labels=False, duplicates='drop')
                 q5_avg = df_30[df_30['_q'] == 4]['return_30d'].mean()
@@ -5135,12 +6141,31 @@ class EnhancedTop200StockAnalyzer:
                 q5_avg = 0.0 if pd.isna(q5_avg) else float(q5_avg)
                 q1_avg = 0.0 if pd.isna(q1_avg) else float(q1_avg)
 
+            # [Investor-audit Q121] Add v2-specific quintile metrics so
+            # investors see the LIVE engine's predictive performance, not
+            # just the v1 historical (which was known anti-predictive).
+            # Without this, the report shows Q1 > Q5 from v1 era and
+            # misleads investors into thinking the live system is broken.
+            if 'score_v2' in df_30.columns:
+                _v2_rows = df_30[df_30['score_v2'].notna()].copy()
+                n_v2 = len(_v2_rows)
+                if n_v2 >= 5:
+                    _v2_rows['_q2'] = pd.qcut(_v2_rows['score_v2'], 5,
+                                              labels=False, duplicates='drop')
+                    _q5v2 = _v2_rows[_v2_rows['_q2'] == 4]['return_30d'].mean()
+                    _q1v2 = _v2_rows[_v2_rows['_q2'] == 0]['return_30d'].mean()
+                    q5_avg_v2 = 0.0 if pd.isna(_q5v2) else float(_q5v2)
+                    q1_avg_v2 = 0.0 if pd.isna(_q1v2) else float(_q1v2)
+
             return {
                 'total_with_outcomes': len(df_30),
                 'buy_hit_rate_30d': buy_hit,
                 'sell_hit_rate_30d': sell_hit,
                 'q5_avg_return_30d': q5_avg,
                 'q1_avg_return_30d': q1_avg,
+                'q5_avg_return_30d_v2': q5_avg_v2,
+                'q1_avg_return_30d_v2': q1_avg_v2,
+                'total_with_outcomes_v2': n_v2,
             }
         except Exception as e:
             logging.warning(f"Past accuracy computation failed: {e}")
@@ -5274,8 +6299,11 @@ class EnhancedTop200StockAnalyzer:
                                 
                                 # 🛑 MOMENTUM EXHAUSTION: Detect when to exit
                                 entry_price = holding.get('Avg. cost', 0)
+                                _pe = stock_data.get('prev_exhaustion_score', 0)
+                                _prev_exhaust = float(np.nan_to_num(_pe, nan=0.0)) if _pe is not None else 0.0
                                 exhaustion = self.early_breakout_detector.detect_momentum_exhaustion(
-                                    hist, stock_data, entry_price
+                                    hist, stock_data, entry_price,
+                                    previous_exhaustion_score=_prev_exhaust
                                 )
                                 
                                 # Store pre-breakout signals in stock_data for reporting
@@ -5294,17 +6322,173 @@ class EnhancedTop200StockAnalyzer:
                         profit_action, profit_pct, profit_reason = self.calculate_profit_booking_strategy(
                             holding['Cur. val'], holding.get('Invested', 0), symbol, stock_data
                         )
-                        
+
+                        # Phase 3b: Unified hard-stop evaluation runs ahead of all other action logic.
+                        # Any HARD_STOP / EMERGENCY tier overrides exhaustion, profit-booking, and rank-based actions.
+                        # [STOP-TIER FIX] calculate_profit_booking_strategy returns the *booking
+                        # fraction* (1.0 = STOP LOSS, 0.25 = REDUCE, 0 = HOLD) as the second value,
+                        # NOT the realised P&L percent. Feeding that into _evaluate_hard_stop
+                        # silently flipped every losing position's tier to NONE because the booking
+                        # fraction is always >= 0. We now compute the realised P&L directly from
+                        # Invested vs Cur. val so the unified policy sees the true loss magnitude.
+                        # Source columns are pre-coerced to numeric (line ~5430) — pd.to_numeric
+                        # used here for static-validator NaN-safety signal.
+                        # [Investor-audit Q18] Use the MORE pessimistic of the
+                        # two P&L calculations: (a) broker-exported Cur.val/Invested
+                        # (snapshot at export time), or (b) live-price vs avg_cost
+                        # (today's true mark). Investor sees the live-price P&L in
+                        # the report; the hard-stop must trigger on the same value
+                        # they're looking at, not on a stale snapshot.
+                        _hs_inv_raw = pd.to_numeric(holding.get('Invested', 0), errors='coerce')
+                        _hs_cur_raw = pd.to_numeric(holding.get('Cur. val', 0), errors='coerce')
+                        _hs_invested = float(_hs_inv_raw) if pd.notna(_hs_inv_raw) else 0.0
+                        _hs_curval = float(_hs_cur_raw) if pd.notna(_hs_cur_raw) else 0.0
+                        _hs_pnl_broker = ((_hs_curval - _hs_invested) / _hs_invested) if _hs_invested > 0 else 0.0
+                        # Live-price variant
+                        _hs_price_raw = pd.to_numeric(stock_data.get('current_price'), errors='coerce')
+                        _hs_avg_raw = pd.to_numeric(holding.get('Avg. cost'), errors='coerce')
+                        _hs_pnl_live = 0.0
+                        if pd.notna(_hs_price_raw) and pd.notna(_hs_avg_raw) and float(_hs_avg_raw) > 0:
+                            _hs_pnl_live = (float(_hs_price_raw) - float(_hs_avg_raw)) / float(_hs_avg_raw)
+                        # Take the WORSE (more negative) of the two so safety
+                        # rails fire on the larger of the realised vs marked loss.
+                        _hs_pnl_pct = min(_hs_pnl_broker, _hs_pnl_live) if (_hs_invested > 0 and _hs_pnl_live != 0) else _hs_pnl_broker
+                        _hs_score = stock_data.get('overall_score', stock_data.get('final_blended_score', 0))
+                        _hs_rsi = stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', 50))
+                        _hs_pattern = stock_data.get('pattern_dominant_signal', '')
+                        # [Rule 6a/6c/6d] Pass sleeve + active market regime so
+                        # CORE positions get thesis-break review and BEAR regime
+                        # tightens TACTICAL stop thresholds.
+                        _hs_sleeve = str(stock_data.get('sleeve', 'TACTICAL') or 'TACTICAL').upper()
+                        _hs_regime = str(getattr(self, 'current_market_regime', '') or '').upper()
+                        hard_stop_eval = self._evaluate_hard_stop(_hs_pnl_pct, _hs_score, _hs_rsi, _hs_pattern, sleeve=_hs_sleeve, market_regime=_hs_regime)
+                        # [Rule 6c] For CORE positions, _evaluate_hard_stop always
+                        # returns tier=NONE; consult _evaluate_thesis_break to detect
+                        # fundamental deterioration warranting an exit.
+                        if _hs_sleeve == 'CORE':
+                            try:
+                                _hist_rows = self.recommendation_history.get_recommendation_summary(symbol, days=90)
+                                _hist_records = _hist_rows.to_dict('records') if hasattr(_hist_rows, 'to_dict') else None
+                            except Exception:
+                                _hist_records = None
+                            # [Investor-audit Q18] Pass profit_pct so the
+                            # extreme-loss override can fire on CORE
+                            # positions that fundamentals haven't caught yet.
+                            thesis = self._evaluate_thesis_break(stock_data, _hist_records, profit_pct=_hs_pnl_pct)
+                            if thesis['tier'] == 'THESIS_BREAK':
+                                hard_stop_eval = thesis
+
+                        # [Rule 6b] Trailing stop with peak persistence. Update the
+                        # symbol's peak first (current_price may set a new high),
+                        # then evaluate the trail. BEAR regime tightens the trail
+                        # to TRAILING_STOP_BEAR_PCT.
+                        if hard_stop_eval['tier'] == 'NONE':
+                            try:
+                                # NaN-safe coerce: pd.to_numeric returns NaN for
+                                # malformed inputs; convert to 0 before float().
+                                _cur_px_raw = pd.to_numeric(stock_data.get('current_price'), errors='coerce')
+                                _cur_px = float(_cur_px_raw) if pd.notna(_cur_px_raw) else 0.0
+                                _new_peak = self.__class__._update_peak_price(symbol, _cur_px)
+                                from config import get_config as _gc_ts
+                                _ts_cfg = _gc_ts()
+                                _trail_pct = float(
+                                    _ts_cfg.TRAILING_STOP_BEAR_PCT
+                                    if _hs_regime in ('BEAR', 'BEARISH', 'VOLATILE')
+                                    else _ts_cfg.TRAILING_STOP_PCT
+                                )
+                                _trail = self._evaluate_trailing_stop(
+                                    _cur_px, _new_peak, _trail_pct, profit_pct=_hs_pnl_pct,
+                                )
+                                if _trail['tier'] == 'TRAILING_STOP':
+                                    hard_stop_eval = _trail
+                                stock_data['peak_price'] = _new_peak
+                                stock_data['trailing_stop_pct'] = _trail_pct
+                            except Exception as _ts_err:
+                                logging.debug(f'trailing-stop skipped for {symbol}: {_ts_err}')
+
+                        # [Rule 5] Profit-booking 20% rotation. Fires when:
+                        #   - P&L >= SCALE_OUT_PROFIT_THRESHOLD (15% default), AND
+                        #   - v2 score has dropped >= SCALE_OUT_V2_DROP_PTS from
+                        #     its peak in booking_history.json
+                        # Adds peak_v2 tracking to booking_history alongside peak_price.
+                        if hard_stop_eval['tier'] == 'NONE':
+                            try:
+                                from config import get_config as _gc_so
+                                _so_cfg = _gc_so()
+                                _so_v2 = stock_data.get('hybrid_overall_score_v2')
+                                if _so_v2 is not None:
+                                    _so_v2_f = float(_so_v2)
+                                    _so_bh = self.__class__._load_booking_history()
+                                    _so_entry = _so_bh.setdefault(symbol, {})
+                                    _so_peak_v2 = _so_entry.get('peak_v2')
+                                    # [Investor-audit Q44] Persist peak_v2 on
+                                    # FIRST encounter too. Previously the
+                                    # "if changed" guard meant the first run
+                                    # set peak = current implicitly but never
+                                    # wrote it, so subsequent runs treated
+                                    # current as peak and v2_drop was always 0.
+                                    # SCALE_OUT_20 could never fire.
+                                    _first_time = _so_peak_v2 is None
+                                    _so_peak_v2_f = float(_so_peak_v2) if _so_peak_v2 is not None else _so_v2_f
+                                    _so_new_peak_v2 = max(_so_peak_v2_f, _so_v2_f)
+                                    if _first_time or _so_new_peak_v2 != _so_peak_v2_f:
+                                        _so_entry['peak_v2'] = _so_new_peak_v2
+                                        _so_entry['peak_v2_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                                        _so_bh[symbol] = _so_entry
+                                        self.__class__._save_booking_history(_so_bh)
+                                    _v2_drop = _so_new_peak_v2 - _so_v2_f
+                                    if (_hs_pnl_pct >= float(_so_cfg.SCALE_OUT_PROFIT_THRESHOLD)
+                                            and _v2_drop >= float(_so_cfg.SCALE_OUT_V2_DROP_PTS)):
+                                        hard_stop_eval = {
+                                            'tier': 'SCALE_OUT_20',
+                                            'action': 'SCALE_OUT_20',
+                                            'reason': (
+                                                f'SCALE_OUT_20: P&L {_hs_pnl_pct*100:.1f}% '
+                                                f'>= {float(_so_cfg.SCALE_OUT_PROFIT_THRESHOLD)*100:.0f}%, '
+                                                f'v2 dropped {_v2_drop:.1f}pts from peak '
+                                                f'{_so_new_peak_v2:.1f} -> {_so_v2_f:.1f}'
+                                            ),
+                                            'book_pct': int(float(_so_cfg.SCALE_OUT_FRACTION) * 100),
+                                        }
+                                        stock_data['rotation_event'] = 'SCALE_OUT_20'
+                            except Exception as _so_err:
+                                logging.debug(f'scale-out-20 skipped for {symbol}: {_so_err}')
+
+                        stock_data['hard_stop_tier'] = hard_stop_eval['tier']
+                        stock_data['hard_stop_action'] = hard_stop_eval['action']
+                        stock_data['hard_stop_reason'] = hard_stop_eval['reason']
+
                         # 🚀 IMPROVED: Determine action using PRE-BREAKOUT and EXHAUSTION signals with CONFLICT RESOLUTION
-                        # Priority order: Exhaustion > Conflicts > Profit Booking > Pre-Breakout > Recommendation
-                        
-                        # Check for CONFLICTS (both pre-breakout AND exhaustion)
-                        has_conflict = (pre_breakout['pre_breakout_detected'] and 
-                                       pre_breakout['breakout_probability'] >= 60 and
-                                       exhaustion['exhaustion_detected'] and 
-                                       exhaustion['exhaustion_score'] >= 30)
-                        
-                        if has_conflict:
+                        # Priority order: HARD_STOP > Exhaustion > Conflicts > Profit Booking > Pre-Breakout > Recommendation
+
+                        if hard_stop_eval['tier'] in ('EMERGENCY', 'HARD_STOP', 'THESIS_BREAK', 'TRAILING_STOP'):
+                            action_type = "SELL"
+                            priority = "URGENT" if hard_stop_eval['tier'] == 'EMERGENCY' else "HIGH"
+                            action_reason = hard_stop_eval['reason']
+                            has_conflict = False
+                        elif hard_stop_eval['tier'] == 'SOFT_STOP':
+                            action_type = "REDUCE"
+                            priority = "HIGH"
+                            action_reason = hard_stop_eval['reason']
+                            has_conflict = False
+                        elif hard_stop_eval['tier'] == 'SCALE_OUT_20':
+                            # [Rule 5] Partial scale-out. Routed through the
+                            # REDUCE-like priority lane so the recommendation
+                            # carries SCALE_OUT_20 forward to record_recommendation.
+                            action_type = "SCALE_OUT_20"
+                            priority = "MEDIUM"
+                            action_reason = hard_stop_eval['reason']
+                            has_conflict = False
+                        else:
+                            # Check for CONFLICTS (both pre-breakout AND exhaustion)
+                            has_conflict = (pre_breakout['pre_breakout_detected'] and
+                                           pre_breakout['breakout_probability'] >= 60 and
+                                           exhaustion['exhaustion_detected'] and
+                                           exhaustion['exhaustion_score'] >= 30)
+
+                        if hard_stop_eval['tier'] in ('EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP', 'SCALE_OUT_20'):
+                            pass
+                        elif has_conflict:
                             # CONFLICT RESOLUTION: Apply decision matrix
                             bp = pre_breakout['breakout_probability']
                             es = exhaustion['exhaustion_score']
@@ -5339,8 +6523,9 @@ class EnhancedTop200StockAnalyzer:
                                     priority = "LOW"
                                     action_reason = f"Conflict: Risk/reward unfavorable (Breakout {bp:.0f}%, Exit {es:.0f}%)"
                         
-                        elif exhaustion['exhaustion_detected'] and exhaustion['exhaustion_score'] >= 50:
+                        elif exhaustion['exhaustion_detected'] and exhaustion['exhaustion_score'] >= 45:
                             # PRIORITY 1: Exit signals when momentum is exhausting (no pre-breakout)
+                            # Phase 3a: lowered threshold from 50 to 45 so RSI>80 alone (now +50) reliably triggers
                             action_type = exhaustion['exit_recommendation']
                             priority = "URGENT" if exhaustion['exhaustion_score'] >= 70 else "HIGH"
                             action_reason = f"MOMENTUM EXHAUSTION: {' | '.join(exhaustion.get('exit_signals', []))}"
@@ -5416,7 +6601,11 @@ class EnhancedTop200StockAnalyzer:
                             fundamentals=fundamentals,
                             reason=recommendation,
                             rank=idx + 1,
-                            sector=stock_data.get('sector', '')
+                            sector=stock_data.get('sector', ''),
+                            # [Phase 0.5] Forward the unified hard-stop tier so a HARD_STOP /
+                            # SOFT_STOP-driven SELL bypasses the premature-exit-prevention
+                            # override (KOTAKBANK-class fix).
+                            hard_stop_tier=hard_stop_eval.get('tier', 'NONE'),
                         )
                         
                         # Apply validated action
@@ -5527,6 +6716,12 @@ class EnhancedTop200StockAnalyzer:
                             'hybrid_multi_timeframe': stock_data.get('hybrid_multi_timeframe', 50),
                             'hybrid_ml_signal': stock_data.get('hybrid_ml_signal', 50),
                             'hybrid_risk_adjustment': stock_data.get('hybrid_risk_adjustment', 50),
+                            # [Rule 3a] Growth + Value factors for HOLDINGS path so
+                            # the Q/G/M/V columns in Portfolio Allocation populate.
+                            'hybrid_growth': stock_data.get('hybrid_growth', 50),
+                            'hybrid_value': stock_data.get('hybrid_value', 50),
+                            # [Rule 1] Sleeve tag for HOLDINGS path.
+                            'sleeve': stock_data.get('sleeve', 'UNKNOWN'),
                             'ad_line_signal': stock_data.get('ad_line_signal', 'NEUTRAL'),
                             'mfi_signal': stock_data.get('mfi_signal', 'NEUTRAL'),
                             # Tax awareness columns
@@ -5534,6 +6729,15 @@ class EnhancedTop200StockAnalyzer:
                             'estimated_tax': round(_estimated_tax, 0),
                             'post_tax_proceeds': round(_post_tax_proceeds, 0),
                             'action_reason': action_reason,
+                            # Phase 1/3 plumbing: shadow v2 score + hard-stop tier flow into the report.
+                            # rotation_score_delta is populated later by SWAP logic when applicable.
+                            # [DQ-NATALUM] hybrid_overall_score (v1 RAW) added for apples-to-apples
+                            # v1-vs-v2 comparison — distinct from final_blended-driven 'SCORE' column.
+                            'hybrid_overall_score': stock_data.get('hybrid_overall_score'),
+                            'hybrid_overall_score_v2': stock_data.get('hybrid_overall_score_v2'),
+                            'v2_score_delta': stock_data.get('v2_score_delta'),
+                            'hard_stop_tier': stock_data.get('hard_stop_tier', 'NONE'),
+                            'rotation_score_delta': stock_data.get('rotation_score_delta'),
                         })
                     else:
                         logging.info(f"[M5] Holdings symbol {symbol} not found in analysis results — unscored/ETF instrument, default HOLD")
@@ -5617,8 +6821,19 @@ class EnhancedTop200StockAnalyzer:
                             'hybrid_multi_timeframe': 50,
                             'hybrid_ml_signal': 50,
                             'hybrid_risk_adjustment': 50,
+                            # [Rule 3a / 1] Growth/Value/Sleeve defaults for the
+                            # unscored fallback so the report columns aren't blank.
+                            'hybrid_growth': 50,
+                            'hybrid_value': 50,
+                            'sleeve': 'UNKNOWN',
                             'ad_line_signal': 'NOT ANALYZED',
                             'mfi_signal': 'NOT ANALYZED',
+                            # Phase 1/3 plumbing: defaults for unscored fallback path.
+                            'hybrid_overall_score': None,
+                            'hybrid_overall_score_v2': None,
+                            'v2_score_delta': None,
+                            'hard_stop_tier': 'NONE',
+                            'rotation_score_delta': None,
                         })
             
             print(f"   🔧 CHECKPOINT 3: Processed {len(allocation_data)} current holdings")
@@ -5751,7 +6966,19 @@ class EnhancedTop200StockAnalyzer:
                     
                     # Check if stock is overbought (pseudo-exhaustion for new entries)
                     rsi = stock_dict.get('real_rsi', stock_dict.get('enhanced_rsi_14', 50))
+                    try:
+                        rsi = float(rsi) if rsi is not None else 50.0
+                    except (TypeError, ValueError):
+                        rsi = 50.0
                     is_overbought = rsi > 70
+
+                    # [DQ-NATALUM] Phase 3a-NEW: RSI>80 hard gate for fresh entries.
+                    # Previously the RSI>80 guard only covered INCREASE on existing holdings —
+                    # NESTLEIND-at-RSI-87.5 NEW POSITION on Apr 28 slipped through. This gate
+                    # demotes any new entry at RSI>80 to WATCHLIST regardless of pre-breakout
+                    # signals, momentum score, or rank. Operator can still see the candidate;
+                    # they just can't be auto-allocated capital today.
+                    _rsi_new_blocked = (rsi > 80)
 
                     # [RT-11 FIX] Block PRE-BREAKOUT for new candidates if bearish/zero breakout/overbought+far from support
                     _pds_nc = stock_dict.get('pattern_dominant_signal', '')
@@ -5762,8 +6989,15 @@ class EnhancedTop200StockAnalyzer:
                     if _pds_nc == 'bearish' or _bpct_nc == 0 or (rsi > 67 and _dist_nc > 8):
                         pre_breakout['pre_breakout_detected'] = False
 
+                    # [DQ-NATALUM] RSI>80 hard gate fires FIRST — supersedes momentum / breakout /
+                    # pre-breakout enthusiasm. The pullback wait is mandatory, not optional.
+                    if _rsi_new_blocked:
+                        action_type = "WATCHLIST"
+                        priority = 'LOW'
+                        action_reason = f"RSI {rsi:.0f} extreme — wait for pullback to <70 before entry"
+
                     # Conflict: Pre-breakout setup but overbought
-                    if pre_breakout['pre_breakout_detected'] and pre_breakout['breakout_probability'] >= 60 and is_overbought:
+                    elif pre_breakout['pre_breakout_detected'] and pre_breakout['breakout_probability'] >= 60 and is_overbought:
                         bp = pre_breakout['breakout_probability']
                         action_type = f"⚠️ WAIT - OVERBOUGHT (RSI {rsi:.0f})"
                         priority = 'LOW'
@@ -5891,23 +7125,75 @@ class EnhancedTop200StockAnalyzer:
                         'hybrid_multi_timeframe': stock.get('hybrid_multi_timeframe', 50),
                         'hybrid_ml_signal': stock.get('hybrid_ml_signal', 50),
                         'hybrid_risk_adjustment': stock.get('hybrid_risk_adjustment', 50),
+                        # [Rule 3a] Growth + Value factors must propagate from
+                        # results_df into allocation_df so the Q/G/M/V columns
+                        # in the Portfolio Allocation sheet are populated for
+                        # current holdings (not just left as defaults).
+                        'hybrid_growth': stock.get('hybrid_growth', 50),
+                        'hybrid_value': stock.get('hybrid_value', 50),
+                        # [Rule 1] Sleeve tag (CORE / TACTICAL / UNKNOWN)
+                        # surfaced for the SLEEVE column in Portfolio Allocation.
+                        'sleeve': stock.get('sleeve', 'UNKNOWN'),
                         'ad_line_signal': stock.get('ad_line_signal', 'NEUTRAL'),
                         'mfi_signal': stock.get('mfi_signal', 'NEUTRAL'),
+                        # Phase 1/3 plumbing: shadow v2 score for new candidates.
+                        # hard_stop_tier is N/A for non-holdings; rotation_score_delta is set later by SWAP logic.
+                        # [DQ-NATALUM] v1 raw hybrid added for apples-to-apples comparison.
+                        'hybrid_overall_score': stock.get('hybrid_overall_score'),
+                        'hybrid_overall_score_v2': stock.get('hybrid_overall_score_v2'),
+                        'v2_score_delta': stock.get('v2_score_delta'),
+                        'hard_stop_tier': 'NONE',
+                        'rotation_score_delta': None,
                     })
             
             # STEP 3: Risk Profile-Based Category Allocation
             allocation_df = pd.DataFrame(allocation_data)
             
-            # Data quality flag: mark stocks with missing/zero price or failed analysis
+            # Data quality flag: mark stocks with missing/zero price or failed analysis.
+            # [DQ-NATALUM] Extended to catch the NATIONALUM-class corruption where price+score
+            # arrive intact but RSI/PE/volatility get NaN'd in transit. Any BUY/INCREASE/NEW
+            # POSITION for such a row is unsafe — fabricated defaults will mislead the operator.
             allocation_df['data_quality'] = 'OK'
             _dq_bad_price = allocation_df['current_price'].fillna(0) <= 0
             _dq_zero_score = allocation_df['overall_score'].fillna(0) == 0
             allocation_df.loc[_dq_bad_price, 'data_quality'] = 'NO_PRICE'
             allocation_df.loc[_dq_zero_score & ~_dq_bad_price, 'data_quality'] = 'NO_SCORE'
-            _dq_flagged = (_dq_bad_price | _dq_zero_score).sum()
+
+            # [DQ-NATALUM] Detect signal-grade fields missing for analyzed stocks.
+            # A stock that has a real price + real score but missing RSI/fundamentals
+            # is the exact NATIONALUM failure mode that produced fabricated RSI=50, PE=0,
+            # vol=100 and an inflated SCORE 82.7.
+            _rsi_col_dq = 'enhanced_rsi_14' if 'enhanced_rsi_14' in allocation_df.columns else None
+            _vol_col_dq = 'volatility' if 'volatility' in allocation_df.columns else None
+            _pe_col_dq  = 'pe_ratio' if 'pe_ratio' in allocation_df.columns else None
+            _roe_col_dq = 'roe' if 'roe' in allocation_df.columns else None
+            _has_real_data = (~_dq_bad_price) & (~_dq_zero_score)
+            _dq_no_rsi = pd.Series(False, index=allocation_df.index)
+            _dq_no_fund = pd.Series(False, index=allocation_df.index)
+            _dq_no_vol = pd.Series(False, index=allocation_df.index)
+            if _rsi_col_dq is not None:
+                _dq_no_rsi = _has_real_data & (
+                    pd.to_numeric(allocation_df[_rsi_col_dq], errors='coerce').fillna(0) == 0
+                )
+            if _pe_col_dq is not None and _roe_col_dq is not None:
+                _pe_zero = pd.to_numeric(allocation_df[_pe_col_dq], errors='coerce').fillna(0) == 0
+                _roe_zero = pd.to_numeric(allocation_df[_roe_col_dq], errors='coerce').fillna(0) == 0
+                _dq_no_fund = _has_real_data & _pe_zero & _roe_zero
+            if _vol_col_dq is not None:
+                _dq_no_vol = _has_real_data & (
+                    pd.to_numeric(allocation_df[_vol_col_dq], errors='coerce').fillna(0) == 0
+                )
+            allocation_df.loc[_dq_no_rsi & (allocation_df['data_quality']=='OK'), 'data_quality'] = 'NO_RSI'
+            allocation_df.loc[_dq_no_fund & (allocation_df['data_quality']=='OK'), 'data_quality'] = 'NO_FUNDAMENTALS'
+            allocation_df.loc[_dq_no_vol & (allocation_df['data_quality']=='OK'), 'data_quality'] = 'NO_VOLATILITY'
+
+            _dq_flagged = (_dq_bad_price | _dq_zero_score | _dq_no_rsi | _dq_no_fund | _dq_no_vol).sum()
             if _dq_flagged > 0:
-                _dq_names = allocation_df.loc[_dq_bad_price | _dq_zero_score, 'symbol'].tolist()
-                print(f"   ⚠️ Data quality flags: {_dq_flagged} stocks have missing price or score: {_dq_names}")
+                _dq_names = allocation_df.loc[
+                    _dq_bad_price | _dq_zero_score | _dq_no_rsi | _dq_no_fund | _dq_no_vol,
+                    ['symbol', 'data_quality']
+                ].values.tolist()
+                print(f"   ⚠️ Data quality flags: {_dq_flagged} stocks: {_dq_names}")
             
             # Initialize allocation columns for all rows
             allocation_df['allocation_percentage'] = 0.0
@@ -5923,14 +7209,22 @@ class EnhancedTop200StockAnalyzer:
                 allocation_df['action_recommendation'] = 'HOLD'
             
             # F-07 FIX: Block BUY/INCREASE for stocks flagged NO_PRICE or NO_SCORE.
+            # [DQ-NATALUM] Extended to also block NO_RSI / NO_FUNDAMENTALS / NO_VOLATILITY.
             # Must run AFTER action_recommendation column exists (F07-ORDERING fix).
+            _DQ_BLOCK_FLAGS = ('NO_PRICE', 'NO_SCORE', 'NO_RSI', 'NO_FUNDAMENTALS', 'NO_VOLATILITY')
             if _dq_flagged > 0:
                 _dq_buy_mask = (
-                    allocation_df['data_quality'].isin(['NO_PRICE', 'NO_SCORE']) &
+                    allocation_df['data_quality'].isin(_DQ_BLOCK_FLAGS) &
                     allocation_df['action_recommendation'].astype(str).str.contains('BUY|INCREASE|NEW POSITION', na=False, regex=True)
                 )
                 if _dq_buy_mask.any():
-                    allocation_df.loc[_dq_buy_mask, 'action_recommendation'] = 'SKIP - DATA ISSUE'
+                    # Preserve the underlying flag in exit_reason for audit transparency.
+                    for _dqi in allocation_df[_dq_buy_mask].index:
+                        _flag = allocation_df.at[_dqi, 'data_quality']
+                        _sym = allocation_df.at[_dqi, 'symbol']
+                        allocation_df.at[_dqi, 'action_recommendation'] = f'SKIP - {_flag}'
+                        allocation_df.at[_dqi, 'exit_reason'] = f'Data quality fail: {_flag}'
+                        logging.warning(f"[DQ-BLOCK] {_sym}: BUY/INCREASE/NEW blocked due to {_flag}")
                     print(f"   ⚠️ Blocked {_dq_buy_mask.sum()} BUY recommendations due to data quality flags")
             
             # 🔧 FIX: Ensure all critical columns exist with defaults
@@ -5968,12 +7262,12 @@ class EnhancedTop200StockAnalyzer:
             
             # Initialize profit booking and timing columns — preserve values already set (e.g. REDUCE from sector cap)
             if 'profit_booking_pct' not in allocation_df.columns:
-            allocation_df['profit_booking_pct'] = None
+                allocation_df['profit_booking_pct'] = None
             else:
                 allocation_df['profit_booking_pct'] = allocation_df['profit_booking_pct'].where(
                     allocation_df['profit_booking_pct'].notna(), None)
             if 'profit_booking_timing' not in allocation_df.columns:
-            allocation_df['profit_booking_timing'] = None
+                allocation_df['profit_booking_timing'] = None
             else:
                 allocation_df['profit_booking_timing'] = allocation_df['profit_booking_timing'].where(
                     allocation_df['profit_booking_timing'].notna(), None)
@@ -6062,6 +7356,20 @@ class EnhancedTop200StockAnalyzer:
                     # These are SUCCESS stories - don't sell just because score is lower!
                     is_quality_winner = profit_pct > _profit_book_thr
                     
+                    # Phase 3a + DQ-NATALUM (Apr 29 tightening): RSI>80 hard guard.
+                    # Previously the guard required profit > 5% — that allowed NMDC to slip through
+                    # at RSI 81.9 with profit +4.1%. Removed the profit gate. The guard now blocks
+                    # INCREASE on ANY overbought holding regardless of P&L, with exception only for
+                    # quality winners >20% profit (handled below as BOOK_PROFIT, not INCREASE).
+                    # Note: stocks with RSI=0 (DQ failure) are not blocked here because the upstream
+                    # NO_RSI flag will already have downgraded them to SKIP - NO_RSI.
+                    _rsi_inc_guard = stock_data.get('real_rsi', stock_data.get('enhanced_rsi_14', 50))
+                    try:
+                        _rsi_inc_guard = float(_rsi_inc_guard) if _rsi_inc_guard is not None else 50.0
+                    except (TypeError, ValueError):
+                        _rsi_inc_guard = 50.0
+                    _rsi_increase_blocked = (_rsi_inc_guard > 80)
+
                     if is_quality_winner:
                         # Quality winner - ALWAYS protect, suggest partial profit booking
                         if profit_pct > 0.40:
@@ -6075,10 +7383,16 @@ class EnhancedTop200StockAnalyzer:
                             priority = 'MEDIUM'
                             allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - HOLD CORE'
                         else:  # 20-30% profit
-                            action = 'INCREASE'
-                            reason = f"🏆 QUALITY WINNER +{profit_pct*100:.1f}% | Can add on dips"
-                            priority = 'LOW'
-                            allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - ADD ON DIPS'
+                            if _rsi_increase_blocked:
+                                action = 'BOOK_PROFIT'
+                                reason = f"🏆 QUALITY WINNER +{profit_pct*100:.1f}% but RSI={_rsi_inc_guard:.0f} extreme — book partial, do not add"
+                                priority = 'HIGH'
+                                allocation_df.at[idx, 'exit_strategy'] = '⚠️ RSI EXTREME - BOOK PARTIAL'
+                            else:
+                                action = 'INCREASE'
+                                reason = f"🏆 QUALITY WINNER +{profit_pct*100:.1f}% | Can add on dips"
+                                priority = 'LOW'
+                                allocation_df.at[idx, 'exit_strategy'] = '💎 QUALITY - ADD ON DIPS'
                     
                     # TOP 30% - INCREASE POSITION (best performers)
                     elif rank <= top_30_pct:
@@ -6089,6 +7403,11 @@ class EnhancedTop200StockAnalyzer:
                             reason = f"🔄 TOP SCORER but AT LOSS ({profit_pct*100:.1f}%) - Hold, rotate when profitable | Score: {score:.1f}"
                             priority = 'MEDIUM'
                             allocation_df.at[idx, 'exit_strategy'] = '⚠️ HOLD - ROTATION CANDIDATE'
+                        elif _rsi_increase_blocked:
+                            action = 'BOOK_PROFIT'
+                            reason = f"🏆 TOP PERFORMER but RSI={_rsi_inc_guard:.0f} extreme — book partial instead of adding | Score: {score:.1f}"
+                            priority = 'HIGH'
+                            allocation_df.at[idx, 'exit_strategy'] = '⚠️ RSI EXTREME - BOOK PARTIAL'
                         else:
                             action = 'INCREASE'
                             reason = f"🏆 TOP PERFORMER (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
@@ -6099,15 +7418,15 @@ class EnhancedTop200StockAnalyzer:
                     # ML overrides removed — 39% accuracy ML model was blocking legitimate sells.
                     elif rank > (total_holdings - bottom_20_pct):
                         if profit_pct < -0.05:  # Loss > 5%
-                                action = 'SELL'
+                            action = 'SELL'
                             reason = f"❌ UNDERPERFORMER (Rank #{rank}/{total_holdings}) | Score: {score:.1f} | Loss: {profit_pct*100:.1f}%"
-                                priority = 'HIGH'
-                                allocation_df.at[idx, 'exit_strategy'] = '🔴 SELL - CUT LOSSES'
+                            priority = 'HIGH'
+                            allocation_df.at[idx, 'exit_strategy'] = '🔴 SELL - CUT LOSSES'
                         elif score < 50 and profit_pct < 0.05:
-                                action = 'SELL'
-                                reason = f"⚠️ WEAK FUNDAMENTALS (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
-                                priority = 'MEDIUM'
-                                allocation_df.at[idx, 'exit_strategy'] = '🟠 SELL - WEAK STOCK'
+                            action = 'SELL'
+                            reason = f"⚠️ WEAK FUNDAMENTALS (Rank #{rank}/{total_holdings}) | Score: {score:.1f}"
+                            priority = 'MEDIUM'
+                            allocation_df.at[idx, 'exit_strategy'] = '🟠 SELL - WEAK STOCK'
                         elif profit_pct < 0.05:
                                 action = 'SELL'
                                 reason = f"🔄 REBALANCE (Rank #{rank}/{total_holdings}) | Better opportunities available"
@@ -6127,22 +7446,55 @@ class EnhancedTop200StockAnalyzer:
                         allocation_df.at[idx, 'exit_strategy'] = '⚪ HOLD - MONITOR'
                     
                     # Update action_recommendation with EXIT STRATEGY
-                    # Skip overwriting if we already have conflict-resolved, REDUCE, STOP LOSS, or EMERGENCY action
+                    # Skip overwriting if we already have conflict-resolved, REDUCE, STOP LOSS, or EMERGENCY action.
+                    # [DQ-NATALUM] Exception: the RSI>80 guard above produces BOOK_PROFIT — that
+                    # MUST override an upstream INCREASE (otherwise NMDC-class slip-through repeats).
                     current_action = allocation_df.at[idx, 'action_recommendation']
                     _ca_upper = str(current_action).upper()
                     _PRESERVE_KW = ('SELL', 'SWAP', 'INCREASE', 'REDUCE', 'CONSIDER',
                                     'EMERGENCY', 'BOOK_PROFIT', 'PRE-BREAKOUT', 'NEW POSITION',
                                     'STOP LOSS', 'MOMENTUM', 'EXIT')
                     _preserve = any(kw in _ca_upper for kw in _PRESERVE_KW)
-                    if not _preserve:
+                    # RSI extreme override: BOOK_PROFIT from the RSI>80 guard always wins over INCREASE.
+                    _rsi_override = (action == 'BOOK_PROFIT' and _rsi_increase_blocked
+                                     and 'INCREASE' in _ca_upper)
+                    if (not _preserve) or _rsi_override:
                         allocation_df.at[idx, 'action_recommendation'] = action
                         allocation_df.at[idx, 'exit_reason'] = reason
                         allocation_df.at[idx, 'priority'] = priority
                     else:
                         _existing_reason = str(allocation_df.at[idx, 'exit_reason'])
-                        if not _existing_reason or _existing_reason in ('', 'nan', 'None'):
-                    allocation_df.at[idx, 'exit_reason'] = reason
-                    allocation_df.at[idx, 'priority'] = priority
+                        # [Investor-audit Q51 + Q92] When the action is a
+                        # preserved SELL/HARD_STOP/THESIS_BREAK/EMERGENCY
+                        # action, the holdings-rank "HOLD STEADY" message
+                        # is the wrong fallback - it contradicts what the
+                        # investor sees in ACTION. Prefer the real
+                        # `action_reason` (which carries the hard-stop /
+                        # thesis-break / momentum-exhaustion message).
+                        # Q92 extension: ALSO refire when the existing
+                        # exit_reason has been overwritten with the rank
+                        # text ("HOLD STEADY (Rank #X/Y)") - that text is
+                        # always wrong on an EXIT action.
+                        _stale_rank_text = (
+                            _existing_reason and (
+                                'HOLD STEADY' in _existing_reason or
+                                'TOP PERFORMER' in _existing_reason or
+                                'REBALANCE' in _existing_reason.upper()
+                            )
+                        )
+                        _empty_reason = (not _existing_reason or
+                                         _existing_reason in ('', 'nan', 'None'))
+                        if _empty_reason or _stale_rank_text:
+                            _real_reason = str(allocation_df.at[idx, 'action_reason'] if 'action_reason' in allocation_df.columns else '')
+                            _ca_upper_inner = str(allocation_df.at[idx, 'action_recommendation']).upper()
+                            _is_exit_action = any(kw in _ca_upper_inner for kw in (
+                                'SELL', 'EMERGENCY', 'STOP LOSS', 'EXIT', 'SWAP',
+                            ))
+                            if _is_exit_action and _real_reason and _real_reason not in ('', 'nan', 'None'):
+                                allocation_df.at[idx, 'exit_reason'] = _real_reason
+                            elif _empty_reason:
+                                allocation_df.at[idx, 'exit_reason'] = reason
+                            allocation_df.at[idx, 'priority'] = priority
                 
                 # CONVICTION-BASED GRADUATED EXIT: require multiple consecutive sell signals
                 # before escalating. Limits damage from single-day wrong calls.
@@ -6152,7 +7504,13 @@ class EnhancedTop200StockAnalyzer:
                     if 'SELL' not in _act_g and 'CONSIDER' not in _act_g:
                         continue
                     _er_g = str(allocation_df.at[idx, 'exit_reason'])
-                    if any(kw in _er_g.upper() for kw in ('UNCONDITIONAL', 'STOP LOSS', 'EMERGENCY', 'CIRCUIT BREAKER', 'CRISIS')):
+                    # [Investor-audit Q88] THESIS_BREAK and TRAILING_STOP are
+                    # explicit "exit now" signals - they MUST NOT be softened
+                    # by the graduated-exit pipeline. Previously a CORE stock
+                    # with V2=30 (THESIS_BREAK fired) was being downgraded to
+                    # CONSIDER SELLING graduated 50% because "THESIS BREAK"
+                    # wasn't in the unconditional-exit keyword list.
+                    if any(kw in _er_g.upper() for kw in ('UNCONDITIONAL', 'STOP LOSS', 'EMERGENCY', 'CIRCUIT BREAKER', 'CRISIS', 'THESIS BREAK', 'TRAILING_STOP', 'TRAILING STOP')):
                         continue
                     _sym_g = row['symbol']
                     _streak = self.recommendation_history.get_sell_signal_streak(_sym_g)
@@ -6565,11 +7923,11 @@ class EnhancedTop200StockAnalyzer:
                                                    'EMERGENCY', 'BOOK_PROFIT', 'PRE-BREAKOUT', 'NEW POSITION',
                                                    'MOMENTUM', 'EXIT')
                                 has_special_action = any(kw in current_action for kw in _PRESERVE_KW_BF)
-                                    if not has_special_action:
-                                        allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
-                                    print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
-                                    shortfall -= 1
-                                    added += 1
+                                if not has_special_action:
+                                    allocation_df.at[idx, 'action_recommendation'] = 'KEEP' if row['is_current_holding'] else 'BUY'
+                                print(f"         + Added {row['symbol']} ({category}) - Score: {row['risk_adjusted_score']:.1f}")
+                                shortfall -= 1
+                                added += 1
                             
                             if added > 0:
                                 actual_counts[category] = actual_counts.get(category, 0) + added
@@ -6868,24 +8226,79 @@ class EnhancedTop200StockAnalyzer:
                 print(f"      🚀 Found {len(prebreakout_stocks_in_allocation)} pre-breakout/high-ROI stocks from allocation")
                 
                 # 🚀 ENHANCED: Include pre-breakout and high-momentum stocks in allocation
-                # These stocks have high ROI potential but were previously excluded
+                # These stocks have high ROI potential but were previously excluded.
+                # [v2 Promotion] When v2 is live, gate on `overall_score` directly
+                # rather than `risk_adjusted_score`. v2's signed-weight model
+                # already incorporates risk preference (risk_adjustment carries a
+                # negative weight in the BEAR-calibrated file), so multiplying
+                # overall_score by (1 - vol_penalty) double-counts risk and
+                # blocks legitimate v2 BUY picks. Falls back to v1's risk-
+                # adjusted gate when shadow-mode is still active.
+                try:
+                    from config import get_config as _gc_v2_gate
+                    _v2_shadow_gate = bool(getattr(_gc_v2_gate(), 'V2_SHADOW_MODE', True))
+                except Exception:
+                    _v2_shadow_gate = True
+                if _v2_shadow_gate:
+                    _gate_score_col = 'risk_adjusted_score'
+                    _gate_thr = 55
+                else:
+                    _gate_score_col = 'overall_score'
+                    _gate_thr = 55
+                # [Investor-audit Q8] Add an explicit DQ exclusion. A stock
+                # tagged "BUY (CAUTION: NO FUNDAMENTAL DATA)" would otherwise
+                # slip past the `.contains('BUY')` filter even though the
+                # caution suffix is meant to demote it. We exclude any
+                # `fundamental_data_failed=True` row outright, plus rows
+                # whose `data_quality_score` is below 40 (steep deterioration
+                # signal we already enforce in _evaluate_thesis_break).
+                _dq_score_col = 'data_quality_score' if 'data_quality_score' in all_analyzed_df.columns else None
+                _dq_fail_col = 'fundamental_data_failed' if 'fundamental_data_failed' in all_analyzed_df.columns else None
+                _dq_ok_mask = pd.Series(True, index=all_analyzed_df.index)
+                if _dq_fail_col is not None:
+                    _dq_ok_mask &= ~all_analyzed_df[_dq_fail_col].fillna(False).astype(bool)
+                if _dq_score_col is not None:
+                    _dq_ok_mask &= pd.to_numeric(all_analyzed_df[_dq_score_col], errors='coerce').fillna(100) >= 40
                 new_opportunities_candidates = all_analyzed_df[
                     (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
                     (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
-                    (all_analyzed_df['risk_adjusted_score'] >= 55) &
-                    (all_analyzed_df['current_price'].fillna(0) > 0)
+                    (~all_analyzed_df['final_recommendation'].astype(str).str.contains('CAUTION', case=False, na=False)) &
+                    (all_analyzed_df[_gate_score_col] >= _gate_thr) &
+                    (all_analyzed_df['current_price'].fillna(0) > 0) &
+                    _dq_ok_mask
                 ].copy()
                 
                 _curr_regime_alloc = str(getattr(self, 'current_market_regime', '') or '').upper()
                 if _curr_regime_alloc in ('BEAR', 'BEARISH'):
-                    _bear_vol_cap = getattr(_config, 'MAX_SAFE_VOLATILITY', 80.0) * 0.5
+                    # [Investor-audit Q54] When v2 is the live engine, the
+                    # BEAR vol cap double-penalises volatility - v2 already
+                    # has a -0.34 weight on risk_adjustment in its BEAR
+                    # calibration, which means a high-volatility stock that
+                    # still scores BUY in v2 has explicitly survived the
+                    # risk-aware engine. Relax the cap from 40% (= 80*0.5)
+                    # to 60% (= 80*0.75) when v2 is live. This was the
+                    # exact issue blocking GROWW (vol=60%, V2=76, BUY)
+                    # despite v2 explicitly recommending it.
+                    try:
+                        from config import get_config as _gc_v2_vol
+                        _v2_live_vol = not bool(getattr(_gc_v2_vol(), 'V2_SHADOW_MODE', True))
+                    except Exception:
+                        _v2_live_vol = False
+                    # 0.8125 * 80 = 65% in v2 mode. GROWW (the canonical
+                    # v2 BUY example) sits at 60.37% vol so we need >=60%
+                    # to let it through. 65% gives a small safety margin
+                    # over GROWW's level while still blocking truly
+                    # extreme-vol names (RVNL/IRCTC class 80%+ stocks).
+                    _vol_cap_mult = 0.8125 if _v2_live_vol else 0.5
+                    _bear_vol_cap = getattr(_config, 'MAX_SAFE_VOLATILITY', 80.0) * _vol_cap_mult
                     _pre_count = len(new_opportunities_candidates)
                     new_opportunities_candidates = new_opportunities_candidates[
                         new_opportunities_candidates['volatility'].fillna(100) <= _bear_vol_cap  # HI-04: unknown vol = high risk
                     ]
                     _dropped = _pre_count - len(new_opportunities_candidates)
                     if _dropped > 0:
-                        print(f"      🛡️ BEAR filter: Excluded {_dropped} high-volatility (>{_bear_vol_cap:.0f}%) candidates")
+                        _label = "v2-relaxed" if _v2_live_vol else "v1-strict"
+                        print(f"      🛡️ BEAR filter ({_label}): Excluded {_dropped} high-volatility (>{_bear_vol_cap:.0f}%) candidates")
                 
                 print(f"      📊 Found {len(new_opportunities_candidates)} standard BUY candidates from analysis")
                 
@@ -6945,7 +8358,10 @@ class EnhancedTop200StockAnalyzer:
                             'company_name': prebreakout_stock.get('company_name', symbol),
                             'market_cap': market_cap,
                             'rank': 0,
-                            'breakout_probability': prebreakout_stock.get('breakout_probability', 0)
+                            'breakout_probability': prebreakout_stock.get('breakout_probability', 0),
+                            # [DQ-NATALUM] RSI plumbed for the funding-loop RSI>80 gate.
+                            'real_rsi': prebreakout_stock.get('real_rsi'),
+                            'enhanced_rsi_14': prebreakout_stock.get('enhanced_rsi_14'),
                         })
                 
                 # Add new opportunities to the unified list
@@ -7024,7 +8440,10 @@ class EnhancedTop200StockAnalyzer:
                             'company_name': analyzed_stock.get('company_name', symbol),
                             'market_cap': market_cap,
                             'rank': 0,
-                            'breakout_probability': analyzed_stock.get('breakout_probability', 0)
+                            'breakout_probability': analyzed_stock.get('breakout_probability', 0),
+                            # [DQ-NATALUM] RSI plumbed for the funding-loop RSI>80 gate.
+                            'real_rsi': analyzed_stock.get('real_rsi'),
+                            'enhanced_rsi_14': analyzed_stock.get('enhanced_rsi_14'),
                         })
                 
                 # Deduplicate all_opportunities by symbol (keep highest score)
@@ -7080,13 +8499,22 @@ class EnhancedTop200StockAnalyzer:
                             
                             score_gap = star['score'] - med['score']
                             
+                            # Phase 3c: rotation-friction gate — SWAP only when holding is weak
+                            # AND the score advantage exceeds friction. Existing 20-point
+                            # gap remains as a sanity floor; rotation gate adds weakness check.
+                            _med_rsi = med.get('rsi', med.get('real_rsi', med.get('enhanced_rsi_14', 50)))
+                            _med_pnl = med.get('current_profit_pct', med.get('profit_pct', 0)) or 0
+                            _rot_eval = self._should_rotate(
+                                holding_score=med['score'],
+                                candidate_score=star['score'],
+                                holding_rsi=_med_rsi,
+                                holding_profit_pct=_med_pnl,
+                            )
+                            med['rotation_score_delta'] = _rot_eval['score_delta']
 
-
-                            if score_gap >= 20:
+                            if score_gap >= 20 and _rot_eval['should_rotate']:
                                 # FOUND SWAP!
-                                print(f"      🔄 SWAP FOUND: Sell {med['symbol']} ({med['score']:.1f}) -> Buy {star['symbol']} ({star['score']:.1f}) | Gap: +{score_gap:.1f}")
-                                
-
+                                print(f"      🔄 SWAP FOUND: Sell {med['symbol']} ({med['score']:.1f}) -> Buy {star['symbol']} ({star['score']:.1f}) | Gap: +{score_gap:.1f} | {_rot_eval['reason']}")
 
                                 # Update Mediocre Holding Action
                                 med['recommendation'] = f"SWAP -> {star['symbol']}"
@@ -7098,9 +8526,12 @@ class EnhancedTop200StockAnalyzer:
                                 star['action_comment'] = f"Funded by selling {med['symbol']}"
                                 star['is_matched'] = True
                                 star['swap_source_value'] = med.get('current_value', 0) # Store source value for capping
+                                star['rotation_score_delta'] = _rot_eval['score_delta']
                                 
                                 swaps_found += 1
                                 break
+                            elif score_gap >= 20:
+                                print(f"      ⏸️  SWAP BLOCKED: {med['symbol']} ({med['score']:.1f}) -> {star['symbol']} ({star['score']:.1f}) Gap +{score_gap:.1f} | {_rot_eval['reason']}")
 
                 
                 # === ALLOCATE FUNDS SEQUENTIALLY ===
@@ -7173,6 +8604,17 @@ class EnhancedTop200StockAnalyzer:
                         if sector_allocation.get(_swap_sector, 0) >= _config.SECTOR_CAP and not _swap_cap_override:
                             print(f"      ⚠️ SWAP TARGET {symbol} blocked: sector '{_swap_sector}' at cap ({_config.SECTOR_CAP})")
                             continue
+
+                        # [DQ-NATALUM] RSI>80 hard gate also applies to SWAP targets — NESTLEIND-class
+                        # slip-through happened here because this path bypasses the new-candidate loop.
+                        try:
+                            _swap_rsi = float(opportunity.get('real_rsi',
+                                              opportunity.get('enhanced_rsi_14', 50)) or 50)
+                        except (TypeError, ValueError):
+                            _swap_rsi = 50.0
+                        if _swap_rsi > 80:
+                            print(f"      ⚠️ SWAP TARGET {symbol} blocked: RSI {_swap_rsi:.0f} extreme — wait for pullback")
+                            continue
                         
                         # 🎯 GUARANTEED ALLOCATION: Use recycled capital for SWAP target
                         # Cap at 40% of total budget OR recycled amount, whichever is HIGHER for high-ROI swaps
@@ -7199,8 +8641,15 @@ class EnhancedTop200StockAnalyzer:
                             if actual_investment >= _min_invest:
                                 print(f"      ✅ SWAP TARGET {symbol}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | {cap_reason}")
                                 
-                                # Add to allocation_df as NEW POSITION
-                                new_row = pd.Series({
+                                # Add to allocation_df as NEW POSITION.
+                                # [Rule 1 / 3a] Seed from results_df so Growth /
+                                # Value / Sleeve columns flow through for SWAP
+                                # targets too (same pattern as the BUY/INCREASE
+                                # branch below).
+                                _swt_mask = results_df['symbol'].str.upper() == symbol.upper()
+                                _swt_src = results_df[_swt_mask].iloc[0].to_dict() if _swt_mask.any() else {}
+                                _swt_data = dict(_swt_src)
+                                _swt_data.update({
                                     'symbol': symbol,
                                     'company_name': opportunity.get('company_name', symbol),
                                     'sector': opportunity['sector'],
@@ -7210,15 +8659,16 @@ class EnhancedTop200StockAnalyzer:
                                     'investment_amount': actual_investment,
                                     'suggested_quantity': shares_to_buy,
                                     'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),
-                                    'overall_score': min(100.0, opportunity['score']),  # GAP-A: cap display score at 100 (ROI boost is internal ranking only)
+                                    'overall_score': min(100.0, opportunity['score']),
                                     'market_cap_category': opportunity['market_cap_category'],
                                     'action_recommendation': opportunity.get('action_recommendation', '🚀 HIGH MOMENTUM NEW POSITION'),
                                     'action_type': 'NEW POSITION',
                                     'keep_stock': True,
                                     'recommendation': 'BUY (SWAP)',
                                     'exit_reason': opportunity.get('roi_label', 'SWAP upgrade'),
-                                    'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC'
+                                    'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
                                 })
+                                new_row = pd.Series(_swt_data)
                                 
                                 # Check if already exists
                                 existing_mask = allocation_df['symbol'] == symbol
@@ -7272,8 +8722,33 @@ class EnhancedTop200StockAnalyzer:
                     if _cat_sector_counts[_cat_sector_key] >= _config.CATEGORY_SECTOR_CAP and not _is_existing and not _score_overrides_cap:
                         logging.info(f"Per-category sector cap: {sector} has {_cat_sector_counts[_cat_sector_key]} in {_opp_cat}, skipping NEW {opportunity['symbol']}")
                         continue
-                    
-                    
+
+                    # [DQ-NATALUM] RSI>80 hard gate for opportunity-funding path.
+                    # The new-candidate loop and holdings-EXIT-STRATEGY block already gate RSI>80,
+                    # but this funding loop runs over a broader `all_opportunities` list and can
+                    # re-inject stocks that earlier blocks classified WATCHLIST/BOOK_PROFIT.
+                    # Without this guard the NESTLEIND-class (NEW) and NMDC-class (INCREASE)
+                    # slip-throughs repeat. RSI is looked up either from the opportunity dict
+                    # (if plumbed) or from the live allocation_df row.
+                    _opp_rsi = opportunity.get('real_rsi', opportunity.get('enhanced_rsi_14'))
+                    if _opp_rsi is None:
+                        _opp_sym = opportunity['symbol']
+                        _opp_row = allocation_df[allocation_df['symbol'] == _opp_sym]
+                        if not _opp_row.empty:
+                            _opp_rsi = _opp_row.iloc[0].get('enhanced_rsi_14')
+                    try:
+                        _opp_rsi = float(_opp_rsi) if _opp_rsi is not None else 50.0
+                    except (TypeError, ValueError):
+                        _opp_rsi = 50.0
+                    if _opp_rsi > 80:
+                        _action_kind = 'INCREASE' if _is_existing else 'NEW POSITION'
+                        logging.info(
+                            f"[DQ-BLOCK] RSI guard: {opportunity['symbol']} RSI {_opp_rsi:.1f} "
+                            f"> 80 — skipping {_action_kind} funding (wait for pullback)"
+                        )
+                        print(f"      ⚠️ {opportunity['symbol']} blocked: RSI {_opp_rsi:.0f} extreme — wait for pullback to <70")
+                        continue
+
                     # Calculate optimal investment (standard logic for INCREASE and remaining BUY opportunities)
                     optimal_investment = min(
                         opportunity['max_investment'],
@@ -7322,25 +8797,39 @@ class EnhancedTop200StockAnalyzer:
                             action_label = action_rec_from_analysis  # Keep specific pre-breakout/conflict label
                         else:
                             action_label = 'NEW POSITION'  # Default for standard BUY
-                        
-                        # Create new row for new position
-                        new_row = pd.Series({
+
+                        # [DQ-MARICO FIX] Late-injected NEW POSITION rows (added via pd.concat
+                        # below when a candidate didn't make new_candidates.head(N) but the
+                        # funding loop later allocates capital) used to start as a sparse
+                        # ~30-field Series. _clean_dataframe_for_excel then filled NaN→0/50
+                        # for every missing numeric column, producing the MARICO surface
+                        # (RSI=0, VOL=0, V2 RAW=0, FUND/MOM/VOL/MTF/RISK=0). The post-alloc
+                        # DQ guard had already run before this concat, so the late row was
+                        # never re-evaluated.
+                        # We now seed new_row from the underlying analysis row in results_df
+                        # so RSI / volatility / fundamentals / hybrid components / signals
+                        # carry their real values into the Portfolio Allocation sheet AND
+                        # remain visible to the late DQ pass added below.
+                        _src_mask = results_df['symbol'].str.upper() == opportunity['symbol'].upper()
+                        _src_row = results_df[_src_mask].iloc[0].to_dict() if _src_mask.any() else {}
+                        new_row_data = dict(_src_row)
+                        new_row_data.update({
                             'symbol': opportunity['symbol'],
-                            'company_name': opportunity.get('company_name', opportunity['symbol']),
-                            'sector': opportunity['sector'],
-                            'current_price': opportunity['current_price'],
+                            'company_name': opportunity.get('company_name', _src_row.get('company_name', opportunity['symbol'])),
+                            'sector': opportunity.get('sector', _src_row.get('sector', 'Unknown')),
+                            'current_price': opportunity.get('current_price', _src_row.get('current_price', 0)),
                             'current_value': 0,
                             'current_quantity': 0,
                             'investment_amount': actual_investment,
                             'suggested_quantity': shares_to_buy,
-                            'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),  # Use base score for risk_adjusted
+                            'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),
                             'overall_score': min(100.0, opportunity['score']),  # GAP-A: cap at 100; ROI boost is internal ranking only
                             'market_cap_category': opportunity['market_cap_category'],
-                            'action_recommendation': action_label,  # ✅ Preserve specific action for high-ROI stocks
+                            'action_recommendation': action_label,
                             'action_type': 'NEW POSITION',
                             'keep_stock': True,
                             'recommendation': opportunity.get('recommendation', 'BUY'),
-                            'market_cap': opportunity.get('market_cap', 0),
+                            'market_cap': opportunity.get('market_cap', _src_row.get('market_cap', 0)),
                             'max_allocation_pct': opportunity.get('max_allocation_pct', 5.0),
                             'is_current_holding': False,
                             'exit_reason': opportunity.get('roi_label', 'New opportunity - Quality stock not in portfolio'),
@@ -7348,9 +8837,12 @@ class EnhancedTop200StockAnalyzer:
                             'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
                             'holdings_rank': 0,
                             'current_profit_pct': float('nan'),
-                            'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0
+                            'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0,
+                            # hard_stop_tier is N/A for new positions; rotation_score_delta set later by SWAP.
+                            'hard_stop_tier': 'NONE',
                         })
-                        
+                        new_row = pd.Series(new_row_data)
+
                         # Check if symbol already exists to prevent DUPLICATES
                         existing_mask = allocation_df['symbol'] == opportunity['symbol']
                         if existing_mask.any():
@@ -7396,7 +8888,75 @@ class EnhancedTop200StockAnalyzer:
                     allocation_df.loc[_unfunded_existing, 'action_recommendation'] = 'HOLD'
                     allocation_df.loc[_unfunded_existing, 'exit_reason'] = 'INCREASE target but budget exhausted — hold position'
                     print(f"   📋 Relabeled {_unfunded_existing.sum()} unfunded INCREASE (existing holdings) as HOLD")
-                
+
+                # [DQ-MARICO POST] Re-run data-quality guard against any rows added/changed
+                # by the SWAP / BUY funding loop above. The earlier guard ran on the initial
+                # allocation_df only; without this second pass a late-injected NEW POSITION
+                # whose underlying analysis has zero RSI / fundamentals / volatility (the
+                # MARICO failure mode) would survive as a fundable allocation. This reuses
+                # the same flag set and BUY-block semantics as the original guard.
+                try:
+                    if 'data_quality' not in allocation_df.columns:
+                        allocation_df['data_quality'] = 'OK'
+                    _dq_late_bad_price = pd.to_numeric(allocation_df['current_price'], errors='coerce').fillna(0) <= 0
+                    _dq_late_zero_score = pd.to_numeric(allocation_df['overall_score'], errors='coerce').fillna(0) == 0
+                    _dq_late_has_real = (~_dq_late_bad_price) & (~_dq_late_zero_score)
+                    _rsi_col_late = 'enhanced_rsi_14' if 'enhanced_rsi_14' in allocation_df.columns else None
+                    _vol_col_late = 'volatility' if 'volatility' in allocation_df.columns else None
+                    _pe_col_late = 'pe_ratio' if 'pe_ratio' in allocation_df.columns else None
+                    _roe_col_late = 'roe' if 'roe' in allocation_df.columns else None
+                    _dq_late_no_rsi = pd.Series(False, index=allocation_df.index)
+                    _dq_late_no_fund = pd.Series(False, index=allocation_df.index)
+                    _dq_late_no_vol = pd.Series(False, index=allocation_df.index)
+                    if _rsi_col_late is not None:
+                        _dq_late_no_rsi = _dq_late_has_real & (
+                            pd.to_numeric(allocation_df[_rsi_col_late], errors='coerce').fillna(0) == 0
+                        )
+                    if _pe_col_late is not None and _roe_col_late is not None:
+                        _pe_zero_l = pd.to_numeric(allocation_df[_pe_col_late], errors='coerce').fillna(0) == 0
+                        _roe_zero_l = pd.to_numeric(allocation_df[_roe_col_late], errors='coerce').fillna(0) == 0
+                        _dq_late_no_fund = _dq_late_has_real & _pe_zero_l & _roe_zero_l
+                    if _vol_col_late is not None:
+                        _dq_late_no_vol = _dq_late_has_real & (
+                            pd.to_numeric(allocation_df[_vol_col_late], errors='coerce').fillna(0) == 0
+                        )
+                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                    allocation_df.loc[_dq_late_bad_price & _ok_mask, 'data_quality'] = 'NO_PRICE'
+                    allocation_df.loc[_dq_late_zero_score & ~_dq_late_bad_price & _ok_mask, 'data_quality'] = 'NO_SCORE'
+                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                    allocation_df.loc[_dq_late_no_rsi & _ok_mask, 'data_quality'] = 'NO_RSI'
+                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                    allocation_df.loc[_dq_late_no_fund & _ok_mask, 'data_quality'] = 'NO_FUNDAMENTALS'
+                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                    allocation_df.loc[_dq_late_no_vol & _ok_mask, 'data_quality'] = 'NO_VOLATILITY'
+
+                    _DQ_BLOCK_FLAGS_LATE = ('NO_PRICE', 'NO_SCORE', 'NO_RSI', 'NO_FUNDAMENTALS', 'NO_VOLATILITY')
+                    _dq_late_buy_mask = (
+                        allocation_df['data_quality'].astype(str).isin(_DQ_BLOCK_FLAGS_LATE) &
+                        allocation_df['action_recommendation'].astype(str).str.contains(
+                            'BUY|INCREASE|NEW POSITION', na=False, regex=True
+                        )
+                    )
+                    if _dq_late_buy_mask.any():
+                        for _dqi in allocation_df[_dq_late_buy_mask].index:
+                            _flag = allocation_df.at[_dqi, 'data_quality']
+                            _sym = allocation_df.at[_dqi, 'symbol']
+                            allocation_df.at[_dqi, 'action_recommendation'] = f'SKIP - {_flag}'
+                            allocation_df.at[_dqi, 'exit_reason'] = f'Data quality fail: {_flag}'
+                            allocation_df.at[_dqi, 'investment_amount'] = 0
+                            allocation_df.at[_dqi, 'suggested_quantity'] = 0
+                            allocation_df.at[_dqi, 'keep_stock'] = False
+                            logging.warning(
+                                f"[DQ-BLOCK-LATE] {_sym}: BUY/INCREASE/NEW blocked due to {_flag} "
+                                f"after SWAP/BUY funding pass"
+                            )
+                        print(
+                            f"   ⚠️ Late DQ guard blocked {_dq_late_buy_mask.sum()} late-injected "
+                            f"BUY/INCREASE/NEW recommendations"
+                        )
+                except Exception as _dq_late_err:
+                    logging.error(f"Late DQ guard failed (non-fatal): {_dq_late_err}")
+
                 # === ALLOCATION SUMMARY ===
                 print(f"\n   🎯 UNIFIED ALLOCATION SUMMARY:")
                 print(f"      💰 SELL proceeds: ₹{sell_proceeds:,.0f}")
@@ -7616,7 +9176,7 @@ class EnhancedTop200StockAnalyzer:
                     reason = stock.get('exit_reason', 'Rebalancing required')
                     value = stock['current_value']
                     
-                    profit_str = f"+{profit:.1f}%" if profit > 0 else f"{profit:.1f}%"
+                    profit_str = f"+{profit*100:.1f}%" if profit > 0 else f"{profit*100:.1f}%"
                     print(f"      🔴 {symbol}: {reason}")
                     print(f"         Current Value: ₹{value:,.0f} | Profit: {profit_str}")
                 print(f"   " + "="*80)
@@ -7674,9 +9234,18 @@ class EnhancedTop200StockAnalyzer:
                 allocation_df.sort_values(by='overall_score', ascending=False, inplace=True)
 
             # ✅ FIX: Ensure consistent "NEW POSITION" label for all BUY-variant recommendations
+            # [Investor-audit Q113] The previous filter only matched 'BUY' substrings,
+            # missing variants like 'HIGH MOMENTUM NEW POSITION' / '🚀 ... NEW POSITION'
+            # / 'PRE-BREAKOUT - BUY NOW'. Those bypassed normalization and leaked
+            # inconsistent labels into the report (e.g., AFFLE 'HIGH MOMENTUM NEW
+            # POSITION' alongside GROWW 'NEW POSITION' for the same investor action).
             if 'action_recommendation' in allocation_df.columns:
+                _act_str = allocation_df['action_recommendation'].astype(str)
                 _buy_variant_mask = (
-                    allocation_df['action_recommendation'].astype(str).str.contains('BUY', na=False) &
+                    (_act_str.str.contains('BUY', na=False) |
+                     _act_str.str.contains('NEW POSITION', na=False) |
+                     _act_str.str.contains('ENTER', na=False) |
+                     _act_str.str.contains('ACCUMULATE', na=False)) &
                     ~allocation_df['is_current_holding'].astype(bool)
                 )
                 allocation_df.loc[_buy_variant_mask, 'action_recommendation'] = 'NEW POSITION'
@@ -7782,7 +9351,9 @@ class EnhancedTop200StockAnalyzer:
                 'allocation_df': allocation_df,
                 'sell_recommendations': sell_recommendations_df,
                 'summary': portfolio_summary,
-                'risk_profile_info': portfolio_size_info if portfolio_size_info else {}
+                'risk_profile_info': portfolio_size_info if portfolio_size_info else {},
+                # [Rule 4] Surface adaptive sizing info for downstream telemetry.
+                'portfolio_size_info': portfolio_size_info if portfolio_size_info else {},
             }
             
             _final_sell = len(allocation_df[allocation_df['action_recommendation'].str.upper().isin(['SELL'])] if 'action_recommendation' in allocation_df.columns else [])
@@ -7794,31 +9365,71 @@ class EnhancedTop200StockAnalyzer:
             
             # 🔧 FIX: Record all recommendations in history
             print(f"\n   💾 Recording recommendations in history...")
-            for _, row in allocation_df.iterrows():
-                fundamentals = {
-                    'pe_ratio': results_df[results_df['symbol'] == row['symbol']]['pe_ratio'].iloc[0] if row['symbol'] in results_df['symbol'].values else 0,
-                    'roe': results_df[results_df['symbol'] == row['symbol']]['roe'].iloc[0] if row['symbol'] in results_df['symbol'].values else 0,
-                    'debt_to_equity': results_df[results_df['symbol'] == row['symbol']]['debt_to_equity'].iloc[0] if row['symbol'] in results_df['symbol'].values else 0
-                }
-                
-                # Ensure price and score are numeric
-                try:
-                    price_val = float(row['current_price']) if row['current_price'] else 0.0
-                    score_val = float(row['overall_score']) if row['overall_score'] else 0.0
-                except (ValueError, TypeError):
-                    price_val = 0.0
-                    score_val = 0.0
-                
-                self.recommendation_history.record_recommendation(
-                    symbol=row['symbol'],
-                    action=row.get('action_recommendation', row['action_type']),
-                    score=score_val,
-                    price=price_val,
-                    fundamentals=fundamentals,
-                    reason=row['recommendation'],
-                    rank=0,  # Will be calculated in next iteration
-                    sector=row['sector']
-                )
+            # [v3 Layer 4] Per-component scores enable v2 IC calibration. Without these
+            # the calibration script unconditionally returns SKIPPED. Pulled from
+            # results_df (analysis snapshot) since the allocation_df does not always
+            # carry every hybrid_* component (e.g. SWAP-injected new rows).
+            _hybrid_cols = (
+                'hybrid_fundamental_quality', 'hybrid_momentum_technical',
+                'hybrid_volume_strength',     'hybrid_multi_timeframe',
+                'hybrid_ml_signal',           'hybrid_risk_adjustment',
+                # [Rule 3a] Growth + Value factors.
+                'hybrid_growth',              'hybrid_value',
+            )
+            # [F-NEW-10] Batch all per-stock saves into one flush at the end of
+            # the loop. Cuts ~18 file flushes per run down to 1.
+            with self.recommendation_history.batch_saves():
+                for _, row in allocation_df.iterrows():
+                    _src = results_df[results_df['symbol'] == row['symbol']]
+                    fundamentals = {
+                        'pe_ratio': _src['pe_ratio'].iloc[0] if not _src.empty else 0,
+                        'roe': _src['roe'].iloc[0] if not _src.empty else 0,
+                        'debt_to_equity': _src['debt_to_equity'].iloc[0] if not _src.empty else 0,
+                    }
+                    components = {}
+                    if not _src.empty:
+                        for _ck in _hybrid_cols:
+                            if _ck in _src.columns:
+                                components[_ck] = _src[_ck].iloc[0]
+
+                    try:
+                        price_val = float(row['current_price']) if row['current_price'] else 0.0
+                        score_val = float(row['overall_score']) if row['overall_score'] else 0.0
+                    except (ValueError, TypeError):
+                        price_val = 0.0
+                        score_val = 0.0
+
+                    # [Tier C2] Plumb v2 shadow score + active regime into the
+                    # writer so forward-IC measurement starts today.
+                    _score_v2_val = None
+                    if not _src.empty and 'hybrid_overall_score_v2' in _src.columns:
+                        _v2_raw = pd.to_numeric(_src['hybrid_overall_score_v2'].iloc[0], errors='coerce')
+                        if pd.notna(_v2_raw):
+                            _score_v2_val = float(_v2_raw)
+                    _regime_val = str(getattr(self, 'current_market_regime', None) or '').upper() or None
+
+                    # [Rule 1] Sleeve tag - pulled from results_df (set by
+                    # `calculate_hybrid_score`'s downstream `stock_data.update`).
+                    _sleeve_val = None
+                    if not _src.empty and 'sleeve' in _src.columns:
+                        _sleeve_raw = _src['sleeve'].iloc[0]
+                        if pd.notna(_sleeve_raw) and str(_sleeve_raw).strip():
+                            _sleeve_val = str(_sleeve_raw).upper()
+
+                    self.recommendation_history.record_recommendation(
+                        symbol=row['symbol'],
+                        action=row.get('action_recommendation', row['action_type']),
+                        score=score_val,
+                        price=price_val,
+                        fundamentals=fundamentals,
+                        reason=row['recommendation'],
+                        rank=0,  # Will be calculated in next iteration
+                        sector=row['sector'],
+                        components=components if components else None,
+                        score_v2=_score_v2_val,
+                        regime=_regime_val,
+                        sleeve=_sleeve_val,
+                    )
             
             # Generate stability report
             stability_report = self.recommendation_history.generate_stability_report()
@@ -7960,9 +9571,23 @@ class EnhancedTop200StockAnalyzer:
                 self.current_regime_confidence = 0.5
                 logging.warning(f"[REGIME] Detection exception: {_regime_ex} — defaulting to SIDEWAYS")
 
-        # ── GAP-18 CRISIS DETECTION: Once before workers start ──────────────────
-        # Fetches cross-asset signals (crude, gold, INR, VIX, S&P500) and classifies
-        # the event type. Result cached in self.crisis_data, read-only in workers.
+        # ── [Contract Rule 7] CRISIS DETECTION (gated) ──────────────────────────
+        # Cross-asset overlay (crude/gold/INR/VIX/S&P500) only fires when
+        # `cfg.ENABLE_CRISIS_DETECTOR` is True. Rule 7 limits macro inputs to
+        # Nifty regime + India VIX, so the default is False — we still seed a
+        # safe sentinel so any consumer reading self.crisis_data behaves.
+        try:
+            from config import get_config as _gc_cr2
+            _crisis_enabled_pre = bool(getattr(_gc_cr2(), 'ENABLE_CRISIS_DETECTOR', False))
+        except Exception:
+            _crisis_enabled_pre = False
+        if self.crisis_data is None and not _crisis_enabled_pre:
+            logging.info("[CRISIS] Detector disabled by ENABLE_CRISIS_DETECTOR=False (contract Rule 7)")
+            self.crisis_data = {
+                'crisis_detected': False, 'crisis_type': 'DISABLED', 'severity': 0,
+                'severity_label': 'DISABLED', 'sector_adjustments': {}, 'signals': {},
+                'description': 'Crisis detector disabled per contract Rule 7',
+            }
         if self.crisis_data is None:
             try:
                 self.crisis_data = self.crisis_detector.detect()
@@ -8006,46 +9631,59 @@ class EnhancedTop200StockAnalyzer:
                 _shutdown_requested.set()
             signal.signal(signal.SIGINT, _graceful_shutdown)
             try:
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                future_to_stock = {}
-                for _i, stock in enumerate(current_batch):
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    future_to_stock = {}
+                    # [perf] Adaptive submission throttle. The original blanket
+                    # `time.sleep(0.3)` between every submit dominated wall time
+                    # on cache-hot runs (~60s wasted on a 200-stock run when no
+                    # network call ever fires). The yfinance fetch itself is
+                    # already throttled inside `_yf_ticker_with_retry` via its
+                    # exponential backoff, so the submit-loop sleep is only
+                    # needed during a cold-cache build to space out the first
+                    # batch of API calls. We sleep ONLY for the first
+                    # `_THROTTLE_FIRST_N` submissions and skip thereafter -
+                    # reclaiming the wait on warm caches without losing the
+                    # cold-start protection. Per-thread network throttle is
+                    # unaffected.
+                    _THROTTLE_FIRST_N = max(self.max_workers, 8)
+                    for _i, stock in enumerate(current_batch):
                         if _shutdown_requested.is_set():
                             break
-                    if _i > 0:
+                        if 0 < _i < _THROTTLE_FIRST_N:
                             time.sleep(0.3)
-                    future_to_stock[executor.submit(self.analyze_single_stock, stock)] = stock
-                
-                for future in as_completed(future_to_stock):
-                    stock = future_to_stock[future]
+                        future_to_stock[executor.submit(self.analyze_single_stock, stock)] = stock
+                    
+                    for future in as_completed(future_to_stock):
+                        stock = future_to_stock[future]
                         _counted = False
-                    try:
+                        try:
                             result = future.result(timeout=120)
-                        if result:
-                            batch_results.append(result)
-                            self.processed_stocks += 1
+                            if result:
+                                batch_results.append(result)
+                                self.processed_stocks += 1
                                 _counted = True
-                            
-                            status = result.get('status', 'unknown')
+                                
+                                status = result.get('status', 'unknown')
                                 score = _nv(result.get('risk_adjusted_score', result.get('overall_score', result.get('overall_score_triple'))), 0)
-                            recommendation = result.get('final_recommendation', 'N/A')
-                            
-                            print(f"   [DONE] {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
-                            
+                                recommendation = result.get('final_recommendation', 'N/A')
+                                
+                                print(f"   [DONE] {stock:<12}: {status:<10} | Score: {score:5.1f} | {recommendation}")
+                                
                                 if status in ('error', 'network_error'):
+                                    self.failed_stocks.append(stock)
+                            else:
+                                print(f"   [WARN] {stock:<12}: no data returned")
                                 self.failed_stocks.append(stock)
-                        else:
-                            print(f"   [WARN] {stock:<12}: no data returned")
-                            self.failed_stocks.append(stock)
-                            logging.warning(f"No data returned for {stock}")
-                            self.processed_stocks += 1
+                                logging.warning(f"No data returned for {stock}")
+                                self.processed_stocks += 1
                                 _counted = True
-                            
-                    except Exception as e:
-                        print(f"   [FAIL] {stock:<12}: timeout/error - {str(e)[:50]}")
-                        self.failed_stocks.append(stock)
+                                
+                        except Exception as e:
+                            print(f"   [FAIL] {stock:<12}: timeout/error - {str(e)[:50]}")
+                            self.failed_stocks.append(stock)
                             if not _counted:
-                        self.processed_stocks += 1
-                        logging.error(f"Batch processing error for {stock}: {e}")
+                                self.processed_stocks += 1
+                            logging.error(f"Batch processing error for {stock}: {e}")
             finally:
                 signal.signal(signal.SIGINT, _original_sigint)
             if _shutdown_requested.is_set():
@@ -8065,10 +9703,19 @@ class EnhancedTop200StockAnalyzer:
             print(f"      Duration: {batch_duration:.1f} seconds")
             print(f"      Overall Progress: {progress:.1f}% ({self.processed_stocks}/{total_stocks})")
             
-            # Brief pause between batches
+            # [perf] Adaptive inter-batch pause. The blanket `time.sleep(5)`
+            # was rate-limiting protection for cold-cache yfinance fetches but
+            # cost ~65s on a 204-stock cache-hot run (13 inter-batch waits).
+            # Use the prior batch's duration as a cache-hit proxy: a sub-15s
+            # batch means cache absorbed most of the load, so we skip the pause.
+            # Cold batches (>= 15s) still get the 5s throttle for API safety.
             if batch_end < total_stocks:
-                print(f"      ⏳ Pausing 5 seconds before next batch...")
-                time.sleep(5)
+                if batch_duration < 15.0:
+                    # Cache-hot: skip the inter-batch pause entirely.
+                    pass
+                else:
+                    print(f"      ⏳ Pausing 5 seconds before next batch (cold-cache throttle)...")
+                    time.sleep(5)
         
         total_duration = time.time() - start_time
         
@@ -8099,31 +9746,64 @@ class EnhancedTop200StockAnalyzer:
         # Use emoji-free text for logging to avoid encoding issues
         logging.info(f"Batch analysis completed: {len(self.results)} results, {len(self.failed_stocks)} failures")
 
-        # 🔄 RETRY MECHANISM: Retry failed and low data quality stocks
+        # 🔄 RETRY MECHANISM: Retry failed, low-quality, and rate-limit-skipped stocks
+        # [Investor-audit Q124] Include `data_invalid` (rate-limit-skipped)
+        # stocks in retry pool. Only retry symbols whose skip reason is
+        # `no_price_data` (transient yfinance throttle); skip
+        # `low_rows_1y:N` (genuine insufficient history). Run sequentially
+        # after a 30s cool-down so the yfinance rate-limit window expires.
+        _rate_limited = []
+        for _r in self.results.values():
+            if _r.get('status') != 'data_invalid':
+                continue
+            _warns = ' '.join(str(w) for w in _r.get('quality_warnings', []))
+            if 'no_price_data' in _warns:
+                _sym = _r.get('symbol')
+                if _sym and _sym not in self.failed_stocks and _sym not in self.low_quality_stocks:
+                    _rate_limited.append(_sym)
+        if _rate_limited:
+            print(f"\n   🔁 Queueing {len(_rate_limited)} rate-limit-skipped stocks for retry: {_rate_limited[:8]}{'...' if len(_rate_limited) > 8 else ''}")
+            self.failed_stocks.extend(_rate_limited)
         if self.failed_stocks or self.low_quality_stocks:
             self._retry_failed_stocks()
 
         return list(self.results.values())  # A-014: expose as list for downstream consumers
     
     def _retry_failed_stocks(self):
-        """Retry failed and low data quality stocks with increased timeout and delay"""
+        """Retry failed, low-quality, and rate-limit-skipped stocks.
+
+        [Investor-audit Q124] When the parallel batch pass hits yfinance
+        rate-limit storms (HTTP 429), some symbols are skipped as
+        `data_invalid: no_price_data`. Those go into self.failed_stocks
+        from the upstream Q124 wiring. This retry runs SEQUENTIALLY after
+        a cool-down (so the rate-limit window expires) and recovers them.
+        Symbols where retry produces a valid result replace the
+        `data_invalid` stub with real analysis; otherwise the stub is
+        preserved so the operator still sees what was skipped.
+        """
         retry_candidates = list(set(self.failed_stocks + self.low_quality_stocks))
-        
+
         if not retry_candidates:
             return
-        
-        print(f"\n🔄 RETRYING FAILED/LOW QUALITY STOCKS")
+
+        print(f"\n🔄 RETRYING FAILED / RATE-LIMITED STOCKS")
         print("=" * 50)
         print(f"   📊 Stocks to retry: {len(retry_candidates)}")
-        print(f"   ⏳ Using extended timeout and delays...")
-        
+        # [Q124] Cool-down BEFORE the first retry so the yfinance
+        # rate-limit window has time to expire. Without this the very
+        # first retry hits the same 429 wall.
+        _cool_down = 20
+        print(f"   ⏳ Cooling down {_cool_down}s for rate-limit window to clear...")
+        time.sleep(_cool_down)
+
         retried_count = 0
         improved_count = 0
-        
+        recovered_from_data_invalid = 0
+
         for i, symbol in enumerate(retry_candidates, 1):
             try:
                 print(f"\n   🔄 Retry {i}/{len(retry_candidates)}: {symbol}")
-                
+
                 # A-016: flat 3s delay between retries (exponential was hitting 30s by retry #6)
                 if i > 1:
                     _delay = 3
@@ -8136,13 +9816,26 @@ class EnhancedTop200StockAnalyzer:
                 if result:
                     # A-014: O(1) dict lookup — no list.index() / linear scan
                     old_result = self.results.get(symbol)
+                    # [Q124] If retry produced a real result, replace the
+                    # data_invalid stub. If retry ALSO produced data_invalid,
+                    # keep the old stub (no point overwriting with another stub).
+                    _new_status = result.get('status', '')
+                    _old_status = (old_result or {}).get('status', '')
+                    if _new_status == 'data_invalid' and _old_status == 'data_invalid':
+                        print(f"      ⚠️  {symbol} still data_invalid after cool-down")
+                        continue
 
                     if old_result:
                         # Replace old result with new one
                         old_quality = 'LOW DATA QUALITY' in old_result.get('recommendation', '')
                         new_quality = 'LOW DATA QUALITY' in result.get('recommendation', '')
 
-                        if old_quality and not new_quality:
+                        if _old_status == 'data_invalid' and _new_status != 'data_invalid':
+                            recovered_from_data_invalid += 1
+                            improved_count += 1
+                            print(f"      ✅ {symbol} recovered from rate-limit skip")
+                            self.results[symbol] = result
+                        elif old_quality and not new_quality:
                             improved_count += 1
                             print(f"      ✅ Data quality IMPROVED for {symbol}")
                             self.results[symbol] = result
@@ -8156,26 +9849,27 @@ class EnhancedTop200StockAnalyzer:
                         self.results[symbol] = result
                         improved_count += 1
                         print(f"      ✅ {symbol} successfully analyzed on retry")
-                    
+
                     retried_count += 1
-                    
+
                     # Remove from failed/low quality lists
                     if symbol in self.failed_stocks:
                         self.failed_stocks.remove(symbol)
                     if symbol in self.low_quality_stocks:
                         self.low_quality_stocks.remove(symbol)
-                        
+
             except Exception as e:
                 print(f"      [FAIL] Retry failed for {symbol}: {str(e)[:50]}...")
                 logging.debug(f"Retry failed for {symbol}: {e}")
-        
+
         print(f"\n   📊 Retry Summary:")
         print(f"      Attempted: {len(retry_candidates)}")
         print(f"      Successful: {retried_count}")
         print(f"      Improved quality: {improved_count}")
+        print(f"      Recovered from rate-limit skip: {recovered_from_data_invalid}")
         print(f"      Still failed: {len(self.failed_stocks) + len(self.low_quality_stocks)}")
-        
-        logging.info(f"Retry completed: {retried_count}/{len(retry_candidates)} successful, {improved_count} improved")
+
+        logging.info(f"Retry completed: {retried_count}/{len(retry_candidates)} successful, {improved_count} improved, {recovered_from_data_invalid} recovered from data_invalid")
     
     def calculate_support_resistance_levels(self, symbol: str, risk_profile: str = "moderate",
                                                hist_override: pd.DataFrame = None) -> Dict[str, Any]:
@@ -8188,8 +9882,8 @@ class EnhancedTop200StockAnalyzer:
             if hist_override is not None and not hist_override.empty:
                 hist = hist_override
             else:
-            ticker = yf.Ticker(f"{symbol}.NS")
-            hist = ticker.history(period="6mo", interval="1d")
+                ticker = yf.Ticker(f"{symbol}.NS")
+                hist = ticker.history(period="6mo", interval="1d")
             
             if hist.empty or len(hist) < 20:
                 return {
@@ -8408,10 +10102,41 @@ Trading Plan ({risk_tolerance} RISK):
             # Risk-based portfolio size allocation with strict limits
             current_holdings = self._load_current_holdings()
             current_holdings_count = len(current_holdings) if current_holdings is not None and not current_holdings.empty else 0
-            
-            # Define strict portfolio size ranges based on risk profile
-            # 🎯 FIXED: Reduced max to 20-25 for better tracking and management
-            if self.risk_profile == "aggressive":
+
+            # [Rule 4] Adaptive holdings count driven by market regime. The
+            # regime-derived target takes precedence over risk_profile when the
+            # regime is known; risk_profile remains the UNKNOWN fallback so
+            # historical defaults still apply when the regime detector hasn't
+            # converged.
+            regime_now = str(getattr(self, 'current_market_regime', '') or '').upper()
+            _regime_target_map = {
+                'BULL':     (15, 'concentrate in winners'),
+                'BULLISH':  (15, 'concentrate in winners'),
+                'SIDEWAYS': (22, 'balanced exposure'),
+                'NEUTRAL':  (22, 'balanced exposure'),
+                'RANGE':    (22, 'balanced exposure'),
+                'BEAR':     (30, 'diversify defensive'),
+                'BEARISH':  (30, 'diversify defensive'),
+                'VOLATILE': (30, 'diversify defensive'),
+            }
+            regime_target_count = _regime_target_map.get(regime_now)
+
+            if regime_target_count is not None:
+                _regime_count, _regime_reason = regime_target_count
+                # Adaptive band: target +/- 5, clamped to [10, 35].
+                min_stocks = max(10, _regime_count - 5)
+                max_stocks = min(35, _regime_count + 5)
+                if current_holdings_count < min_stocks:
+                    target_stocks = min_stocks
+                elif current_holdings_count > max_stocks:
+                    target_stocks = max_stocks
+                else:
+                    target_stocks = max(_regime_count, current_holdings_count)
+                _adaptive_rationale = (
+                    f"Regime={regime_now} -> target={_regime_count} ({_regime_reason}); "
+                    f"band [{min_stocks}, {max_stocks}]"
+                )
+            elif self.risk_profile == "aggressive":
                 min_stocks, max_stocks = 15, 20  # Highly focused portfolio
                 # Ensure we reach minimum threshold - if holdings < min, target min; if > max, target max
                 if current_holdings_count < min_stocks:
@@ -8420,14 +10145,16 @@ Trading Plan ({risk_tolerance} RISK):
                     target_stocks = max_stocks  # Force down to maximum (SELL required)
                 else:
                     target_stocks = current_holdings_count  # Keep current if within range
+                _adaptive_rationale = f"Regime=UNKNOWN -> aggressive risk_profile fallback (band 15-20)"
             elif self.risk_profile == "balanced":
-                min_stocks, max_stocks = 20, 25  # Balanced portfolio  
+                min_stocks, max_stocks = 20, 25  # Balanced portfolio
                 if current_holdings_count < min_stocks:
                     target_stocks = min_stocks
                 elif current_holdings_count > max_stocks:
                     target_stocks = max_stocks  # Force down to maximum (SELL required)
                 else:
                     target_stocks = current_holdings_count
+                _adaptive_rationale = f"Regime=UNKNOWN -> balanced risk_profile fallback (band 20-25)"
             else:  # moderate (default) - MOST COMMON
                 min_stocks, max_stocks = 30, 40  # 🚀 EXPANDED: Allow up to 40 stocks to show more opportunities
                 if current_holdings_count < min_stocks:
@@ -8436,6 +10163,7 @@ Trading Plan ({risk_tolerance} RISK):
                     target_stocks = current_holdings_count # Keep current if huge
                 else:
                     target_stocks = max(current_holdings_count + 10, 30) # Always show room for 10+ new stocks
+                _adaptive_rationale = f"Regime=UNKNOWN -> moderate risk_profile fallback (band 30-40)"
             
             # Set allocation parameters for strict targeting
             portfolio_size_info = {
@@ -8443,7 +10171,11 @@ Trading Plan ({risk_tolerance} RISK):
                 'target_count': target_stocks,
                 'min_allowed': min_stocks,
                 'max_allowed': max_stocks,
-                'requires_selling': current_holdings_count > max_stocks
+                'requires_selling': current_holdings_count > max_stocks,
+                # [Rule 4] Adaptive count rationale surfaced for the Portfolio
+                # Allocation summary header.
+                'adaptive_rationale': _adaptive_rationale,
+                'market_regime': regime_now or 'UNKNOWN',
             }
             
             # Define risk profile allocation percentages (Defensive/Growth/Value)
@@ -8463,6 +10195,7 @@ Trading Plan ({risk_tolerance} RISK):
             print(f"   📊 Risk Profile: {self.risk_profile.upper()}")
             print(f"   📊 Current Holdings: {current_holdings_count} stocks")
             print(f"   🎯 Target Portfolio Size: {target_stocks} stocks (Range: {min_stocks}-{max_stocks})")
+            print(f"   🌤️  Adaptive sizing rationale: {_adaptive_rationale}")
             print(f"   📈 Allocation Strategy: {allocation_strategy}")
             if portfolio_size_info['requires_selling']:
                 print(f"   ⚠️  Selling Required: {current_holdings_count - max_stocks} stocks exceed limit")
@@ -8580,7 +10313,9 @@ Trading Plan ({risk_tolerance} RISK):
                             'growth_score', 'momentum_score', 'technical_score',
                             'hybrid_fundamental_quality', 'hybrid_momentum_technical',
                             'hybrid_volume_strength', 'hybrid_multi_timeframe',
-                            'hybrid_risk_adjustment', 'breakout_score']
+                            'hybrid_risk_adjustment', 'breakout_score',
+                            # [Rule 3a] Growth + Value factors surfaced for rounding.
+                            'hybrid_growth', 'hybrid_value']
             _ratio_round = ['pe_ratio', 'pb_ratio', 'roe', 'dividend_yield', 'debt_to_equity',
                             'revenue_growth', 'profit_growth']
             for _rc in _score_round:
@@ -8741,8 +10476,31 @@ Trading Plan ({risk_tolerance} RISK):
                                'final_recommendation', 'current_price']
                 available_cols = [col for col in summary_cols if col in df.columns]
                 # [D-05] Sort Top Picks by final_blended_score (consistent with Dashboard Top 10)
+                # [Investor-audit Q119] "Top Picks" must NOT include WEAK SELL /
+                # SELL rows - that misleads investors into thinking 31 picks are
+                # actionable when they're flagged for exit. Filter to BUY +
+                # HOLD recommendations only. In BEAR market this may yield <50
+                # picks; honest is better than padded.
                 _tp_col = 'final_blended_score' if 'final_blended_score' in df.columns else 'risk_adjusted_score'
-                summary_df = df[available_cols].nlargest(50, _tp_col)
+                _tp_src = df
+                if 'final_recommendation' in df.columns:
+                    _rec_str = df['final_recommendation'].astype(str)
+                    _is_pick = (_rec_str.str.contains('BUY', na=False) |
+                                _rec_str.str.contains('HOLD', na=False))
+                    _tp_src = df[_is_pick]
+                summary_df = _tp_src[available_cols].nlargest(50, _tp_col).copy()
+                # [F-NEW-8] When a stock is BUY-flagged but risk_category is
+                # VERY HIGH or HIGH, append the risk tag so the investor
+                # cannot miss the warning. Score-based label is preserved
+                # (BUY); the appended tag clarifies "BUY but risky".
+                if 'final_recommendation' in summary_df.columns and 'risk_category' in summary_df.columns:
+                    def _annotate_risk(_row):
+                        _rec = str(_row.get('final_recommendation', '') or '')
+                        _risk = str(_row.get('risk_category', '') or '').upper()
+                        if 'BUY' in _rec.upper() and _risk in ('VERY HIGH', 'HIGH') and 'RISK' not in _rec.upper():
+                            return f"{_rec} [{_risk} RISK]"
+                        return _rec
+                    summary_df['final_recommendation'] = summary_df.apply(_annotate_risk, axis=1)
                 summary_df.to_excel(writer, sheet_name='Top Picks', index=False)
                 
                 # 🎨 Apply conditional formatting to Top Picks sheet
@@ -8759,6 +10517,16 @@ Trading Plan ({risk_tolerance} RISK):
                                 'risk_reward_ratio', 'strategy_type']
                     _tl_avail = [c for c in _tl_cols if c in sr_df.columns]
                     _tl_df = sr_df[_tl_avail].copy()
+                    # [Investor-audit Q120] Filter Trading Levels to BUY + HOLD
+                    # only. WEAK SELL / SELL stocks should not appear in the
+                    # "trading entry zones" sheet - that misleads investors
+                    # into thinking they have actionable entry signals when
+                    # the recommendation is to AVOID.
+                    if 'recommendation' in _tl_df.columns:
+                        _tl_rec = _tl_df['recommendation'].astype(str)
+                        _tl_keep = (_tl_rec.str.contains('BUY', na=False) |
+                                    _tl_rec.str.contains('HOLD', na=False))
+                        _tl_df = _tl_df[_tl_keep].copy()
                     _tl_renames = {
                         'current_price': 'PRICE', 'recommendation': 'SIGNAL',
                         'entry_range_low': 'ENTRY_LOW', 'entry_range_high': 'ENTRY_HIGH',
@@ -8829,9 +10597,17 @@ Trading Plan ({risk_tolerance} RISK):
 
                         # ── GROUP C: STOCK QUALITY ──
                         'overall_score',
+                        # [DQ-NATALUM] v1 raw hybrid score — apples-to-apples baseline for v2 comparison.
+                        'hybrid_overall_score',
+                        # Phase 1 (shadow): v2 score + delta visible alongside v1 — drives nothing while shadow.
+                        'hybrid_overall_score_v2',
+                        'v2_score_delta',
                         'risk_adjusted_score',
                         'hybrid_fundamental_quality',
                         'hybrid_momentum_technical',
+                        # [Rule 3a] Growth + Value factors surfaced.
+                        'hybrid_growth',
+                        'hybrid_value',
                         'hybrid_volume_strength',
                         'hybrid_multi_timeframe',
                         'hybrid_risk_adjustment',
@@ -8860,9 +10636,14 @@ Trading Plan ({risk_tolerance} RISK):
                         'is_current_holding',
                         'sector',
                         'stock_classification',
+                        # [Rule 1] CORE / TACTICAL sleeve tag.
+                        'sleeve',
                         'holdings_rank',
                         'portfolio_weight',
                         'action_reason',
+                        # Phase 3b/3c: hard-stop tier + rotation friction delta — operator audit trail.
+                        'hard_stop_tier',
+                        'rotation_score_delta',
                     ]
                     
                     # 🔧 FIX: Add missing columns with defaults before selection
@@ -8878,7 +10659,7 @@ Trading Plan ({risk_tolerance} RISK):
                                 alloc_df[col] = 0
                             elif col in ['profit_booking_pct', 'profit_booking_timing']:
                                 alloc_df[col] = None
-                            elif col in ['action_recommendation', 'exit_reason', 'stock_classification']:
+                            elif col in ['action_recommendation', 'exit_reason', 'stock_classification', 'sleeve']:
                                 alloc_df[col] = ''
                             elif col == 'is_current_holding':
                                 alloc_df[col] = False
@@ -9093,7 +10874,11 @@ Trading Plan ({risk_tolerance} RISK):
                         if _pb_fixed:
                             print(f"   🔧 [PRE_BREAKOUT sync] Set pre_breakout_detected=True for {_pb_fixed} PRE-BREAKOUT action stocks")
 
-                    # 🔧 FIX: Fill zero 52W/RESIST/SUPPORT/RSI for not-analyzed stocks (e.g. ETFs)
+                    # [DQ-NATALUM] Fill zero 52W / RESIST / SUPPORT — display-only price-band fallbacks.
+                    # RSI was REMOVED from this list (Apr 29 fix): fabricating RSI=50 misled the
+                    # operator on NATIONALUM and bypassed the RSI>80 guard for any analyzed stock
+                    # that suffered upstream RSI corruption. RSI now stays 0/NaN; the DQ-NATALUM
+                    # safety net upstream already downgrades such rows to SKIP - NO_RSI.
                     _price_col = 'current_price' if 'current_price' in alloc_df_simple.columns else None
                     if _price_col:
                         for _etf_col, _fallback_fn in [
@@ -9101,7 +10886,6 @@ Trading Plan ({risk_tolerance} RISK):
                             ('52_week_low', lambda p: p * 0.85),
                             ('resistance_level', lambda p: p * 1.05),
                             ('support_level', lambda p: p * 0.95),
-                            ('enhanced_rsi_14', lambda p: 50.0),
                         ]:
                             if _etf_col in alloc_df_simple.columns:
                                 _zero_mask = (pd.to_numeric(alloc_df_simple[_etf_col], errors='coerce').fillna(0) == 0) & \
@@ -9175,16 +10959,46 @@ Trading Plan ({risk_tolerance} RISK):
                     if _score_col and len(_non_owned) > 0:
                         _non_owned = _non_owned.sort_values(_score_col, ascending=False)
                     # [MI-R01 FIX] Pre-filter rotation candidates: exclude HIGH/VERY HIGH risk + RSI>65
+                    # [Investor-audit Q75] When v2 is the live engine, the
+                    # risk-category filter (excludes HIGH/VERY HIGH) is
+                    # v1-era redundancy - v2's signed weights already penalise
+                    # risk via the -0.34 risk_adjustment weight. A high-vol
+                    # stock that v2 still rates BUY has explicitly survived
+                    # the risk-aware engine. Without this relaxation today's
+                    # 22 SELLs all rotate to AFFLE (the only MODERATE-risk
+                    # BUY) and GROWW (V2=76, VERY HIGH risk) gets ignored.
+                    try:
+                        from config import get_config as _gc_v2_rot
+                        _v2_live_rot = not bool(getattr(_gc_v2_rot(), 'V2_SHADOW_MODE', True))
+                    except Exception:
+                        _v2_live_rot = False
                     if len(_non_owned) > 0:
                         _risk_col_r01 = 'risk_category' if 'risk_category' in _non_owned.columns else None
                         _rsi_col_r01  = _rsi_col if _rsi_col in _non_owned.columns else None
-                        _risk_ok = ~_non_owned[_risk_col_r01].fillna('').isin(['HIGH', 'VERY HIGH']) if _risk_col_r01 else pd.Series(True, index=_non_owned.index)
+                        if _v2_live_rot:
+                            # Only block extreme risk; let HIGH through.
+                            _risk_ok = ~_non_owned[_risk_col_r01].fillna('').isin(['VERY HIGH']) if _risk_col_r01 else pd.Series(True, index=_non_owned.index)
+                        else:
+                            _risk_ok = ~_non_owned[_risk_col_r01].fillna('').isin(['HIGH', 'VERY HIGH']) if _risk_col_r01 else pd.Series(True, index=_non_owned.index)
                         _rsi_ok  = _non_owned[_rsi_col_r01].fillna(99) < 65 if _rsi_col_r01 else pd.Series(True, index=_non_owned.index)
-                        _safe_candidates = _non_owned[_risk_ok & _rsi_ok].copy()   # best: safe risk + RSI<65
-                        _safe_any_rsi    = _non_owned[_risk_ok].copy()             # fallback: safe risk, any RSI
+                        # [Investor-audit Q75 cont.] When v2 is live, ALWAYS
+                        # include explicit BUY-tagged stocks regardless of
+                        # risk_category - v2 explicitly chose them. This
+                        # ensures GROWW (V2=76, VERY HIGH risk) doesn't get
+                        # filtered out as a rotation target when it's the
+                        # operator's top conviction pick.
+                        _buy_override = pd.Series(False, index=_non_owned.index)
+                        if _v2_live_rot and 'action_recommendation' in _non_owned.columns:
+                            _buy_override = _non_owned['action_recommendation'].astype(str).str.contains('NEW POSITION|BUY', regex=True, na=False)
+                        _safe_candidates = _non_owned[(_risk_ok & _rsi_ok) | _buy_override].copy()
+                        _safe_any_rsi    = _non_owned[_risk_ok | _buy_override].copy()
                     else:
                         _safe_candidates = pd.DataFrame()
                         _safe_any_rsi    = pd.DataFrame()
+                    # [Investor-audit Q30] Round-robin counter for rotation
+                    # targets so multiple SELLs distribute across the top-N
+                    # candidates instead of all pointing to a single stock.
+                    _rot_picked = {'count': 0}
                     for _idx79, _row79 in alloc_df_simple.iterrows():
                         _act79 = str(_row79.get('action_recommendation', ''))
                         _pnl79 = _nv(_row79.get('current_profit_pct'), 0)
@@ -9199,12 +11013,37 @@ Trading Plan ({risk_tolerance} RISK):
                             _nv(_row79.get('PRICE'),
                                 _nv(_row79.get('close'), _nv(_row79.get('Close'), 0)))
                         )
-                        if _sup79 > 0:
+                        # [Investor-audit Q2 + Q25] Stop-loss sanity guard.
+                        # Rules:
+                        #   1. Support must sit within 25% BELOW current price
+                        #      (avoid the 95-default fallback being applied to
+                        #      a Rs 273 stock).
+                        #   2. Support must be BELOW current price (when the
+                        #      stock has broken support, its level is stale -
+                        #      using support * 0.97 then produces a stop ABOVE
+                        #      market which is meaningless).
+                        #   3. Use the TIGHTER of (support-based, 8% price-anchored)
+                        #      and ensure final stop is strictly BELOW current price.
+                        if _price79 > 0:
+                            _price_stop = round(_price79 * 0.92, 2)
+                            _support_stop = None
+                            if (_sup79 > 0
+                                    and _sup79 < _price79
+                                    and (_sup79 / _price79) >= 0.75):
+                                _support_stop = round(_sup79 * 0.97, 2)
+                            if _support_stop is not None:
+                                # Cap at current_price - 1% so stop is never above market.
+                                _final_stop = min(max(_support_stop, _price_stop),
+                                                  round(_price79 * 0.99, 2))
+                                alloc_df_simple.at[_idx79, 'stop_loss_price'] = _final_stop
+                            else:
+                                alloc_df_simple.at[_idx79, 'stop_loss_price'] = _price_stop
+                        elif _sup79 > 0:
                             alloc_df_simple.at[_idx79, 'stop_loss_price'] = round(_sup79 * 0.97, 2)
-                        elif _price79 > 0:
-                            alloc_df_simple.at[_idx79, 'stop_loss_price'] = round(_price79 * 0.92, 2)
-                        # rotation_target: quality-filtered non-owned stock (same sector preferred)
-                        if ('SELL' in _act79 or 'SWAP' in _act79) and len(_non_owned) > 0 and 'symbol' in _non_owned.columns:
+                        # rotation_target: quality-filtered non-owned stock (same sector preferred).
+                        # [Rule 5] SCALE_OUT_20 also gets a rotation_target so the
+                        # operator sees where to deploy the partial scale-out cash.
+                        if ('SELL' in _act79 or 'SWAP' in _act79 or 'SCALE_OUT' in _act79) and len(_non_owned) > 0 and 'symbol' in _non_owned.columns:
                             _sector79 = str(_row79.get('sector', ''))
                             try:
                                 _sec_safe = _safe_candidates['sector'] if 'sector' in _safe_candidates.columns else pd.Series('', index=_safe_candidates.index)
@@ -9214,23 +11053,76 @@ Trading Plan ({risk_tolerance} RISK):
                                 # [MI-R01] Priority 2: any sector + safe risk + RSI<65
                                 # [MI-R01] Priority 3: any sector + safe risk (relax RSI)
                                 # Priority 4: fallback unrestricted
+                                # [Investor-audit Q30] Round-robin across the
+                                # TOP-N candidates so 18 SELLs don't all rotate
+                                # into the same single stock (which would
+                                # concentrate risk rather than diversify).
+                                # `_rot_picked` is initialised once outside
+                                # the iterrows loop; it's a counter mod TOP-N.
+                                _ROT_TOP_N = 5
+                                def _pick_target(_pool):
+                                    if _pool is None or len(_pool) == 0:
+                                        return None
+                                    _take = min(_ROT_TOP_N, len(_pool))
+                                    _idx = (_rot_picked.get('count', 0)) % _take
+                                    _rot_picked['count'] = _rot_picked.get('count', 0) + 1
+                                    return _pool.iloc[_idx]['symbol']
                                 if len(_p1) > 0:
-                                    alloc_df_simple.at[_idx79, 'rotation_target'] = _p1.iloc[0]['symbol']
+                                    _tgt = _pick_target(_p1)
+                                    if _tgt:
+                                        alloc_df_simple.at[_idx79, 'rotation_target'] = _tgt
                                 elif len(_safe_candidates) > 0:
-                                    alloc_df_simple.at[_idx79, 'rotation_target'] = _safe_candidates.iloc[0]['symbol']
+                                    _tgt = _pick_target(_safe_candidates)
+                                    if _tgt:
+                                        alloc_df_simple.at[_idx79, 'rotation_target'] = _tgt
                                 elif len(_safe_any_rsi) > 0:
-                                    alloc_df_simple.at[_idx79, 'rotation_target'] = _safe_any_rsi.iloc[0]['symbol']
+                                    _tgt = _pick_target(_safe_any_rsi)
+                                    if _tgt:
+                                        alloc_df_simple.at[_idx79, 'rotation_target'] = _tgt
                                 elif len(_non_owned) > 0:
-                                    alloc_df_simple.at[_idx79, 'rotation_target'] = _non_owned.iloc[0]['symbol']
+                                    _tgt = _pick_target(_non_owned)
+                                    if _tgt:
+                                        alloc_df_simple.at[_idx79, 'rotation_target'] = _tgt
                             except Exception:
                                 pass
-                    # 🔧 FIX: For SWAP stocks, override rotation_target with actual SWAP destination
+                                # 🔧 FIX: For SWAP stocks, override rotation_target with actual SWAP destination
                     for _sw_idx, _sw_row in alloc_df_simple.iterrows():
                         _sw_act = str(_sw_row.get('action_recommendation', ''))
                         if 'SWAP' in _sw_act and '->' in _sw_act:
                             _swap_target = _sw_act.split('->')[1].strip()
                             if _swap_target:
                                 alloc_df_simple.at[_sw_idx, 'rotation_target'] = _swap_target
+
+                    # [Rule 5] Record SCALE_OUT_20 rotation events in booking_history.json
+                    # so we have a permanent audit trail of partial trims and their
+                    # suggested rotation targets.
+                    try:
+                        _rot_bh = self.__class__._load_booking_history()
+                        _rot_dirty = False
+                        for _ro_idx, _ro_row in alloc_df_simple.iterrows():
+                            _ro_act = str(_ro_row.get('action_recommendation', ''))
+                            if 'SCALE_OUT' not in _ro_act:
+                                continue
+                            _ro_sym = str(_ro_row.get('symbol', ''))
+                            if not _ro_sym:
+                                continue
+                            _ro_entry = _rot_bh.setdefault(_ro_sym, {})
+                            _ro_events = _ro_entry.setdefault('rotation_events', [])
+                            # NaN-safe scalar extraction for the audit log entry.
+                            _ro_pnl_raw = pd.to_numeric(_ro_row.get('current_profit_pct'), errors='coerce')
+                            _ro_v2_raw = pd.to_numeric(_ro_row.get('hybrid_overall_score_v2'), errors='coerce')
+                            _ro_events.append({
+                                'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'event': 'SCALE_OUT_20',
+                                'rotation_target': str(_ro_row.get('rotation_target', '') or ''),
+                                'current_profit_pct': float(_ro_pnl_raw) if pd.notna(_ro_pnl_raw) else 0.0,
+                                'v2_score': float(_ro_v2_raw) if pd.notna(_ro_v2_raw) else 0.0,
+                            })
+                            _rot_dirty = True
+                        if _rot_dirty:
+                            self.__class__._save_booking_history(_rot_bh)
+                    except Exception as _rot_err:
+                        logging.debug(f'rotation_events persistence skipped: {_rot_err}')
 
                     # Post-loop fallback: ensure every stock has a stop-loss
                     _sl_null = alloc_df_simple['stop_loss_price'].isna()
@@ -9246,7 +11138,7 @@ Trading Plan ({risk_tolerance} RISK):
 
                     # Sort rows: actionable items first, watchlist last
                     _action_priority_exact = {
-                        'SELL': 0, 'SWAP': 1, 'CONSIDER SELLING': 2,
+                        'SELL': 0, 'SWAP': 1, 'EXIT': 1.5, 'CONSIDER SELLING': 2,
                         'REDUCE (SECTOR OVERWEIGHT)': 3, 'REDUCE': 3,
                         'INCREASE': 4, 'NEW POSITION': 5,
                         'BUY': 6, 'MOMENTUM': 7, 'KEEP': 8, 'HOLD': 9, 'WATCHLIST': 10
@@ -9284,14 +11176,29 @@ Trading Plan ({risk_tolerance} RISK):
                         'post_tax_proceeds':     'NET ₹',
                         # Group C: Stock Quality
                         'overall_score':                'SCORE',
+                        # [DQ-NATALUM] V1 RAW = hybrid_overall_score (engine raw score). The 'SCORE'
+                        # column above is final_blended_score — i.e. v1 raw + sector adj + ML +
+                        # sentiment + pattern uplifts. Compare V1 RAW vs V2 RAW for engine delta.
+                        'hybrid_overall_score':         'V1 RAW',
+                        'hybrid_overall_score_v2':      'V2 RAW',
+                        'v2_score_delta':               'V2-V1 RAW Δ',
                         'risk_adjusted_score':          'ADJ SCORE',
-                        'hybrid_fundamental_quality':   'FUND',
-                        'hybrid_momentum_technical':    'MOM',
+                        # [Rule 3c] Q/G/M/V sub-score labels. FUND -> QUALITY,
+                        # MOM -> MOMENTUM, plus new GROWTH and VALUE columns.
+                        # `undervaluation_score` (the legacy composite VALUE label)
+                        # is renamed UNDERVAL to free the VALUE slot for the new
+                        # factor. `risk_category` becomes RISK CAT so the
+                        # hybrid_risk_adjustment factor can claim the canonical
+                        # RISK column per Rule 3c.
+                        'hybrid_fundamental_quality':   'QUALITY',
+                        'hybrid_momentum_technical':    'MOMENTUM',
+                        'hybrid_growth':                'GROWTH',
+                        'hybrid_value':                 'VALUE',
                         'hybrid_volume_strength':       'VOL',
                         'hybrid_multi_timeframe':       'MTF',
-                        'hybrid_risk_adjustment':       'RISK SC',
-                        'undervaluation_score':         'VALUE',
-                        'risk_category':                'RISK',
+                        'hybrid_risk_adjustment':       'RISK',
+                        'undervaluation_score':         'UNDERVAL',
+                        'risk_category':                'RISK CAT',
                         'pe_ratio':                     'PE',
                         'roe':                          'ROE %',
                         'debt_to_equity':               'D/E',
@@ -9312,11 +11219,15 @@ Trading Plan ({risk_tolerance} RISK):
                         'mfi_signal':                   'MFI',
                         'is_current_holding':           'OWNED?',
                         'stock_classification':         'TYPE',
+                        # [Rule 1] Sleeve classification (CORE/TACTICAL/UNKNOWN).
+                        'sleeve':                       'SLEEVE',
                         'holdings_rank':                'RANK',
                         'portfolio_weight':             'WT %',
                         'action_reason':                'DETAIL',
                         'rotation_trigger_price':       'ROT PRICE',
                         'rotation_target':              'ROT TARGET',
+                        'rotation_score_delta':         'ROT Δ',
+                        'hard_stop_tier':               'STOP TIER',
                         'data_quality':                 'DQ FLAG',
                     }
                     
@@ -9357,7 +11268,12 @@ Trading Plan ({risk_tolerance} RISK):
                             alloc_df_simple[_score_col] = pd.to_numeric(alloc_df_simple[_score_col], errors='coerce').round(1)
 
                     # [R-07/R-08] Round numeric columns for clean presentation
-                    for _rc in ('SCORE', 'ADJ SCORE', 'FUND', 'MOM', 'VOL', 'MTF', 'RISK SC', 'VALUE',
+                    # [Rule 3c] Updated labels: FUND->QUALITY, MOM->MOMENTUM,
+                    # new GROWTH/VALUE columns; legacy VALUE->UNDERVAL; hybrid_risk
+                    # claims RISK; legacy risk_category -> RISK CAT.
+                    for _rc in ('SCORE', 'V1 RAW', 'V2 RAW', 'ADJ SCORE',
+                                'QUALITY', 'MOMENTUM', 'GROWTH', 'VALUE',
+                                'VOL', 'MTF', 'RISK', 'UNDERVAL',
                                 'RSI', 'VOLATILITY %', 'ML CONF %', '20D CHG %'):
                         if _rc in alloc_df_simple.columns:
                             alloc_df_simple[_rc] = pd.to_numeric(alloc_df_simple[_rc], errors='coerce').round(1)
@@ -9435,33 +11351,45 @@ Trading Plan ({risk_tolerance} RISK):
                 # 6a. Technical Analysis Deep Dive Sheet
                 self._create_technical_analysis_sheet(workbook, df, header_format, data_format, 
                                                     price_format, percent_format, score_format)
-                
-                # 6a-NEW. Multi-Timeframe Analysis Sheet (ACCURACY IMPROVEMENT #5)
-                self._create_multi_timeframe_analysis_sheet(workbook, df, header_format, data_format, 
-                                                          price_format, percent_format, score_format)
-                
-                # 6a-NEW2. Institutional Flow Analysis Sheet (ACCURACY IMPROVEMENT #7)
-                self._create_institutional_flow_analysis_sheet(workbook, df, header_format, data_format, 
-                                                             price_format, percent_format, score_format)
-                
-                # 6b. Valuation Analysis Sheet  
-                self._create_valuation_analysis_sheet(workbook, df, header_format, data_format,
-                                                    price_format, percent_format, score_format)
-                
-                # 6c. KEEP: Risk Management Dashboard (Essential for portfolio safety)
-                self._create_risk_management_sheet(workbook, df, portfolio_allocation, header_format, 
-                                                 data_format, price_format, percent_format)
-                
+
+                # [perf] --fast skips the cosmetic deep-dive sheets. Each one
+                # iterates the full universe + applies styling, contributing
+                # ~3-6s. Together ~15-25s saved on a cache-hot run. The skipped
+                # sheets are decorative — Portfolio Allocation, IC Telemetry,
+                # V2 Shadow Comparison, and Complete Data carry the actionable
+                # signal. Set on the analyzer instance by main() when --fast
+                # is supplied; defaults to False (full report).
+                _fast = bool(getattr(self, 'fast_mode', False))
+                if _fast:
+                    print('   ⚡ --fast mode: skipping Multi-Timeframe / Institutional Flow / Valuation / Risk Management / Price Predictions sheets')
+                else:
+                    # 6a-NEW. Multi-Timeframe Analysis Sheet (ACCURACY IMPROVEMENT #5)
+                    self._create_multi_timeframe_analysis_sheet(workbook, df, header_format, data_format,
+                                                              price_format, percent_format, score_format)
+
+                    # 6a-NEW2. Institutional Flow Analysis Sheet (ACCURACY IMPROVEMENT #7)
+                    self._create_institutional_flow_analysis_sheet(workbook, df, header_format, data_format,
+                                                                 price_format, percent_format, score_format)
+
+                    # 6b. Valuation Analysis Sheet
+                    self._create_valuation_analysis_sheet(workbook, df, header_format, data_format,
+                                                        price_format, percent_format, score_format)
+
+                    # 6c. KEEP: Risk Management Dashboard (Essential for portfolio safety)
+                    self._create_risk_management_sheet(workbook, df, portfolio_allocation, header_format,
+                                                     data_format, price_format, percent_format)
+
                 # 🚀 REMOVED: Correlation Analysis (too technical for most users)
                 # 🚀 REMOVED: Performance Tracking (redundant with Dashboard)
                 # 🚀 REMOVED: Smart Alerts (static data, not actionable)
-                
+
                 # 🚀 PHASE 3 ENHANCEMENT: Essential Predictive Analytics Only
                 print("   🔮 Creating essential predictive analytics...")
-                
-                # 7a. KEEP: Price Prediction & Monte Carlo Analysis (High value for investors)
-                self._create_price_prediction_sheet(workbook, df, header_format, data_format,
-                                                  price_format, percent_format, score_format)
+
+                if not _fast:
+                    # 7a. KEEP: Price Prediction & Monte Carlo Analysis (High value for investors)
+                    self._create_price_prediction_sheet(workbook, df, header_format, data_format,
+                                                      price_format, percent_format, score_format)
                 
                 # 🚀 REMOVED: Market Timing (too speculative for most investors)  
                 # 🚀 REMOVED: AI Sentiment (mock data, not real sentiment)
@@ -9469,20 +11397,397 @@ Trading Plan ({risk_tolerance} RISK):
                 # 🚀 REMOVED: Portfolio Optimization (too complex theory)
                 
                 # 6. Past Accuracy Sheet (V5.0 feedback loop)
+                # [Investor-audit Q121] Surface v1 vs v2 distinct accuracy.
+                # v1 was known anti-predictive (Q1 > Q5); reporting it alone
+                # misleads investors into thinking the LIVE engine is bad
+                # when the live engine is v2 (+0.239 OOS IC).
                 try:
                     pa = getattr(self, '_past_accuracy', None) or {}
                     if pa.get('total_with_outcomes', 0) > 0:
+                        _q5v1 = pa.get('q5_avg_return_30d', 0)
+                        _q1v1 = pa.get('q1_avg_return_30d', 0)
+                        _q5v2 = pa.get('q5_avg_return_30d_v2', 0)
+                        _q1v2 = pa.get('q1_avg_return_30d_v2', 0)
+
+                        # [F-NEW-1 + F-NEW-9] Compute profit_factor and expectancy
+                        # so the headline isn't inflated by hit-rate (binary
+                        # positive/negative) which ignores magnitude. profit_factor
+                        # < 1 means the system loses money even with a 50%+ win
+                        # rate. ACTION-AWARE: a BUY win = return_30d > 0; a SELL
+                        # win = return_30d < 0 (the system was right to exit).
+                        # This matches the definition used by the Rec Performance
+                        # sheet so the two surfaces no longer disagree (F-NEW-5).
+                        _pf = _exp = None
+                        _avg_win = _avg_loss = None
+                        _n_wins = _n_losses = 0
+                        try:
+                            _hist_pa = self.recommendation_history.history_df
+                            if _hist_pa is not None and not _hist_pa.empty and 'return_30d' in _hist_pa.columns:
+                                _r30_df = _hist_pa.dropna(subset=['return_30d']).copy()
+                                _r30_df['return_30d'] = pd.to_numeric(_r30_df['return_30d'], errors='coerce')
+                                _r30_df = _r30_df.dropna(subset=['return_30d'])
+                                _act_up = _r30_df['action'].astype(str).str.upper()
+                                _is_buy = _act_up.str.contains('BUY|INCREASE|NEW POSITION', na=False, regex=True)
+                                _is_sell = _act_up.str.contains('SELL|BOOK|EXIT', na=False, regex=True)
+                                # Action-aware signed P&L per row: BUY -> +return,
+                                # SELL -> -return (system was right when stock fell).
+                                _signed = pd.Series(0.0, index=_r30_df.index)
+                                _signed.loc[_is_buy] = _r30_df.loc[_is_buy, 'return_30d']
+                                _signed.loc[_is_sell] = -_r30_df.loc[_is_sell, 'return_30d']
+                                _signed = _signed[_is_buy | _is_sell]
+                                if len(_signed) > 0:
+                                    _wins = _signed[_signed > 0]
+                                    _losses = _signed[_signed < 0]
+                                    _n_wins = int(len(_wins))
+                                    _n_losses = int(len(_losses))
+                                    _avg_win = float(_wins.mean()) if _n_wins > 0 else 0.0
+                                    _avg_loss = float(_losses.mean()) if _n_losses > 0 else 0.0
+                                    _gross_win = _n_wins * _avg_win
+                                    _gross_loss = _n_losses * abs(_avg_loss)
+                                    _pf = (_gross_win / _gross_loss) if _gross_loss > 0 else None
+                                    _wr = _n_wins / (_n_wins + _n_losses) if (_n_wins + _n_losses) > 0 else 0
+                                    _exp = (_wr * _avg_win) - ((1 - _wr) * abs(_avg_loss))
+                        except Exception as _pf_err:
+                            logging.debug(f'profit_factor compute skipped: {_pf_err}')
+
                         pa_rows = [
+                            {'Metric': '-- HEADLINE PROFITABILITY (return_30d, all recs) --', 'Value': '-'},
+                            {'Metric': 'Profit Factor (gross_win / gross_loss)',
+                                'Value': f"{_pf:.2f} {'PROFITABLE' if (_pf is not None and _pf > 1) else 'LOSING' if _pf is not None else 'n/a'}" if _pf is not None else 'INSUFFICIENT_DATA'},
+                            {'Metric': 'Expectancy per cycle (%)',
+                                'Value': f"{_exp:+.2f}%" if _exp is not None else 'INSUFFICIENT_DATA'},
+                            {'Metric': 'Wins / Losses',
+                                'Value': f"{_n_wins} / {_n_losses}"},
+                            {'Metric': 'Avg Win / Avg Loss (%)',
+                                'Value': f"{_avg_win:+.2f}% / {_avg_loss:+.2f}%" if _avg_win is not None else 'n/a'},
+                            {'Metric': '-- HIT RATES (binary positive/negative, ignores magnitude) --', 'Value': '-'},
                             {'Metric': 'Recommendations with outcomes (n)', 'Value': pa['total_with_outcomes']},
-                            {'Metric': 'BUY hit rate (30d)', 'Value': f"{pa.get('buy_hit_rate_30d', 0):.1f}%"},
-                            {'Metric': 'SELL hit rate (30d)', 'Value': f"{pa.get('sell_hit_rate_30d', 0):.1f}%"},
-                            {'Metric': 'Q5 avg return (30d, top scores)', 'Value': f"{pa.get('q5_avg_return_30d', 0):.2f}%"},
-                            {'Metric': 'Q1 avg return (30d, bottom scores)', 'Value': f"{pa.get('q1_avg_return_30d', 0):.2f}%"},
+                            # [F-NEW-5] Both definitions of SELL hit rate now
+                            # carry their definition explicitly to reconcile
+                            # the prior contradiction with IC Telemetry.
+                            {'Metric': 'BUY hit rate (30d) [recs-based: BUY/INCREASE/NEW POSITION returned > 0%]', 'Value': f"{pa.get('buy_hit_rate_30d', 0):.1f}%"},
+                            {'Metric': 'SELL hit rate (30d) [recs-based: SELL/BOOK/EXIT returned < 0%]', 'Value': f"{pa.get('sell_hit_rate_30d', 0):.1f}%"},
+                            {'Metric': 'NOTE',
+                                'Value': 'IC Telemetry sheet uses a stricter "v1 SELL count" filter (action == "SELL" exact); both numbers are correct under their own definition.'},
+                            # [F-NEW-1] Disclosure: most outcomes are pre-promotion
+                            # v1-era which had negative IC. v2-era data accrues at
+                            # +30d post-promotion (see _Metadata for ETA).
+                            {'Metric': 'DISCLOSURE',
+                                'Value': 'Most outcomes are pre-promotion v1-era; v1 was anti-predictive. v2-era 30d outcomes accrue from V2_PROMOTION_DATE+30d. Watch profit_factor + Q5 spread once v2 sample > 200.'},
+                            {'Metric': '-- QUINTILE SPREAD - v1 SCORE (shadow engine) --', 'Value': '-'},
+                            {'Metric': 'Q5 avg return v1 (top scores)', 'Value': f"{_q5v1:.2f}%"},
+                            {'Metric': 'Q1 avg return v1 (bottom scores)', 'Value': f"{_q1v1:.2f}%"},
+                            {'Metric': 'Q5-Q1 spread v1 (positive = predictive)', 'Value': f"{_q5v1 - _q1v1:.2f}%"},
                         ]
+                        _n_v2 = pa.get('total_with_outcomes_v2', 0)
+                        if _n_v2 > 0:
+                            pa_rows.extend([
+                                {'Metric': '-- QUINTILE SPREAD - v2 SCORE (LIVE engine) --', 'Value': '-'},
+                                {'Metric': 'Rows with score_v2 + 30d outcome (n)', 'Value': _n_v2},
+                                {'Metric': 'Q5 avg return v2 (top scores)', 'Value': f"{_q5v2:.2f}%"},
+                                {'Metric': 'Q1 avg return v2 (bottom scores)', 'Value': f"{_q1v2:.2f}%"},
+                                {'Metric': 'Q5-Q1 spread v2 (positive = predictive)', 'Value': f"{_q5v2 - _q1v2:.2f}%"},
+                            ])
+                        else:
+                            pa_rows.append({
+                                'Metric': '-- v2 QUINTILE SPREAD: pending 30d outcomes (post-promotion) --',
+                                'Value': 'wait',
+                            })
                         pa_df = pd.DataFrame(pa_rows)
                         pa_df.to_excel(writer, sheet_name='Past Accuracy', index=False)
                 except Exception as _pa_err:
                     logging.warning(f"Past Accuracy sheet skipped: {_pa_err}")
+
+                # 6b. V2 Shadow Comparison sheet (Phase 2): side-by-side v1 vs v2 scores per stock
+                try:
+                    if 'hybrid_overall_score_v2' in df.columns and df['hybrid_overall_score_v2'].notna().any():
+                        v2_cols = ['symbol', 'company_name', 'sector', 'is_current_holding',
+                                   'hybrid_overall_score', 'hybrid_overall_score_v2', 'v2_score_delta',
+                                   'action_recommendation', 'current_profit_pct']
+                        v2_present = [c for c in v2_cols if c in df.columns]
+                        v2_df = df[v2_present].copy()
+                        v2_df = v2_df.rename(columns={
+                            'hybrid_overall_score':    'V1 RAW',
+                            'hybrid_overall_score_v2': 'V2 RAW',
+                            'v2_score_delta':          'V2-V1 RAW Δ',
+                            'action_recommendation':   'ACTION (V1-driven)',
+                            'is_current_holding':      'OWNED?',
+                            'current_profit_pct':      'P&L',
+                        })
+                        sort_col = 'V2-V1 RAW Δ' if 'V2-V1 RAW Δ' in v2_df.columns else 'V1 RAW'
+                        v2_df = v2_df.sort_values(sort_col, ascending=False, na_position='last')
+                        v2_df.to_excel(writer, sheet_name='V2 Shadow Comparison', index=False)
+
+                        # Append v2 quintile rows to Past Accuracy if it exists in writer
+                        try:
+                            scored = df.dropna(subset=['hybrid_overall_score_v2']).copy()
+                            if len(scored) >= 10:
+                                scored['_v2q'] = pd.qcut(scored['hybrid_overall_score_v2'], 5, labels=False, duplicates='drop')
+                                v2q_rows = []
+                                for q in range(5):
+                                    sub = scored[scored['_v2q'] == q]
+                                    if len(sub) > 0:
+                                        v2q_rows.append({
+                                            'Quintile': f'V2 Q{q+1}',
+                                            'Min Score': round(float(sub['hybrid_overall_score_v2'].min()), 1),
+                                            'Max Score': round(float(sub['hybrid_overall_score_v2'].max()), 1),
+                                            'Count': int(len(sub)),
+                                        })
+                                if v2q_rows:
+                                    pd.DataFrame(v2q_rows).to_excel(writer, sheet_name='V2 Shadow Comparison',
+                                                                     index=False, startrow=len(v2_df) + 3)
+                        except Exception as _v2q_err:
+                            logging.debug(f"v2 quintile rows skipped: {_v2q_err}")
+                except Exception as _v2sh_err:
+                    logging.warning(f"V2 Shadow Comparison sheet skipped: {_v2sh_err}")
+
+                # 6c. [v3 Layer 4] IC Telemetry sheet — daily snapshot of v1 vs v2
+                # score predictiveness (Spearman IC, quintile spread, SELL hit rate)
+                # computed off `data/recommendation_history.csv`. Feeds the strict
+                # promotion gate; lets you see day-over-day whether v2 weights
+                # actually moved the IC.
+                try:
+                    from scipy.stats import spearmanr
+                    import os as _os_ic
+                    _hist_path = _os_ic.path.join('data', 'recommendation_history.csv')
+                    if _os_ic.path.exists(_hist_path):
+                        _hist = pd.read_csv(_hist_path, parse_dates=['date'])
+                        _telemetry_rows = []
+                        _ts_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                        def _ic_pair(score_col, ret_col):
+                            sub = _hist.dropna(subset=[score_col, ret_col]) if score_col in _hist.columns else pd.DataFrame()
+                            if len(sub) < 30:
+                                return None, len(sub)
+                            rho, _ = spearmanr(sub[score_col], sub[ret_col])
+                            return (None, len(sub)) if pd.isna(rho) else (round(float(rho), 4), int(len(sub)))
+
+                        def _quintile_spread(score_col, ret_col):
+                            sub = _hist.dropna(subset=[score_col, ret_col]).copy() if score_col in _hist.columns else pd.DataFrame()
+                            if len(sub) < 25:
+                                return None, len(sub)
+                            try:
+                                sub['_q'] = pd.qcut(sub[score_col], 5, labels=False, duplicates='drop')
+                            except ValueError:
+                                return None, len(sub)
+                            q5 = sub[sub['_q'] == sub['_q'].max()][ret_col].mean()
+                            q1 = sub[sub['_q'] == sub['_q'].min()][ret_col].mean()
+                            return round(float(q5 - q1), 3), int(len(sub))
+
+                        def _sell_hit_rate(ret_col):
+                            sells = _hist[_hist['action'].astype(str).str.upper() == 'SELL'].dropna(subset=[ret_col]) if ret_col in _hist.columns else pd.DataFrame()
+                            if len(sells) == 0:
+                                return None, 0
+                            return round(float((sells[ret_col] < 0).mean() * 100), 1), int(len(sells))
+
+                        _v1_ic_30, _v1_n_30 = _ic_pair('score', 'return_30d')
+                        _v1_ic_7, _v1_n_7   = _ic_pair('score', 'return_7d')
+                        _v1_sp_30, _ = _quintile_spread('score', 'return_30d')
+                        _v1_shr_30, _v1_shr_n = _sell_hit_rate('return_30d')
+
+                        _has_v2_score_col = 'score_v2' in _hist.columns and _hist['score_v2'].notna().any()
+                        _v2_ic_30, _v2_n_30 = _ic_pair('score_v2', 'return_30d') if _has_v2_score_col else (None, 0)
+                        _v2_ic_7, _v2_n_7   = _ic_pair('score_v2', 'return_7d')  if _has_v2_score_col else (None, 0)
+                        _v2_sp_30, _ = _quintile_spread('score_v2', 'return_30d') if _has_v2_score_col else (None, 0)
+
+                        _telemetry_rows.append({'Metric': 'Snapshot timestamp',         'Value': _ts_now})
+                        _telemetry_rows.append({'Metric': 'History rows total',         'Value': len(_hist)})
+                        _telemetry_rows.append({'Metric': 'v1 IC_30d (Spearman)',       'Value': _v1_ic_30})
+                        _telemetry_rows.append({'Metric': 'v1 IC_7d  (Spearman)',       'Value': _v1_ic_7})
+                        _telemetry_rows.append({'Metric': 'v1 Q5-Q1 spread (30d, pp)',  'Value': _v1_sp_30})
+                        _telemetry_rows.append({'Metric': 'v1 SELL hit rate (30d, %)',  'Value': _v1_shr_30})
+                        _telemetry_rows.append({'Metric': 'v1 SELL count',              'Value': _v1_shr_n})
+                        _telemetry_rows.append({'Metric': 'v1 sample size 30d',         'Value': _v1_n_30})
+                        _telemetry_rows.append({'Metric': 'v1 sample size 7d',          'Value': _v1_n_7})
+                        _telemetry_rows.append({'Metric': 'v2 IC_30d (Spearman)',       'Value': _v2_ic_30 if _has_v2_score_col else 'n/a'})
+                        _telemetry_rows.append({'Metric': 'v2 IC_7d  (Spearman)',       'Value': _v2_ic_7  if _has_v2_score_col else 'n/a'})
+                        _telemetry_rows.append({'Metric': 'v2 Q5-Q1 spread (30d, pp)',  'Value': _v2_sp_30 if _has_v2_score_col else 'n/a'})
+                        _telemetry_rows.append({'Metric': 'v2 sample size 30d',         'Value': _v2_n_30  if _has_v2_score_col else 'n/a'})
+                        _telemetry_rows.append({'Metric': 'IC_30d gate (need >= +0.05)', 'Value': 'PASS' if (_v2_ic_30 is not None and _v2_ic_30 >= 0.05) else ('FAIL' if _has_v2_score_col else 'n/a')})
+                        _telemetry_rows.append({'Metric': 'Spread gate (need >= +3pp)',  'Value': 'PASS' if (_v2_sp_30 is not None and _v2_sp_30 >= 3.0) else ('FAIL' if _has_v2_score_col else 'n/a')})
+                        _telemetry_rows.append({'Metric': 'Sample-size gate (need >= 200)', 'Value': 'PASS' if (_has_v2_score_col and _v2_n_30 >= 200) else 'FAIL'})
+                        _v2_shadow_flag = bool(getattr(_config, 'V2_SHADOW_MODE', True))
+                        _telemetry_rows.append({'Metric': 'V2_SHADOW_MODE',              'Value': _v2_shadow_flag})
+                        _telemetry_rows.append({'Metric': 'LIVE ENGINE',                 'Value': 'v1' if _v2_shadow_flag else 'v2'})
+                        _telemetry_rows.append({'Metric': 'V2_PROMOTION_DATE',           'Value': str(getattr(_config, 'V2_PROMOTION_DATE', '') or '(never)')})
+                        _telemetry_rows.append({'Metric': 'PAPER_TRADING_MODE',          'Value': bool(getattr(_config, 'PAPER_TRADING_MODE', False))})
+                        _telemetry_rows.append({'Metric': 'HARD_STOP_PURE_PNL',          'Value': bool(getattr(_config, 'HARD_STOP_PURE_PNL', False))})
+                        _telemetry_rows.append({'Metric': 'UNIDIRECTIONAL_HYSTERESIS',   'Value': bool(getattr(_config, 'UNIDIRECTIONAL_HYSTERESIS', False))})
+                        _telemetry_rows.append({'Metric': 'ENABLE_CRISIS_DETECTOR',      'Value': bool(getattr(_config, 'ENABLE_CRISIS_DETECTOR', False))})
+
+                        # [Rule 4] Adaptive holdings count + rationale.
+                        try:
+                            _adapt_info = (portfolio_allocation or {}).get('portfolio_size_info', {}) if isinstance(portfolio_allocation, dict) else {}
+                            if _adapt_info:
+                                _telemetry_rows.append({'Metric': '--- ADAPTIVE HOLDINGS COUNT (Rule 4) ---', 'Value': ''})
+                                _telemetry_rows.append({'Metric': 'active regime', 'Value': _adapt_info.get('market_regime', 'UNKNOWN')})
+                                _telemetry_rows.append({'Metric': 'target_count',  'Value': _adapt_info.get('target_count')})
+                                _telemetry_rows.append({'Metric': 'min/max band',  'Value': f"{_adapt_info.get('min_allowed')}-{_adapt_info.get('max_allowed')}"})
+                                _telemetry_rows.append({'Metric': 'rationale',     'Value': _adapt_info.get('adaptive_rationale', '')})
+                        except Exception as _adapt_err:
+                            logging.debug(f'adaptive sizing telemetry skipped: {_adapt_err}')
+
+                        # [Rule 3c] Per-factor IC breakdown for Q / G / M / V so the
+                        # operator can see which sub-score is doing the work. Each
+                        # value is the Spearman IC of that hybrid_* column against
+                        # forward 30d returns within the recommendation history.
+                        try:
+                            _telemetry_rows.append({'Metric': '--- 4-FACTOR IC BREAKDOWN (Q/G/M/V) ---', 'Value': ''})
+                            _factor_pairs = [
+                                ('QUALITY',  'hybrid_fundamental_quality'),
+                                ('GROWTH',   'hybrid_growth'),
+                                ('MOMENTUM', 'hybrid_momentum_technical'),
+                                ('VALUE',    'hybrid_value'),
+                            ]
+                            for _lbl, _col in _factor_pairs:
+                                _ic_val, _ic_n = _ic_pair(_col, 'return_30d')
+                                _telemetry_rows.append({
+                                    'Metric': f'  {_lbl} IC_30d (n={_ic_n})',
+                                    'Value': _ic_val if _ic_val is not None else 'INSUFFICIENT',
+                                })
+                        except Exception as _qgmv_err:
+                            logging.debug(f'Q/G/M/V IC breakdown skipped: {_qgmv_err}')
+
+                        # [Walk-Forward] Out-of-sample verdict (set by
+                        # scripts/walkforward_v2_validation.py). The single
+                        # statistically defensible answer to "do v2 weights
+                        # generalise?". Updated whenever the validator re-runs.
+                        try:
+                            _wf_path = _os_ic.path.join('data', 'walkforward_v2_validation.json')
+                            if _os_ic.path.exists(_wf_path):
+                                import json as _json_wf
+                                with open(_wf_path) as _wf_fp:
+                                    _wf = _json_wf.load(_wf_fp)
+                                _telemetry_rows.append({'Metric': '--- WALK-FORWARD OUT-OF-SAMPLE VERDICT ---', 'Value': ''})
+                                _telemetry_rows.append({'Metric': 'walkforward updated', 'Value': _wf.get('updated', '?')})
+                                # [Investor-audit Q17] Surface walk-forward
+                                # verdict age so a stale PROMOTE doesn't get
+                                # silently inherited indefinitely.
+                                try:
+                                    from datetime import datetime as _dt_wf
+                                    _wf_dt = _dt_wf.fromisoformat(_wf.get('updated'))
+                                    _wf_age = (_dt_wf.now() - _wf_dt).days
+                                    if _wf_age <= 14:
+                                        _wf_status = 'FRESH'
+                                    elif _wf_age <= 30:
+                                        _wf_status = f'STALE ({_wf_age}d) - re-run scripts/walkforward_v2_validation.py'
+                                    else:
+                                        _wf_status = f'EXPIRED ({_wf_age}d) - verdict no longer trustworthy'
+                                    _telemetry_rows.append({'Metric': 'walkforward age (days)', 'Value': _wf_age})
+                                    _telemetry_rows.append({'Metric': 'walkforward status',    'Value': _wf_status})
+                                except Exception:
+                                    pass
+                                _telemetry_rows.append({'Metric': 'walkforward eligible rows', 'Value': _wf.get('eligible_rows')})
+                                _wfp = _wf.get('primary_80_20', {}) or {}
+                                _wfv1 = _wfp.get('v1', {}) or {}
+                                _wfv2 = _wfp.get('v2', {}) or {}
+                                _telemetry_rows.append({'Metric': '  primary n_test', 'Value': _wfp.get('n_test')})
+                                _telemetry_rows.append({'Metric': '  primary v1 IC_30d OOS', 'Value': _wfv1.get('ic_30d')})
+                                _telemetry_rows.append({'Metric': '  primary v2 IC_30d OOS', 'Value': _wfv2.get('ic_30d')})
+                                _telemetry_rows.append({'Metric': '  primary v2 spread (pp)', 'Value': _wfv2.get('spread_pp')})
+                                _telemetry_rows.append({'Metric': '  primary v1 p-value', 'Value': _wfv1.get('ic_p')})
+                                _telemetry_rows.append({'Metric': '  primary v2 p-value', 'Value': _wfv2.get('ic_p')})
+                                _wff = _wf.get('folds_summary', {}) or {}
+                                _telemetry_rows.append({'Metric': '  5-fold mean IC', 'Value': _wff.get('mean_ic')})
+                                _telemetry_rows.append({'Metric': '  5-fold std IC',  'Value': _wff.get('std_ic')})
+                                _telemetry_rows.append({'Metric': '  5-fold IC range', 'Value': f"[{_wff.get('min_ic')}, {_wff.get('max_ic')}]"})
+                                _wfv = _wf.get('verdict', {}) or {}
+                                _telemetry_rows.append({'Metric': 'WALK-FORWARD VERDICT', 'Value': _wfv.get('verdict', '?')})
+                                _telemetry_rows.append({'Metric': '  reason', 'Value': _wfv.get('reason', '')})
+                                _telemetry_rows.append({'Metric': '  next_action', 'Value': _wfv.get('next_action', '')})
+                        except Exception as _wf_tel_err:
+                            logging.debug(f'walkforward telemetry skipped: {_wf_tel_err}')
+
+                        # [Tier C2] Active v2 weight source - surface today's
+                        # regime and which weight file was loaded (regime-specific
+                        # vs global) so the operator knows which calibration drives
+                        # the v2 shadow scores in this run.
+                        try:
+                            _cur_regime_tel = str(getattr(self, 'current_market_regime', None) or 'UNKNOWN').upper()
+                            _telemetry_rows.append({'Metric': '--- TIER C2 (regime-conditional v2) ---', 'Value': ''})
+                            _telemetry_rows.append({'Metric': 'current market regime', 'Value': _cur_regime_tel})
+                            _regime_path = _os_ic.path.join(
+                                'data', f'calibrated_weights_v2_{_cur_regime_tel}.json'
+                            )
+                            _global_path = _os_ic.path.join('data', 'calibrated_weights_v2.json')
+                            if _os_ic.path.exists(_regime_path):
+                                _src_label = f'REGIME-SPECIFIC ({_cur_regime_tel})'
+                                _src_file = _regime_path
+                            elif _os_ic.path.exists(_global_path):
+                                _src_label = 'GLOBAL (regime fallback)'
+                                _src_file = _global_path
+                            else:
+                                _src_label = 'NONE (no v2 weights loaded)'
+                                _src_file = ''
+                            _telemetry_rows.append({'Metric': 'v2 weight source', 'Value': _src_label})
+                            _telemetry_rows.append({'Metric': 'v2 weight file',   'Value': _src_file})
+                            # [Stale-weights guard] Age check so a silent fallback
+                            # to v1 defaults is loudly visible in the report.
+                            try:
+                                if _src_file:
+                                    import json as _json_age
+                                    from datetime import datetime as _dt_age
+                                    with open(_src_file) as _fp_age:
+                                        _w_data = _json_age.load(_fp_age)
+                                    _w_updated = _dt_age.fromisoformat(_w_data.get('updated', ''))
+                                    _w_age = (_dt_age.now() - _w_updated).days
+                                    _w_status = 'FRESH'
+                                    if _w_age > 14:
+                                        _w_status = 'EXPIRED (>14d) - v2 silently disabled. Recalibrate now.'
+                                    elif _w_age > 7:
+                                        _w_status = f'STALE ({_w_age}d) - recalibrate within next 7d'
+                                    _telemetry_rows.append({'Metric': 'v2 weight age (days)', 'Value': _w_age})
+                                    _telemetry_rows.append({'Metric': 'v2 weight status',    'Value': _w_status})
+                            except Exception as _age_err:
+                                logging.debug(f'v2 weight age check skipped: {_age_err}')
+                            for _r in ('BULL', 'BEAR', 'SIDEWAYS'):
+                                _p = _os_ic.path.join('data', f'calibrated_weights_v2_{_r}.json')
+                                _telemetry_rows.append({
+                                    'Metric': f'  {_r} weights file present',
+                                    'Value': bool(_os_ic.path.exists(_p)),
+                                })
+                        except Exception as _c2_tel_err:
+                            logging.debug(f'Tier C2 telemetry skipped: {_c2_tel_err}')
+
+                        # [v3 Layer 4] Historical-evidence rows: populated when
+                        # data/historical_outcomes.csv and data/regime_ic_diagnostic.json
+                        # are present. Lets the report surface today's historical
+                        # IC instead of waiting 30 days for forward returns.
+                        try:
+                            _diag_path = _os_ic.path.join('data', 'regime_ic_diagnostic.json')
+                            if _os_ic.path.exists(_diag_path):
+                                import json as _json_ic
+                                with open(_diag_path) as _df_ic:
+                                    _diag = _json_ic.load(_df_ic)
+                                _telemetry_rows.append({'Metric': '--- HISTORICAL IC (regime_ic_diagnostic.json) ---', 'Value': ''})
+                                _g = _diag.get('global', {}) or {}
+                                _telemetry_rows.append({'Metric': 'historical global IC_30d',  'Value': (_g.get('ic_30d') or {}).get('rho')})
+                                _telemetry_rows.append({'Metric': 'historical global IC_7d',   'Value': (_g.get('ic_7d') or {}).get('rho')})
+                                _telemetry_rows.append({'Metric': 'historical global spread (pp)', 'Value': (_g.get('quintile_30d') or {}).get('spread')})
+                                _telemetry_rows.append({'Metric': 'historical global n_rows',  'Value': _g.get('n_rows')})
+                                for _rg in ('BULL', 'BEAR', 'SIDEWAYS'):
+                                    _b = (_diag.get('regimes') or {}).get(_rg, {}) or {}
+                                    _st = _b.get('status', 'INSUFFICIENT')
+                                    if _st == 'OK':
+                                        _telemetry_rows.append({
+                                            'Metric': f'  {_rg} IC_30d (n={_b.get("n_rows")})',
+                                            'Value': (_b.get('ic_30d') or {}).get('rho'),
+                                        })
+                                    else:
+                                        _telemetry_rows.append({
+                                            'Metric': f'  {_rg} IC_30d',
+                                            'Value': f'INSUFFICIENT (n={_b.get("n_rows", 0)})',
+                                        })
+                                _v = _diag.get('verdict', {}) or {}
+                                _telemetry_rows.append({'Metric': 'VERDICT (historical)', 'Value': _v.get('verdict', '?')})
+                                _telemetry_rows.append({'Metric': '  reason',     'Value': _v.get('reason', '')})
+                                _telemetry_rows.append({'Metric': '  next_action', 'Value': _v.get('next_action', '')})
+                        except Exception as _diag_err:
+                            logging.debug(f'historical-IC rows skipped: {_diag_err}')
+
+                        pd.DataFrame(_telemetry_rows).to_excel(writer, sheet_name='IC Telemetry', index=False)
+                except Exception as _ic_tel_err:
+                    logging.warning(f"IC Telemetry sheet skipped: {_ic_tel_err}")
 
                 # 7. Complete Data Sheet (Keep as last sheet)
                 # [R-12] Remove constant columns (same value for all rows — adds noise)
@@ -9691,6 +11996,56 @@ Trading Plan ({risk_tolerance} RISK):
                         ('Config Source', 'config.json' if os.path.exists('config.json') else 'config.py defaults'),
                         ('Risk Profile', str(getattr(self, 'risk_profile', 'moderate'))),
                     ]
+                    # [F-NEW-4] Active v2 weights file + regime-fallback flag.
+                    # Surface the silent-fallback case loudly: if regime is X
+                    # but `data/calibrated_weights_v2_X.json` is absent, the
+                    # engine falls back to the global weights. Investors need
+                    # to see this without scrolling through IC Telemetry.
+                    try:
+                        _cur_regime_meta = str(getattr(self, 'current_market_regime', None) or 'UNKNOWN').upper()
+                        _regime_path_meta = os.path.join('data', f'calibrated_weights_v2_{_cur_regime_meta}.json')
+                        _global_path_meta = os.path.join('data', 'calibrated_weights_v2.json')
+                        if os.path.exists(_regime_path_meta):
+                            _wt_label = f'REGIME-SPECIFIC ({_cur_regime_meta})'
+                            _wt_file  = _regime_path_meta
+                            _wt_fallback = 'no'
+                        elif os.path.exists(_global_path_meta):
+                            _wt_label = 'GLOBAL (regime fallback - per-regime file missing)'
+                            _wt_file  = _global_path_meta
+                            _wt_fallback = f'YES ({_cur_regime_meta} weights file absent)'
+                        else:
+                            _wt_label = 'NONE (no v2 weights loaded)'
+                            _wt_file  = '-'
+                            _wt_fallback = 'YES (no v2 weights at all)'
+                        _meta_data.extend([
+                            ('Active v2 Weights Source', _wt_label),
+                            ('Active v2 Weights File', _wt_file),
+                            ('v2 Regime-Fallback Active', _wt_fallback),
+                        ])
+                    except Exception as _wt_meta_err:
+                        logging.debug(f'_Metadata regime-weights row skipped: {_wt_meta_err}')
+                    # [F-NEW-7] v2 days-since-promotion + validation-data ETA.
+                    # The investor-visible reminder that the LIVE engine has
+                    # not yet accumulated 30d post-promotion outcomes (per
+                    # IC Telemetry's `v2 sample size 30d`).
+                    try:
+                        _v2_promo_str = str(getattr(_config, 'V2_PROMOTION_DATE', '') or '').strip()
+                        _v2_shadow = bool(getattr(_config, 'V2_SHADOW_MODE', True))
+                        if _v2_promo_str and not _v2_shadow:
+                            from datetime import datetime as _dt_v2p, timedelta as _td_v2p
+                            _v2_promo_dt = _dt_v2p.strptime(_v2_promo_str[:10], '%Y-%m-%d')
+                            _days_since = (_dt_v2p.now() - _v2_promo_dt).days
+                            _eta = (_v2_promo_dt + _td_v2p(days=30)).strftime('%Y-%m-%d')
+                            _v2_status = 'production-validation data ACCRUED' if _days_since >= 30 else f'pending - ETA {_eta}'
+                            _meta_data.extend([
+                                ('v2 LIVE since', _v2_promo_str),
+                                ('v2 Days Live', f'{_days_since} (30d outcomes settle at +30d)'),
+                                ('v2 Validation Data', _v2_status),
+                            ])
+                        elif _v2_shadow:
+                            _meta_data.append(('v2 Engine Mode', 'SHADOW (not driving live actions)'))
+                    except Exception as _v2p_meta_err:
+                        logging.debug(f'_Metadata v2-promotion row skipped: {_v2p_meta_err}')
                     # Adaptive weights used
                     _aw = getattr(self, '_last_adaptive_weights', None)
                     if _aw and isinstance(_aw, dict):
@@ -9710,14 +12065,49 @@ Trading Plan ({risk_tolerance} RISK):
                     print(f"   📋 _Metadata sheet: {len(_meta_data)} parameters recorded")
                 except Exception as _meta_err:
                     logging.warning(f"_Metadata sheet error: {_meta_err}")
+
+                # [F-NEW-12] Portfolio Allocation header map. The Portfolio
+                # Allocation sheet uses a two-row header (row 1 = merged
+                # group labels 'WHAT TO DO | MONEY | STOCK QUALITY | ...';
+                # row 2 = actual column names). External readers calling
+                # `pd.read_excel('Portfolio Allocation')` get None for the
+                # group cells and lose column identity. This sheet documents
+                # the convention so consumers can `pd.read_excel(..., header=1)`
+                # or build their own column mapping.
+                try:
+                    if 'Portfolio Allocation' in writer.sheets:
+                        _hm_ws = workbook.add_worksheet('_PortfolioAllocationHeaderMap')
+                        _hm_hdr = workbook.add_format({'bold': True, 'bg_color': '#2E5984', 'font_color': 'white', 'border': 1})
+                        _hm_val = workbook.add_format({'border': 1, 'text_wrap': True})
+                        _hm_ws.set_column(0, 0, 35)
+                        _hm_ws.set_column(1, 1, 70)
+                        _hm_ws.write(0, 0, 'Note', _hm_hdr)
+                        _hm_ws.write(0, 1, 'Value', _hm_hdr)
+                        _hm_notes = [
+                            ('SHEET', 'Portfolio Allocation'),
+                            ('HEADER ROW STRUCTURE', 'Row 1: merged group labels (WHAT TO DO | MONEY | STOCK QUALITY | ...). Row 2: actual column names. Row 3 onwards: data.'),
+                            ('PD.READ_EXCEL HINT', "Use pd.read_excel(file, sheet_name='Portfolio Allocation', header=1) to skip the group-label row."),
+                            ('OPENPYXL HINT', "wb['Portfolio Allocation'][2] gives the real column header values; row 1 has many None cells from merged ranges."),
+                            ('GROUP LABELS (row 1, left-to-right)', 'WHAT TO DO | MONEY | STOCK QUALITY | TIMING | RISK | TARGETS | TAX | NOTES'),
+                            ('TOTAL COLUMNS', '57 (varies slightly by run)'),
+                            ('AUTHORITATIVE SCHEMA', 'See Complete Data sheet for the flat row-1-header equivalent of the same data.'),
+                        ]
+                        for _hmi, (_hmk, _hmv) in enumerate(_hm_notes, start=1):
+                            _hm_ws.write(_hmi, 0, _hmk, _hm_val)
+                            _hm_ws.write(_hmi, 1, _hmv, _hm_val)
+                except Exception as _hm_err:
+                    logging.debug(f"_PortfolioAllocationHeaderMap sheet skipped: {_hm_err}")
                 
                 print(f"   🎯 Generated {len(writer.sheets)} essential worksheets (streamlined with auto-resize)")
             
             return filename
             
         except Exception as e:
-            logging.error(f"Enhanced Excel generation error: {e}")
+            import traceback as _tb_mod
+            _tb_text = _tb_mod.format_exc()
+            logging.error(f"Enhanced Excel generation error: {e}\n{_tb_text}")
             print(f"[FAIL] Enhanced Excel generation failed: {e}")
+            print(f"[FAIL] Traceback:\n{_tb_text}")
             return None
     
     _SCORE_COLUMNS = {
@@ -9734,18 +12124,41 @@ Trading Plan ({risk_tolerance} RISK):
     
     def _clean_dataframe_for_excel(self, df):
         """Clean DataFrame by replacing NaN/Inf values that Excel can't handle.
-        HI-04: Score columns fill with 50 (neutral), volatility columns fill with 100 (conservative).
+        HI-04: Score columns fill with 50 (neutral) ONLY when row has no real data.
+        [DQ-NATALUM] Volatility/score/numeric NaN now leaves a 0 marker rather than
+        fabricating 100/50 — fabrication misled the NATIONALUM call. Upstream DQ
+        flagging downgrades any such row to SKIP before action plan generation.
+        [DQ-MARICO POST] Coerce any list/dict/set/tuple cells to strings so
+        downstream operations (nunique, value_counts, groupby, Excel write)
+        don't trip "unhashable type: 'list'". This is a safety net for late-
+        injected rows seeded from results_df via dict(_src_row), where the
+        source dict may carry container values (e.g. raw signal lists).
         """
         try:
             for col in df.columns:
                 col_lower = col.lower() if isinstance(col, str) else ''
+                # Object dtype may hold list/dict/set/tuple cells — flatten to string.
+                if df[col].dtype == 'object':
+                    _has_container = df[col].apply(
+                        lambda v: isinstance(v, (list, dict, set, tuple))
+                    ).any()
+                    if _has_container:
+                        df[col] = df[col].apply(
+                            lambda v: (' | '.join(str(x) for x in v)
+                                       if isinstance(v, (list, tuple, set))
+                                       else (str(v) if isinstance(v, dict) else v))
+                        )
                 if df[col].dtype in ['float64', 'float32']:
                     if col in self._SCORE_COLUMNS or col_lower in self._SCORE_COLUMNS:
+                        # Score columns: fill with 50 to keep Excel formulas stable, but the
+                        # data_quality flag will already mark the row NO_SCORE upstream.
                         df[col] = df[col].fillna(50)
                     elif col in self._VOLATILITY_COLUMNS or col_lower in self._VOLATILITY_COLUMNS:
-                        df[col] = df[col].fillna(100)
+                        # [DQ-NATALUM] Was: fillna(100) — that fabricated extreme-risk values that
+                        # leaked into RISK WARNINGS. Now leave as 0; DQ flag carries the meaning.
+                        df[col] = df[col].fillna(0)
                     else:
-                    df[col] = df[col].fillna(0)
+                        df[col] = df[col].fillna(0)
                     df[col] = df[col].replace([np.inf, -np.inf], [999999, -999999])
                 elif df[col].dtype in ['int64', 'int32']:
                     df[col] = df[col].fillna(0)
@@ -9760,7 +12173,8 @@ Trading Plan ({risk_tolerance} RISK):
                     if col in self._SCORE_COLUMNS or col_lower in self._SCORE_COLUMNS:
                         df[col] = df[col].fillna(50)
                     elif col in self._VOLATILITY_COLUMNS or col_lower in self._VOLATILITY_COLUMNS:
-                        df[col] = df[col].fillna(100)
+                        # [DQ-NATALUM] consistent with primary path — no fabricated 100.
+                        df[col] = df[col].fillna(0)
                     else:
                         df[col] = df[col].fillna(0)
                 for col in df.select_dtypes(include='object').columns:
@@ -9836,7 +12250,47 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.merge_range('A1:H2', 'STOCK ANALYSIS DASHBOARD', dashboard_title_format)
         _ts_fmt = workbook.add_format({'italic': True, 'font_color': '#666666', 'align': 'right', 'font_size': 9})
         worksheet.merge_range('A3:H3', f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}  |  Regime: {getattr(self, 'current_market_regime', 'N/A')}  |  Engine: {getattr(self.hybrid_scoring_engine, 'version', 'N/A')}", _ts_fmt)
-        
+
+        # [F-NEW-7] v2 LIVE-engine status banner. Surfaces: days since
+        # promotion, validation-data accrual ETA, and silent regime fallback
+        # so the investor sees the LIVE engine's caveats without scrolling
+        # to IC Telemetry.
+        try:
+            _v2_promo = str(getattr(_config, 'V2_PROMOTION_DATE', '') or '').strip()
+            _v2_shadow = bool(getattr(_config, 'V2_SHADOW_MODE', True))
+            _cur_regime_dash = str(getattr(self, 'current_market_regime', None) or 'UNKNOWN').upper()
+            _regime_path_dash = os.path.join('data', f'calibrated_weights_v2_{_cur_regime_dash}.json')
+            _global_path_dash = os.path.join('data', 'calibrated_weights_v2.json')
+            _fallback_active = (not os.path.exists(_regime_path_dash)) and os.path.exists(_global_path_dash)
+            _banner_parts = []
+            if _v2_shadow:
+                _banner_parts.append('v2 SHADOW MODE')
+            elif _v2_promo:
+                from datetime import datetime as _dt_b
+                try:
+                    _v2_promo_dt = _dt_b.strptime(_v2_promo[:10], '%Y-%m-%d')
+                    _days_since = (_dt_b.now() - _v2_promo_dt).days
+                    if _days_since < 30:
+                        _banner_parts.append(
+                            f'v2 LIVE day {_days_since} of 30 - 30d outcomes still accruing; profit_factor not yet validated for v2'
+                        )
+                    else:
+                        _banner_parts.append(f'v2 LIVE for {_days_since}d - 30d validation data ACCRUED')
+                except ValueError:
+                    pass
+            if _fallback_active:
+                _banner_parts.append(
+                    f'WARN: regime={_cur_regime_dash} but per-regime weights file missing - using GLOBAL fallback'
+                )
+            if _banner_parts:
+                _banner_fmt = workbook.add_format({
+                    'italic': True, 'font_color': '#8B0000', 'align': 'center',
+                    'font_size': 9, 'bold': True, 'bg_color': '#FFF8DC', 'border': 1,
+                })
+                worksheet.merge_range('A4:H4', '  |  '.join(_banner_parts), _banner_fmt)
+        except Exception as _v2_banner_err:
+            logging.debug(f'Dashboard v2 banner skipped: {_v2_banner_err}')
+
         # Key Metrics Section
         row = 5
         
@@ -9909,7 +12363,7 @@ Trading Plan ({risk_tolerance} RISK):
         # Portfolio metrics
         _pa_summary = portfolio_allocation.get('summary', {}) if portfolio_allocation else {}
         _total_inv = _pa_summary.get('current_portfolio_value', _pa_summary.get('total_investment', 0))
-            worksheet.write(f'E{row}', 'Total Investment:', header_format)
+        worksheet.write(f'E{row}', 'Total Investment:', header_format)
         worksheet.write(f'F{row}', round(float(_total_inv), 0), price_format)
         
         row += 1
@@ -9918,7 +12372,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.write(f'C{row}', f'{medium_risk/total_stocks*100:.1f}%', percent_format)
         
         _utilized = _pa_summary.get('total_available_capital', _pa_summary.get('utilized_amount', 0))
-            worksheet.write(f'E{row}', 'Amount Utilized:', header_format)
+        worksheet.write(f'E{row}', 'Amount Utilized:', header_format)
         worksheet.write(f'F{row}', round(float(_utilized), 0), price_format)
         
         row += 1
@@ -9927,7 +12381,7 @@ Trading Plan ({risk_tolerance} RISK):
         worksheet.write(f'C{row}', f'{high_risk/total_stocks*100:.1f}%', percent_format)
         
         _util_pct = _pa_summary.get('funds_utilization', _pa_summary.get('utilization_percentage', 0))
-            worksheet.write(f'E{row}', 'Utilization %:', header_format)
+        worksheet.write(f'E{row}', 'Utilization %:', header_format)
         worksheet.write(f'F{row}', f'{float(_util_pct):.1f}%', percent_format)
         
         # Top Performers Section
@@ -10128,7 +12582,7 @@ Trading Plan ({risk_tolerance} RISK):
                 continue
             if c_start == c_end:
                 worksheet.write(0, c_start, label, grp_hdr_fmt)
-                else:
+            else:
                 worksheet.merge_range(0, c_start, 0, c_end, label, grp_hdr_fmt)
 
         # ═══════════════════════════════════════════════════════════════════
@@ -10175,8 +12629,10 @@ Trading Plan ({risk_tolerance} RISK):
             fmt_map[cn] = pct_dec_fmt
         for cn in ['P&L %', '20D CHG %', 'VOLATILITY %']:
             fmt_map[cn] = pct_act_fmt
-        for cn in ['SCORE', 'ADJ SCORE', 'PE', 'D/E', 'RSI',
-                    'FUND', 'MOM', 'VOL', 'MTF', 'VALUE', 'ML CONF %', 'RISK SC']:
+        # [Rule 3c] Number-format map covers both legacy + new Q/G/M/V labels.
+        for cn in ['SCORE', 'V1 RAW', 'V2 RAW', 'V2-V1 RAW Δ', 'ADJ SCORE', 'PE', 'D/E', 'RSI',
+                    'QUALITY', 'MOMENTUM', 'GROWTH', 'VALUE', 'VOL', 'MTF',
+                    'ML CONF %', 'RISK', 'UNDERVAL', 'ROT Δ']:
             fmt_map[cn] = score_sep if _ci(cn) in grp_starts else score_fmt
         for cn in ['BUY QTY', 'MY QTY', 'RANK']:
             fmt_map[cn] = int_fmt
@@ -10263,7 +12719,11 @@ Trading Plan ({risk_tolerance} RISK):
         # ═══════════════════════════════════════════════════════════════════
         # A4: FULL HEATMAP on score columns (red -> yellow -> green)
         # ═══════════════════════════════════════════════════════════════════
-        heatmap_cols = ['SCORE', 'ADJ SCORE', 'FUND', 'MOM', 'VOL', 'MTF', 'VALUE']
+        # [Rule 3c] Heatmap now covers the Q/G/M/V family in addition to legacy
+        # score columns. Missing columns are silently skipped via _ci(cn) < 0.
+        heatmap_cols = ['SCORE', 'V1 RAW', 'V2 RAW', 'ADJ SCORE',
+                        'QUALITY', 'MOMENTUM', 'GROWTH', 'VALUE', 'VOL', 'MTF',
+                        'RISK', 'UNDERVAL']
         for cn in heatmap_cols:
             ci = _ci(cn)
             if ci < 0:
@@ -10276,9 +12736,12 @@ Trading Plan ({risk_tolerance} RISK):
         # ═══════════════════════════════════════════════════════════════════
         # A5: DATA BARS inside score cells
         # ═══════════════════════════════════════════════════════════════════
+        # [Rule 3c] Bar palette covers Q/G/M/V columns.
         bar_colors = {
             'SCORE': '#2E86C1', 'ADJ SCORE': '#17A589',
-            'FUND': '#E67E22', 'MOM': '#8E44AD', 'VOL': '#27AE60',
+            'QUALITY': '#E67E22', 'MOMENTUM': '#8E44AD',
+            'GROWTH': '#1ABC9C', 'VALUE': '#5D6D7E',
+            'VOL': '#27AE60',
         }
         for cn, color in bar_colors.items():
             ci = _ci(cn)
@@ -11602,7 +14065,17 @@ Trading Plan ({risk_tolerance} RISK):
         total_stocks = len(df)
         print(f"📊 ENHANCED DATA COLLECTION:")
         print(f"   Total Stocks Analyzed     : {total_stocks}")
-        
+
+        # [Investor-audit Q41] Surface how many rows used stale-cache fallback
+        # so the investor knows when fresh API calls hit rate limits. Without
+        # this, ~10 stocks per run silently sit on day-old data and the
+        # investor has no signal that some BUY/HOLD calls are not fresh.
+        if 'cache_fallback' in df.columns:
+            _stale_count = int(df['cache_fallback'].fillna(False).astype(bool).sum())
+            if _stale_count > 0:
+                print(f"   ⚠️  Stale-cache fallbacks   : {_stale_count} stocks "
+                      f"(yfinance rate-limited; reusing prior-day cache)")
+
         # Enhanced metrics
         undervalued_count = len(df[df['undervaluation_score'] >= 65])
         low_risk_count = len(df[df['risk_category'] == 'LOW'])
@@ -11799,7 +14272,7 @@ def generate_top_10_categories(results_df, analyzer=None):
         elif 'real_technical_score_final' in results_df.columns:
             results_df['technical_score'] = results_df['real_technical_score_final']
         else:
-        results_df['technical_score'] = 50
+            results_df['technical_score'] = 50
     if 'fundamental_score' not in results_df.columns:
         results_df['fundamental_score'] = 50
     if 'overall_score_with_value' not in results_df.columns:
@@ -12014,11 +14487,13 @@ def main():
     # Parse command line arguments
     import argparse
     parser = argparse.ArgumentParser(description='Enhanced Analysis of Top 200 NSE stocks with undervaluation detection')
-    parser.add_argument('-w', '--workers', type=int, default=3, help='Max worker threads')
+    parser.add_argument('-w', '--workers', type=int, default=8,
+                        help='Max worker threads (default 8; bumped from 3 once '
+                             'caching dominated the workload).')
     parser.add_argument('-b', '--batch', type=int, default=15, help='Batch size (default: 15)')
     parser.add_argument('-s', '--symbol', type=str, help='Single stock symbol to analyze')
     parser.add_argument('-n', '--num', type=int, default=0, help='Number of stocks to analyze (0 = all stocks in CSV, default: all available)')
-    parser.add_argument('-c', '--csv', type=str, help='Path to CSV file with stock symbols (defaults to stock_list_template.csv if available)')
+    parser.add_argument('-c', '--csv', type=str, help='Path to CSV file with stock symbols (defaults to stock_list_template500.csv (Nifty 500) if available, else legacy stock_list_template.csv)')
     parser.add_argument('-e', '--export', type=str, help='Export default stock list to a CSV file and exit')
     parser.add_argument('--portfolio-amount', type=float, default=100000, help='Target portfolio amount for allocation suggestions (default: Rs1,00,000)')
     parser.add_argument('--skip-risk', action='store_true', help='Skip risk analysis (faster execution)')
@@ -12036,8 +14511,24 @@ def main():
                         help='Minimum volatility threshold for high-risk investors (default: 0.0)')
     parser.add_argument('--save-config', action='store_true',
                         help='Save current configuration to config.json and exit')
-    
+    # [perf] --fast: skip cosmetic deep-dive sheets that re-iterate the whole
+    # universe but do not feed actions or the audit trail. Keeps Dashboard,
+    # Top Picks, Trading Levels, Undervalued, Sector Analysis, Risk Analysis,
+    # Portfolio Allocation, Portfolio Summary, IC Telemetry, V2 Shadow
+    # Comparison, Past Accuracy, Complete Data, Benchmark Comparison,
+    # Rec Performance, Weekly Changes, BT Summary, BT Equity Curve, BT Trades,
+    # _Metadata, and the new IC Telemetry rows.
+    parser.add_argument('--fast', action='store_true',
+                        help='Fast mode: skip Multi-Timeframe Deep Dive, '
+                             'Institutional Flow, Valuation Analysis, Risk '
+                             'Management, and Price Predictions sheets. Saves '
+                             '~15-25s per run. Recommended for cache-hot '
+                             'iterations; not for production reports.')
+
     args = parser.parse_args()
+    # Plumb --fast onto the analyzer instance so the report generator can
+    # short-circuit the optional sheet builders without restructuring.
+    _FAST_MODE = bool(args.fast)
     
     if args.save_config:
         from config import save_config_to_file
@@ -12059,11 +14550,12 @@ def main():
         risk_profile=args.risk_profile,
         focus_growth=args.focus_growth,
         focus_momentum=args.focus_momentum,
-        min_volatility=args.min_volatility
+        min_volatility=args.min_volatility,
     )
     analyzer.portfolio_amount = args.portfolio_amount
     analyzer.skip_risk = args.skip_risk
     analyzer.undervalued_only = args.undervalued_only
+    analyzer.fast_mode = _FAST_MODE  # [perf] short-circuits cosmetic deep-dive sheets
 
     # Handle TOP 10 only mode (quick insights from latest analysis)
     if args.top_10_only:
@@ -12182,13 +14674,17 @@ def main():
     # Display info about CSV if used
     if hasattr(analyzer, '_csv_path') and analyzer._csv_path:
         csv_path = analyzer._csv_path
-        is_default = csv_path == "stock_list_template.csv" and not args.csv
-        
-        if is_default:
-            print(f"Using default stock list template: {csv_path}")
+        # [Rule 2a] Recognise both the Nifty 500 default and the legacy 200 fallback.
+        is_default_500 = csv_path == "stock_list_template500.csv" and not args.csv
+        is_default_200 = csv_path == "stock_list_template.csv" and not args.csv
+
+        if is_default_500:
+            print(f"Using default Nifty 500 universe: {csv_path}")
+        elif is_default_200:
+            print(f"[WARN] Using legacy Nifty 200 fallback (contract Rule 2a expects Nifty 500): {csv_path}")
         else:
             print(f"[CSV] Using stock list from CSV: {csv_path}")
-            
+
         print(f"   - Stocks loaded: {len(analyzer.stock_list)}")
         print(f"   - Company names: {'Available' if len(analyzer.company_names) > 0 else 'Not available'}")
     
@@ -12445,16 +14941,16 @@ def main():
                 
                 _spb_imported = False
                 try:
-                from smart_profit_booking_advisor import SmartProfitBookingAdvisor
+                    from smart_profit_booking_advisor import SmartProfitBookingAdvisor
                     _spb_imported = True
-            except ImportError:
+                except ImportError:
                     pass
                 if not _spb_imported:
                     try:
                         sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'archived', 'legacy'))
                         from smart_profit_booking_advisor import SmartProfitBookingAdvisor
                         _spb_imported = True
-            except ImportError:
+                    except ImportError:
                         pass
 
                 if _spb_imported:
@@ -12516,6 +15012,31 @@ def main():
                         swap_total += row[_V]
                     print()
                 
+                # PRIORITY 1.5: EXIT (momentum exhaustion — partial or full exit)
+                _exit_mask = allocation_df['ACTION'].str.contains('EXIT', na=False)
+                exits = allocation_df[_exit_mask].sort_values(_V, ascending=False)
+                exit_total = 0
+                if len(exits) > 0:
+                    print('PRIORITY 1.5: EXIT (MOMENTUM EXHAUSTION) 🔴')
+                    for _, row in exits.iterrows():
+                        _exit_pct_match = re.search(r'(\d+)-(\d+)%', str(row['ACTION']))
+                        if _exit_pct_match:
+                            _lo = int(_exit_pct_match.group(1))
+                            _hi = int(_exit_pct_match.group(2))
+                            _exit_qty_lo = max(1, int(row[_Q] * _lo / 100))
+                            _exit_qty_hi = max(1, int(row[_Q] * _hi / 100))
+                            _exit_val_lo = _exit_qty_lo * row['PRICE']
+                            _exit_val_hi = _exit_qty_hi * row['PRICE']
+                            print(f"{row['symbol']}: Exit {_lo}-{_hi}% → Sell {_exit_qty_lo}-{_exit_qty_hi} of {row[_Q]:.0f} shares → ~₹{_exit_val_lo:,.0f}-₹{_exit_val_hi:,.0f}")
+                            exit_total += (_exit_val_lo + _exit_val_hi) / 2
+                        elif 'NOW' in str(row['ACTION']).upper():
+                            print(f"{row['symbol']}: EXIT ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}")
+                            exit_total += row[_V]
+                        else:
+                            print(f"{row['symbol']}: {row['ACTION']} → ₹{row[_V]:,.0f}")
+                            exit_total += row[_V]
+                    print(f"EXIT Proceeds: ~₹{exit_total:,.0f}\n")
+
                 # PRIORITY 2: SELL (hard sells only — exclude CONSIDER SELLING)
                 _sell_mask = (allocation_df['ACTION'].str.upper().str.strip() == 'SELL')
                 sells = allocation_df[_sell_mask].sort_values(_V, ascending=False)
@@ -12666,9 +15187,59 @@ def main():
                 except Exception:
                     pass
 
+                # [F-NEW-2] Partial-execution preview. Yesterday's audit showed
+                # the user executed 8 of 12 SELLs but kept all PSU bank SELLs;
+                # FinSvc concentration WORSENED 75.7% -> 84.6% as a result.
+                # Project the effect of executing only the non-overweight-sector
+                # SELLs (the common partial-execution pattern) so the investor
+                # can preview "if I skip the SELLs in my dominant sector, my
+                # concentration will look like X".
+                # Note: this scope's `allocation_df` is read from the Portfolio
+                # Allocation sheet (header=1) so column names are the ALIASED
+                # display names (ACTION, MY VALUE ₹, sector). Holdings are
+                # identified by MY VALUE ₹ > 0 since `is_current_holding` is
+                # not exported to that sheet.
+                try:
+                    if 'sector' in allocation_df.columns and _V in allocation_df.columns and 'ACTION' in allocation_df.columns:
+                        _hold_now = allocation_df[allocation_df[_V] > 0].copy()
+                        if not _hold_now.empty:
+                            _sell_mask = _hold_now['ACTION'].astype(str).str.upper().str.contains('SELL', na=False)
+                            _sell_set = set(_hold_now[_sell_mask]['symbol'].tolist())
+                            _total_hold = len(_hold_now)
+                            _sect_now = _hold_now['sector'].fillna('Unknown').value_counts()
+                            _top_sect_now = str(_sect_now.index[0]) if len(_sect_now) > 0 else '-'
+                            _top_sect_now_n = int(_sect_now.iloc[0]) if len(_sect_now) > 0 else 0
+                            _conc_now_pct = (_top_sect_now_n / _total_hold * 100) if _total_hold else 0
+                            # Simulate executing ONLY the non-dominant-sector SELLs
+                            _hold_partial = _hold_now[~(
+                                (_hold_now['symbol'].isin(_sell_set)) &
+                                (~_hold_now['sector'].fillna('').astype(str).str.contains(_top_sect_now.split()[0], na=False, regex=False))
+                            )].copy()
+                            _ha_total = len(_hold_partial)
+                            _ha_sect = _hold_partial['sector'].fillna('Unknown').value_counts()
+                            _ha_top = str(_ha_sect.index[0]) if len(_ha_sect) > 0 else '-'
+                            _ha_top_n = int(_ha_sect.iloc[0]) if len(_ha_sect) > 0 else 0
+                            _ha_pct = (_ha_top_n / _ha_total * 100) if _ha_total else 0
+                            _sells_in_top = sum(1 for _s in _sell_set
+                                                if _top_sect_now.split()[0] in str(_hold_now[_hold_now['symbol'] == _s]['sector'].iloc[0]))
+                            if _conc_now_pct >= 40:
+                                print('⚠️  PARTIAL-EXECUTION CONCENTRATION PREVIEW:')
+                                print(f"  • Current: {_top_sect_now} = {_top_sect_now_n}/{_total_hold} ({_conc_now_pct:.0f}%)")
+                                print(f"  • System flagged {len(_sell_set)} SELLs total ({_sells_in_top} in {_top_sect_now}, "
+                                      f"{len(_sell_set) - _sells_in_top} elsewhere).")
+                                if _ha_pct > _conc_now_pct:
+                                    print(f"  • If you ONLY sell non-{_top_sect_now} stocks (yesterday's pattern), "
+                                          f"{_ha_top} would WORSEN to {_ha_top_n}/{_ha_total} ({_ha_pct:.0f}%).")
+                                else:
+                                    print(f"  • Skipping all SELLs leaves concentration at {_conc_now_pct:.0f}%; full execution would diversify.")
+                                print(f"  • Recommendation: execute SELLs in the OVERWEIGHT sector ({_top_sect_now}) FIRST.")
+                                print()
+                except Exception as _pep_err:
+                    logging.warning(f'partial-execution preview skipped: {_pep_err}')
+
                 # FINAL SUMMARY
                 total_investment = total_new + total_increase
-                total_proceeds_min = swap_total + sell_total + book_total
+                total_proceeds_min = swap_total + sell_total + exit_total + book_total
                 total_proceeds_max = total_proceeds_min + skip_total
                 net_min = total_investment - total_proceeds_min
                 net_max = total_investment - total_proceeds_max
@@ -12676,12 +15247,82 @@ def main():
                 print('='*100)
                 print('💰 FINAL NUMBERS:\n')
                 print('MINIMUM (Priority 1-5 only):')
-                print(f"Sell: ₹{total_proceeds_min:,.0f} (SWAP + SELL + BOOK)")
+                print(f"Sell: ₹{total_proceeds_min:,.0f} (SWAP + SELL + EXIT + BOOK)")
                 print(f"Buy: ₹{total_investment:,.0f} (NEW + INCREASE)")
                 if net_min < 0:
                     print(f"✅ NET: You GET ₹{abs(net_min):,.0f} BACK\n")
                 else:
                     print(f"⚠️  NET: You NEED ₹{net_min:,.0f} new capital\n")
+
+                # [Investor-audit Q4] Tax-loss harvest summary. Sums realised
+                # losses on actionable SELLs (P&L<0) so the operator can see
+                # how much of their other capital gains these exits offset.
+                # `allocation_df` here is the Excel-renamed DF (header=1), so
+                # we read by display labels ('ACTION', 'BOOK ₹', 'TAX ₹', etc.).
+                try:
+                    if 'ACTION' in allocation_df.columns and 'P&L %' in allocation_df.columns:
+                        _sell_mask_ap = allocation_df['ACTION'].astype(str).str.contains(
+                            'SELL', case=False, na=False, regex=False
+                        )
+                        _sell_df_ap = allocation_df.loc[_sell_mask_ap].copy()
+                        if not _sell_df_ap.empty:
+                            _bk_inr = pd.to_numeric(_sell_df_ap.get('BOOK ₹'), errors='coerce').fillna(0)
+                            _pnl_pct_col = pd.to_numeric(_sell_df_ap.get('P&L %'), errors='coerce').fillna(0)
+                            _pnl_pct_unit = _pnl_pct_col / (100.0 if _pnl_pct_col.abs().max() > 1 else 1.0)
+                            # Proceeds = BOOK ₹; cost basis = proceeds / (1 + pnl_pct);
+                            # realised P&L per row = proceeds - cost_basis.
+                            _cost = _bk_inr / (1.0 + _pnl_pct_unit).replace(0, 1.0)
+                            _pnl_inr_ap = _bk_inr - _cost
+                            _losses_ap = _pnl_inr_ap[_pnl_inr_ap < 0].sum()
+                            _gains_ap  = _pnl_inr_ap[_pnl_inr_ap > 0].sum()
+                            _tax_inr_ap = pd.to_numeric(_sell_df_ap.get('TAX ₹'), errors='coerce').fillna(0).sum()
+                            _net_pnl_ap = _gains_ap + _losses_ap
+                            print('📋 TAX-LOSS HARVEST SUMMARY:')
+                            print(f"  Realised LOSSES (offset other STCG/LTCG): ₹{abs(_losses_ap):>10,.0f}")
+                            print(f"  Realised GAINS  (taxable):                ₹{_gains_ap:>10,.0f}")
+                            print(f"  Net realised P&L:                         ₹{_net_pnl_ap:>+10,.0f}")
+                            print(f"  Estimated STCG tax payable:               ₹{_tax_inr_ap:>10,.0f}")
+                            if abs(_losses_ap) > 0:
+                                print(f"  💡 The Rs {abs(_losses_ap):,.0f} loss can be carried forward 8 years")
+                                print(f"     to offset future capital gains under Indian tax rules.\n")
+                            else:
+                                print()
+                except Exception as _tax_ap_err:
+                    logging.debug(f'tax-loss summary skipped: {_tax_ap_err}')
+
+                # [Investor-audit Q9] Portfolio-level risk profile. Aggregates
+                # per-holding volatility, max drawdown and beta weighted by
+                # current value so the operator sees the downside they're
+                # actually carrying. Reads from the Excel-renamed columns.
+                try:
+                    _val_col = 'MY VALUE ₹' if 'MY VALUE ₹' in allocation_df.columns else None
+                    _owned_col = 'OWNED?' if 'OWNED?' in allocation_df.columns else None
+                    if _val_col is not None and _owned_col is not None:
+                        _hold = allocation_df[allocation_df[_owned_col].astype(str).str.upper().eq('YES')].copy()
+                        if not _hold.empty:
+                            _w = pd.to_numeric(_hold[_val_col], errors='coerce').fillna(0)
+                            _w_sum = float(_w.sum())
+                            if _w_sum > 0:
+                                _vol_col = 'VOLATILITY %' if 'VOLATILITY %' in _hold.columns else None
+                                _vol = pd.to_numeric(_hold[_vol_col], errors='coerce').fillna(30.0) if _vol_col else pd.Series(30.0, index=_hold.index)
+                                _wv = float((_vol * _w).sum() / _w_sum)
+                                _daily_vol_pct = _wv / (252 ** 0.5)
+                                _var_95 = _w_sum * (_daily_vol_pct / 100.0) * 1.65
+                                print('🛡️  PORTFOLIO RISK PROFILE (current holdings):')
+                                print(f"  Portfolio value:                            Rs {_w_sum:>12,.0f}")
+                                print(f"  Weighted annual volatility:                 {_wv:>6.1f}%")
+                                print(f"  1-day VaR (95% confidence, parametric):     Rs {_var_95:>12,.0f}")
+                                # Worst-PNL holding
+                                if 'P&L %' in _hold.columns:
+                                    _pnl_col = pd.to_numeric(_hold['P&L %'], errors='coerce')
+                                    if _pnl_col.notna().any():
+                                        _worst_idx = _pnl_col.idxmin()
+                                        _worst_sym = str(_hold.loc[_worst_idx, 'symbol'])
+                                        _worst_pnl = float(_pnl_col.min())
+                                        print(f"  Worst-P&L holding:                          {_worst_sym} ({_worst_pnl:+.1f}%)")
+                                print()
+                except Exception as _rp_err:
+                    logging.debug(f'portfolio risk summary skipped: {_rp_err}')
                 
                 if skip_total > 0:
                     print('MAXIMUM (include optional):')
