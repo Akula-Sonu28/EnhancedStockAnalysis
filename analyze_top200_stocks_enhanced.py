@@ -321,6 +321,7 @@ class EnhancedTop200StockAnalyzer:
         self.cache_expiry_hours = _config.CACHE_EXPIRY_HOURS  # A-009: from config.py
         self.cache_dir = "data/cache"
         os.makedirs(self.cache_dir, exist_ok=True)
+        self._weight_fp = self._compute_weight_fingerprint()
         
         # 🚀 ENHANCEMENT: Performance monitoring
         self.performance_metrics = {
@@ -855,6 +856,154 @@ class EnhancedTop200StockAnalyzer:
         return {'tier': 'NONE', 'action': 'HOLD', 'reason': 'thesis intact', 'book_pct': 0}
 
     @staticmethod
+    def _evaluate_regime_flip_cooldown(symbol: str,
+                                        history_rows,
+                                        current_regime: str,
+                                        current_v2_score=None,
+                                        profit_pct=None,
+                                        cfg=None) -> dict:
+        """[Investor-audit Q127] Recent-BUY Minimum-Hold Cooldown guard.
+
+        Originally shipped (Q127.v1) as a regime-flip-specific guard, but
+        the 2026-05-18 evening run proved the regime classifier oscillates
+        SIDEWAYS->BEAR->SIDEWAYS within hours, and downstream ranking
+        rules (bottom-20%) also fire SELLs on recent BUYs even when the
+        regime is unchanged and the score has recovered. The guard is
+        now regime-agnostic: any BUY issued within COOLDOWN_DAYS is
+        protected from SELL unless a true distress condition is met.
+
+        Regime info is preserved in the reason text for telemetry so an
+        investor can see whether the SELL came from a regime flip or a
+        same-regime ranking artefact.
+
+        Returns dict with:
+          - suppress: bool (True = override SELL to HOLD)
+          - reason: human-readable explanation
+          - prior_regime / prior_action / days_since for telemetry
+
+        Suppression is bypassed when any of:
+          - P&L below REGIME_FLIP_HARD_STOP_PCT (real loss, not artefact)
+          - V2 collapsed below REGIME_FLIP_V2_COLLAPSE for V2_STREAK runs
+          - Cooldown disabled by config
+        """
+        result = {
+            'suppress': False,
+            'reason': '',
+            'prior_regime': '',
+            'prior_action': '',
+            'days_since': None,
+        }
+
+        try:
+            from config import get_config as _gc
+            cfg = cfg or _gc()
+            enabled = bool(getattr(cfg, 'REGIME_FLIP_COOLDOWN_ENABLED', True))
+            cooldown_days = int(getattr(cfg, 'REGIME_FLIP_COOLDOWN_DAYS', 7))
+            hard_stop_pct = float(getattr(cfg, 'REGIME_FLIP_HARD_STOP_PCT', -0.10))
+            v2_collapse = float(getattr(cfg, 'REGIME_FLIP_V2_COLLAPSE', 30.0))
+            v2_streak = int(getattr(cfg, 'REGIME_FLIP_V2_STREAK', 2))
+        except Exception:
+            enabled, cooldown_days = True, 7
+            hard_stop_pct, v2_collapse, v2_streak = -0.10, 30.0, 2
+
+        if not enabled or not history_rows:
+            return result
+
+        try:
+            rows = list(history_rows)
+        except Exception:
+            return result
+        if not rows:
+            return result
+
+        buy_kw = ('BUY', 'NEW POSITION', 'INCREASE', 'STRONG BUY', 'ACCUMULATE', 'ENTER')
+        last_buy = None
+        try:
+            rows_sorted = sorted(
+                rows,
+                key=lambda r: str(r.get('date', '')) if isinstance(r, dict) else '',
+                reverse=True,
+            )
+        except Exception:
+            rows_sorted = rows
+
+        for r in rows_sorted:
+            if not isinstance(r, dict):
+                continue
+            act = str(r.get('action', '')).upper()
+            if any(kw in act for kw in buy_kw):
+                last_buy = r
+                break
+
+        if last_buy is None:
+            return result
+
+        try:
+            import pandas as _pd
+            from datetime import datetime as _dt
+            last_date = _pd.to_datetime(last_buy.get('date'), errors='coerce')
+            if _pd.isna(last_date):
+                return result
+            if getattr(last_date, 'tzinfo', None) is not None:
+                last_date = last_date.tz_localize(None)
+            days_since = (_dt.now() - last_date).days
+        except Exception:
+            return result
+
+        if days_since is None or days_since < 0 or days_since > cooldown_days:
+            return result
+
+        prior_regime = str(last_buy.get('regime', '')).upper().strip()
+        cur_regime = str(current_regime or '').upper().strip()
+
+        try:
+            if profit_pct is not None:
+                pp = float(profit_pct)
+                if pp <= hard_stop_pct:
+                    return result
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            if current_v2_score is not None and float(current_v2_score) < v2_collapse:
+                consec = 0
+                for r in rows_sorted:
+                    if not isinstance(r, dict):
+                        continue
+                    v2 = r.get('score_v2')
+                    try:
+                        v2f = float(v2) if v2 is not None else None
+                    except (TypeError, ValueError):
+                        v2f = None
+                    if v2f is not None and v2f < v2_collapse:
+                        consec += 1
+                        if consec >= (v2_streak - 1):
+                            return result
+                    else:
+                        break
+        except Exception:
+            pass
+
+        if prior_regime and cur_regime and prior_regime != cur_regime:
+            _regime_note = f'regime flipped {prior_regime}->{cur_regime}'
+        elif prior_regime and cur_regime:
+            _regime_note = f'same regime ({cur_regime}) - likely ranking artefact'
+        else:
+            _regime_note = 'regime info unavailable'
+
+        result.update({
+            'suppress': True,
+            'reason': (
+                f'RECENT_BUY_COOLDOWN: bought {days_since}d ago, '
+                f'{_regime_note}. SELL suppressed - give thesis time within {cooldown_days}d hold window.'
+            ),
+            'prior_regime': prior_regime,
+            'prior_action': str(last_buy.get('action', '')),
+            'days_since': days_since,
+        })
+        return result
+
+    @staticmethod
     def _should_rotate(holding_score: float,
                        candidate_score: float,
                        holding_rsi: float = 50.0,
@@ -991,10 +1140,21 @@ class EnhancedTop200StockAnalyzer:
             "TITAN", "NESTLEIND", "TECHM", "BAJAJFINSV", "POWERGRID", "NTPC",
         ]
         
-    # 🚀 ENHANCEMENT: Caching System
+    @staticmethod
+    def _compute_weight_fingerprint() -> str:
+        import hashlib
+        for p in ['data/calibrated_weights_v2_SIDEWAYS.json',
+                  'data/calibrated_weights_v2_BEAR.json',
+                  'data/calibrated_weights_v2_BULL.json',
+                  'data/calibrated_weights_v2.json']:
+            if os.path.exists(p):
+                return hashlib.md5(open(p, 'rb').read()).hexdigest()[:8]
+        return 'nw'
+
     def get_cache_path(self, symbol: str, analysis_type: str = "comprehensive") -> str:
         """Get cache file path for a symbol and analysis type"""
-        return os.path.join(self.cache_dir, f"{symbol}_{analysis_type}_{datetime.now().strftime('%Y%m%d')}.json")
+        fp = getattr(self, '_weight_fp', 'nw')
+        return os.path.join(self.cache_dir, f"{symbol}_{analysis_type}_{datetime.now().strftime('%Y%m%d')}_{fp}.json")
     
     def is_cache_valid(self, cache_path: str) -> bool:
         """Check if cache file is valid (exists and not expired)"""
@@ -3091,6 +3251,24 @@ class EnhancedTop200StockAnalyzer:
             _v2_raw_now = stock_data.get('hybrid_overall_score_v2')
             _v2_failed_now = bool(stock_data.get('v2_scoring_failed', False))
             _v2_live_now = (not _v2_shadow_now) and (_v2_raw_now is not None) and (not _v2_failed_now)
+            if _v2_live_now and not hasattr(self, '_wf_checked'):
+                self._wf_checked = True
+                try:
+                    _wf_path = os.path.join(os.path.dirname(__file__) or '.', 'data', 'walkforward_v2_validation.json')
+                    if os.path.exists(_wf_path):
+                        with open(_wf_path) as _wf_fp:
+                            _wf_data = json.load(_wf_fp)
+                        _wf_verdict = (_wf_data.get('verdict') or {}).get('verdict', '')
+                        if _wf_verdict not in ('PROMOTE', 'HOLD_LIVE', ''):
+                            logging.warning(
+                                f'[Walk-forward circuit breaker] verdict={_wf_verdict} — '
+                                f'v2 predictive edge may be degraded. '
+                                f'Consider re-running scripts/calibrate_v2_weights.py or '
+                                f'reverting V2_SHADOW_MODE to True.'
+                            )
+                            self._v2_walkforward_warning = _wf_verdict
+                except Exception as _wf_err:
+                    logging.debug(f'Walk-forward check skipped: {_wf_err}')
             if _v2_live_now:
                 hybrid_score = _nv(_v2_raw_now, 50)
                 stock_data['live_engine'] = 'v2'
@@ -3311,7 +3489,7 @@ class EnhancedTop200StockAnalyzer:
                 _hyst = getattr(_config, 'HYSTERESIS_BUFFER', 3.0)
                 _prox_boost = getattr(_config, 'HYSTERESIS_PROXIMITY_BOOST', 1.5)
                 _nearest_thr = min(abs(final_blended_score - t) for t in [_strong_buy_thr, _buy_thr, _hold_thr, getattr(_config, 'SELL_THRESHOLD', 40)])
-                if _nearest_thr < 2.0:
+                if _nearest_thr < 3.5:
                     _hyst += _prox_boost
                     stock_data['hysteresis_boosted'] = True
                 _prev_tier = ''
@@ -6421,13 +6599,21 @@ class EnhancedTop200StockAnalyzer:
                                     _so_bh = self.__class__._load_booking_history()
                                     _so_entry = _so_bh.setdefault(symbol, {})
                                     _so_peak_v2 = _so_entry.get('peak_v2')
-                                    # [Investor-audit Q44] Persist peak_v2 on
-                                    # FIRST encounter too. Previously the
-                                    # "if changed" guard meant the first run
-                                    # set peak = current implicitly but never
-                                    # wrote it, so subsequent runs treated
-                                    # current as peak and v2_drop was always 0.
-                                    # SCALE_OUT_20 could never fire.
+                                    _so_peak_ts = _so_entry.get('peak_v2_updated', '')
+                                    try:
+                                        from recommendation_history import RecommendationHistory as _RH_peak
+                                        _calib_dates_peak = _RH_peak._v2_calibration_event_dates()
+                                        _latest_calib_peak = max(_calib_dates_peak) if _calib_dates_peak else None
+                                        if (_so_peak_v2 is not None
+                                                and _latest_calib_peak is not None
+                                                and _so_peak_ts
+                                                and str(_so_peak_ts) < _latest_calib_peak.strftime('%Y-%m-%d %H:%M:%S')):
+                                            logging.info(f'[SCALE_OUT] {symbol}: resetting peak_v2 '
+                                                         f'{_so_peak_v2:.1f} (recorded {_so_peak_ts}) — '
+                                                         f'weights recalibrated {_latest_calib_peak}')
+                                            _so_peak_v2 = None
+                                    except Exception:
+                                        pass
                                     _first_time = _so_peak_v2 is None
                                     _so_peak_v2_f = float(_so_peak_v2) if _so_peak_v2 is not None else _so_v2_f
                                     _so_new_peak_v2 = max(_so_peak_v2_f, _so_v2_f)
@@ -7531,7 +7717,84 @@ class EnhancedTop200StockAnalyzer:
                         _grad_downgrades += 1
                 if _grad_downgrades > 0:
                     print(f"      🛡️ CONVICTION GATE: {_grad_downgrades} sell actions graduated (require more sessions for full exit)")
-                
+
+                # [Investor-audit Q127] Recent-BUY Minimum-Hold Cooldown.
+                # Catches any SELL on a position that was a NEW_POSITION / BUY
+                # within the cooldown window. The regime classifier is known to
+                # oscillate SIDEWAYS<->BEAR within hours (2026-05-18 evening
+                # run proved this), so the original regime-mismatch precondition
+                # was too narrow - the bottom-20% ranking rule and conviction
+                # gate also fire SELLs on recent BUYs at same-regime ranking.
+                # Suppresses the SELL and converts it to HOLD, preventing the
+                # system from booking losses on positions whose thesis has not
+                # had time to play out. Bypasses suppression when P&L is below
+                # hard-stop or V2 has collapsed for multiple consecutive runs
+                # (true thesis break - not a ranking artefact).
+                try:
+                    _cur_regime_for_cd = str(getattr(self, 'current_market_regime', '') or '').upper()
+                    if 'cooldown_suppression_reason' not in allocation_df.columns:
+                        allocation_df['cooldown_suppression_reason'] = ''
+                    _cd_overrides = 0
+                    _cd_details = []
+                    _sell_kw_cd = ('SELL', 'WEAK SELL', 'CONSIDER', 'REDUCE')
+                    for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
+                        _act_cd = str(allocation_df.at[idx, 'action_recommendation']).upper()
+                        if not any(kw in _act_cd for kw in _sell_kw_cd):
+                            continue
+                        _hs_tier_cd = str(row.get('hard_stop_tier', '') or '').upper()
+                        if _hs_tier_cd in ('EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP', 'SCALE_OUT_20'):
+                            continue
+                        _er_cd = str(allocation_df.at[idx, 'exit_reason']).upper()
+                        if any(kw in _er_cd for kw in ('EMERGENCY', 'STOP LOSS', 'THESIS BREAK', 'TRAILING STOP', 'CIRCUIT BREAKER', 'CRISIS')):
+                            continue
+                        _sym_cd = row['symbol']
+                        try:
+                            _hist_cd = self.recommendation_history.get_recommendation_summary(_sym_cd, days=14)
+                            _hist_rows_cd = _hist_cd.to_dict('records') if _hist_cd is not None and not _hist_cd.empty else []
+                        except Exception:
+                            _hist_rows_cd = []
+                        if not _hist_rows_cd:
+                            continue
+                        _pp_cd = row.get('current_profit_pct')
+                        try:
+                            _pp_cd = float(_pp_cd) if _pp_cd is not None and pd.notna(_pp_cd) else None
+                        except (TypeError, ValueError):
+                            _pp_cd = None
+                        _v2_cd = row.get('hybrid_overall_score_v2')
+                        try:
+                            _v2_cd = float(_v2_cd) if _v2_cd is not None and pd.notna(_v2_cd) else None
+                        except (TypeError, ValueError):
+                            _v2_cd = None
+                        _cd = EnhancedTop200StockAnalyzer._evaluate_regime_flip_cooldown(
+                            symbol=_sym_cd,
+                            history_rows=_hist_rows_cd,
+                            current_regime=_cur_regime_for_cd,
+                            current_v2_score=_v2_cd,
+                            profit_pct=_pp_cd,
+                        )
+                        if _cd.get('suppress'):
+                            _orig_act = allocation_df.at[idx, 'action_recommendation']
+                            allocation_df.at[idx, 'action_recommendation'] = 'HOLD'
+                            allocation_df.at[idx, 'exit_strategy'] = '🛡️ RECENT-BUY COOLDOWN'
+                            allocation_df.at[idx, 'exit_reason'] = _cd.get('reason', '')
+                            allocation_df.at[idx, 'cooldown_suppression_reason'] = _cd.get('reason', '')
+                            allocation_df.at[idx, 'priority'] = 'LOW'
+                            allocation_df.at[idx, 'profit_booking_pct'] = 0
+                            _cd_overrides += 1
+                            _cd_details.append(
+                                f"{_sym_cd}: {_orig_act} -> HOLD "
+                                f"({_cd.get('prior_regime', '?')} -> {_cur_regime_for_cd}, "
+                                f"{_cd.get('days_since', '?')}d ago)"
+                            )
+                    if _cd_overrides > 0:
+                        print(f"      🛡️ RECENT-BUY COOLDOWN: {_cd_overrides} SELL(s) suppressed - within {int(getattr(_config, 'REGIME_FLIP_COOLDOWN_DAYS', 7))}d hold window")
+                        for _line_cd in _cd_details[:5]:
+                            print(f"         • {_line_cd}")
+                        if len(_cd_details) > 5:
+                            print(f"         ... and {len(_cd_details) - 5} more")
+                except Exception as _cd_err:
+                    logging.debug(f"regime-flip cooldown pass skipped: {_cd_err}")
+
                 # Summary of exit strategy
                 _exit_sell_count = len(current_holdings_df[current_holdings_df['holdings_rank'] > (total_holdings - bottom_20_pct)])
                 increase_count = len(current_holdings_df[current_holdings_df['holdings_rank'] <= top_30_pct])
@@ -7648,9 +7911,17 @@ class EnhancedTop200StockAnalyzer:
                     print(f"      Current: {current_size} → Target: {target_final_size} → Need {additional_sells_needed} more SELLs")
                     
                     # Find weak HOLD stocks (low score, near breakeven, small positions)
-                    weak_holds = current_holdings_df[
-                        allocation_df.loc[current_holdings_df.index, 'action_recommendation'] == 'HOLD'
-                    ].copy()
+                    # [Investor-audit Q127] Exclude stocks under RECENT-BUY COOLDOWN.
+                    # Without this guard the AGGRESSIVE REDUCTION block converts our
+                    # cooldown-protected HOLDs back to SELL on the next idx scan,
+                    # silently undoing the suppression. Production hit: ECLERX/PGEL/PCBL
+                    # on the 2026-05-19 morning run.
+                    _hold_mask = allocation_df.loc[current_holdings_df.index, 'action_recommendation'] == 'HOLD'
+                    if 'cooldown_suppression_reason' in allocation_df.columns:
+                        _no_cd_mask = (allocation_df.loc[current_holdings_df.index, 'cooldown_suppression_reason']
+                                       .fillna('').astype(str).str.strip() == '')
+                        _hold_mask = _hold_mask & _no_cd_mask
+                    weak_holds = current_holdings_df[_hold_mask].copy()
                     
                     # Score criteria: low score OR dead money OR small position
                     weak_holds['sell_priority'] = (
@@ -8050,7 +8321,84 @@ class EnhancedTop200StockAnalyzer:
             
             # Store all stocks marked for selling or skipping
             sell_recommendations_df = allocation_df[allocation_df['keep_stock'] == False].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
-            
+
+            # [Investor-audit Q128] FINAL DEFENDER PASS for Recent-BUY Cooldown.
+            # MUST run BEFORE capital allocation (line ~8287) so the SELL proceeds
+            # computation reflects the cooldown-suppressed actions. Otherwise the
+            # system over-allocates: it expects ECLERX/PCBL/PGEL to be sold (cash
+            # source), then Q127 fires AFTER allocation and converts those SELLs
+            # to HOLD - leaving BUY orders over-sized by ~150K rupees.
+            # Production hit: 2026-05-19 11:40 run, NET capital needed Rs414,827
+            # vs user's available Rs263,500 (Rs151K gap = the protected SELL value).
+            # This pass moves the final-defender ABOVE STEP 3.4 capital allocation.
+            try:
+                _cur_regime_fd = str(getattr(self, 'current_market_regime', '') or '').upper()
+                if 'cooldown_suppression_reason' not in allocation_df.columns:
+                    allocation_df['cooldown_suppression_reason'] = ''
+                _fd_overrides = 0
+                _fd_details = []
+                _sell_kw_fd = ('SELL', 'WEAK SELL', 'CONSIDER', 'REDUCE', 'SWAP')
+                for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
+                    _act_fd = str(allocation_df.at[idx, 'action_recommendation']).upper()
+                    if not any(kw in _act_fd for kw in _sell_kw_fd):
+                        continue
+                    _er_fd = str(allocation_df.at[idx, 'exit_reason']).upper()
+                    if any(kw in _er_fd for kw in ('EMERGENCY', 'STOP LOSS', 'THESIS BREAK', 'TRAILING STOP', 'CIRCUIT BREAKER', 'CRISIS')):
+                        continue
+                    _hs_tier_fd = str(row.get('hard_stop_tier', '') or '').upper()
+                    if _hs_tier_fd in ('EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP', 'SCALE_OUT_20'):
+                        continue
+                    _sym_fd = row['symbol']
+                    try:
+                        _hist_fd = self.recommendation_history.get_recommendation_summary(_sym_fd, days=14)
+                        _hist_rows_fd = _hist_fd.to_dict('records') if _hist_fd is not None and not _hist_fd.empty else []
+                    except Exception:
+                        _hist_rows_fd = []
+                    if not _hist_rows_fd:
+                        continue
+                    _pp_fd = row.get('current_profit_pct')
+                    try:
+                        _pp_fd = float(_pp_fd) if _pp_fd is not None and pd.notna(_pp_fd) else None
+                    except (TypeError, ValueError):
+                        _pp_fd = None
+                    _v2_fd = row.get('hybrid_overall_score_v2')
+                    try:
+                        _v2_fd = float(_v2_fd) if _v2_fd is not None and pd.notna(_v2_fd) else None
+                    except (TypeError, ValueError):
+                        _v2_fd = None
+                    _cd_fd = EnhancedTop200StockAnalyzer._evaluate_regime_flip_cooldown(
+                        symbol=_sym_fd,
+                        history_rows=_hist_rows_fd,
+                        current_regime=_cur_regime_fd,
+                        current_v2_score=_v2_fd,
+                        profit_pct=_pp_fd,
+                    )
+                    if _cd_fd.get('suppress'):
+                        _orig_act_fd = allocation_df.at[idx, 'action_recommendation']
+                        allocation_df.at[idx, 'action_recommendation'] = 'HOLD'
+                        allocation_df.at[idx, 'exit_strategy'] = '🛡️ RECENT-BUY COOLDOWN'
+                        allocation_df.at[idx, 'exit_reason'] = _cd_fd.get('reason', '')
+                        allocation_df.at[idx, 'cooldown_suppression_reason'] = _cd_fd.get('reason', '')
+                        allocation_df.at[idx, 'priority'] = 'LOW'
+                        allocation_df.at[idx, 'profit_booking_pct'] = 0
+                        if 'keep_stock' in allocation_df.columns:
+                            allocation_df.at[idx, 'keep_stock'] = True
+                        _fd_overrides += 1
+                        _fd_details.append(
+                            f"{_sym_fd}: {_orig_act_fd} -> HOLD "
+                            f"({_cd_fd.get('prior_regime', '?')} -> {_cur_regime_fd}, "
+                            f"{_cd_fd.get('days_since', '?')}d ago)"
+                        )
+                if _fd_overrides > 0:
+                    print(f"\n   🛡️ PRE-ALLOCATION COOLDOWN DEFENDER: {_fd_overrides} SELL(s) suppressed BEFORE capital allocation")
+                    for _line_fd in _fd_details[:10]:
+                        print(f"      • {_line_fd}")
+                    if len(_fd_details) > 10:
+                        print(f"      ... and {len(_fd_details) - 10} more")
+                    sell_recommendations_df = allocation_df[allocation_df['keep_stock'] == False].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
+            except Exception as _fd_err:
+                logging.debug(f"pre-allocation cooldown pass skipped: {_fd_err}")
+
             # STEP 3.4: 🎯 SALE PROCEEDS + PROFIT BOOKING + NEW CAPITAL ALLOCATION
             if 'keep_stock' in allocation_df.columns and target_amount > 0:
                 # Phase 1a+1b: Apply cash reserve BEFORE allocation using VIX-based regime
@@ -9347,6 +9695,110 @@ class EnhancedTop200StockAnalyzer:
                             allocation_df.at[_ti, 'post_tax_proceeds'] = round(_cur_val, 0)
                     print(f"   💰 Tax recalculated for {len(_tax_missing)} late-SELL stocks")
 
+            # [Investor-audit Q127/Q131] FINAL DEFENDER PASS (safety net at seal).
+            # The pre-allocation cooldown defender (Q128) above already suppresses
+            # cooldown-protected SELLs BEFORE capital allocation. This block is a
+            # last-line guard in case any downstream block in this function tries
+            # to flip a protected HOLD back to SELL after the pre-allocation pass.
+            #
+            # Q131 broadening (2026-05-19 14:48 run): KAYNES slipped past the
+            # filter even though it was a 4d-old NEW POSITION and ended up at
+            # CONSIDER SELLING 25% in the action plan. The earlier filter
+            # checked allocation_df.at[idx, 'action_recommendation'] but some
+            # mutation between Q128 and the seal may have flipped a stock from
+            # one sell-variant to another (e.g. SWAP -> CONSIDER SELLING) such
+            # that the cooldown evaluator never re-fired. To prevent silent
+            # bypass, this pass now scans EVERY current holding (regardless of
+            # current action label) and unconditionally evaluates the cooldown
+            # helper. If suppress=True AND the current action is anything OTHER
+            # than HOLD/INCREASE/KEEP (i.e. a sell-side or new-position-side
+            # label that should not apply to a cooldown-protected stock), the
+            # action is forced to HOLD.
+            try:
+                _cur_regime_fd2 = str(getattr(self, 'current_market_regime', '') or '').upper()
+                _fd2_overrides = 0
+                _fd2_details = []
+                _fd2_scanned = 0
+                _fd2_skipped_safe = 0
+                _fd2_skipped_no_hist = 0
+                _fd2_skipped_bypass = 0
+                _safe_kw_fd2 = ('HOLD', 'KEEP', 'INCREASE', 'WATCHLIST')
+                for idx, row in allocation_df[allocation_df['is_current_holding'] == True].iterrows():
+                    _fd2_scanned += 1
+                    _act_fd2_raw = allocation_df.at[idx, 'action_recommendation']
+                    _act_fd2 = str(_act_fd2_raw).upper()
+                    if any(kw in _act_fd2 for kw in _safe_kw_fd2) and 'SELL' not in _act_fd2 and 'CONSIDER' not in _act_fd2 and 'REDUCE' not in _act_fd2:
+                        _fd2_skipped_safe += 1
+                        continue
+                    _er_fd2 = str(allocation_df.at[idx, 'exit_reason']).upper()
+                    if any(kw in _er_fd2 for kw in ('EMERGENCY', 'STOP LOSS', 'THESIS BREAK', 'TRAILING STOP', 'CIRCUIT BREAKER', 'CRISIS')):
+                        _fd2_skipped_bypass += 1
+                        continue
+                    _hs_tier_fd2 = str(row.get('hard_stop_tier', '') or '').upper()
+                    if _hs_tier_fd2 in ('EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP', 'SCALE_OUT_20'):
+                        _fd2_skipped_bypass += 1
+                        continue
+                    _sym_fd2 = row['symbol']
+                    try:
+                        _hist_fd2 = self.recommendation_history.get_recommendation_summary(_sym_fd2, days=14)
+                        _hist_rows_fd2 = _hist_fd2.to_dict('records') if _hist_fd2 is not None and not _hist_fd2.empty else []
+                    except Exception:
+                        _hist_rows_fd2 = []
+                    if not _hist_rows_fd2:
+                        _fd2_skipped_no_hist += 1
+                        logging.info(f"[Q131-trace] {_sym_fd2}: no history rows, action={_act_fd2_raw}")
+                        continue
+                    _pp_fd2 = row.get('current_profit_pct')
+                    try:
+                        _pp_fd2 = float(_pp_fd2) if _pp_fd2 is not None and pd.notna(_pp_fd2) else None
+                    except (TypeError, ValueError):
+                        _pp_fd2 = None
+                    _v2_fd2 = row.get('hybrid_overall_score_v2')
+                    try:
+                        _v2_fd2 = float(_v2_fd2) if _v2_fd2 is not None and pd.notna(_v2_fd2) else None
+                    except (TypeError, ValueError):
+                        _v2_fd2 = None
+                    _cd_fd2 = EnhancedTop200StockAnalyzer._evaluate_regime_flip_cooldown(
+                        symbol=_sym_fd2,
+                        history_rows=_hist_rows_fd2,
+                        current_regime=_cur_regime_fd2,
+                        current_v2_score=_v2_fd2,
+                        profit_pct=_pp_fd2,
+                    )
+                    logging.info(
+                        f"[Q131-trace] {_sym_fd2}: action={_act_fd2_raw}, "
+                        f"pp={_pp_fd2}, v2={_v2_fd2}, "
+                        f"regime={_cur_regime_fd2}, suppress={_cd_fd2.get('suppress')}, "
+                        f"reason={_cd_fd2.get('reason', '')[:80]}"
+                    )
+                    if _cd_fd2.get('suppress'):
+                        _orig_act_fd2 = _act_fd2_raw
+                        allocation_df.at[idx, 'action_recommendation'] = 'HOLD'
+                        allocation_df.at[idx, 'exit_strategy'] = '🛡️ RECENT-BUY COOLDOWN'
+                        allocation_df.at[idx, 'exit_reason'] = _cd_fd2.get('reason', '')
+                        if 'cooldown_suppression_reason' in allocation_df.columns:
+                            allocation_df.at[idx, 'cooldown_suppression_reason'] = _cd_fd2.get('reason', '')
+                        allocation_df.at[idx, 'priority'] = 'LOW'
+                        allocation_df.at[idx, 'profit_booking_pct'] = 0
+                        if 'keep_stock' in allocation_df.columns:
+                            allocation_df.at[idx, 'keep_stock'] = True
+                        _fd2_overrides += 1
+                        _fd2_details.append(
+                            f"{_sym_fd2}: {_orig_act_fd2} -> HOLD "
+                            f"({_cd_fd2.get('prior_regime', '?')} -> {_cur_regime_fd2}, "
+                            f"{_cd_fd2.get('days_since', '?')}d ago)"
+                        )
+                print(f"   🛡️ FINAL-DEFENDER scan: {_fd2_scanned} holdings | safe-skip={_fd2_skipped_safe} bypass={_fd2_skipped_bypass} no-hist={_fd2_skipped_no_hist} suppressed={_fd2_overrides}")
+                if _fd2_overrides > 0:
+                    print(f"   🛡️ FINAL-DEFENDER RECENT-BUY COOLDOWN: {_fd2_overrides} action(s) re-suppressed at allocation seal")
+                    for _line_fd2 in _fd2_details[:10]:
+                        print(f"      • {_line_fd2}")
+                    if len(_fd2_details) > 10:
+                        print(f"      ... and {len(_fd2_details) - 10} more")
+            except Exception as _fd2_err:
+                print(f"   ⚠️ FINAL-DEFENDER ERROR: {_fd2_err}")
+                logging.exception(f"final-defender cooldown pass failed: {_fd2_err}")
+
             self.portfolio_allocation = {
                 'allocation_df': allocation_df,
                 'sell_recommendations': sell_recommendations_df,
@@ -9416,9 +9868,56 @@ class EnhancedTop200StockAnalyzer:
                         if pd.notna(_sleeve_raw) and str(_sleeve_raw).strip():
                             _sleeve_val = str(_sleeve_raw).upper()
 
+                    # [Investor-audit Q130] Per-row cooldown defender at the
+                    # recording site. Production hit 2026-05-19 14:48: KAYNES
+                    # was recorded as WEAK SELL despite raw recommendation
+                    # being BUY and being 4 days from NEW POSITION. The earlier
+                    # passes (Q127/Q128 + safety-net) all returned 0 overrides,
+                    # meaning some downstream block was mutating action_recommendation
+                    # between the seal and this recording loop. To guarantee
+                    # cooldown protection actually lands on disk, evaluate the
+                    # cooldown one more time here per-row and override the action
+                    # variable passed to record_recommendation.
+                    _action_to_record = row.get('action_recommendation', row.get('action_type', 'HOLD'))
+                    try:
+                        if row.get('is_current_holding', False):
+                            _a_up_q130 = str(_action_to_record).upper()
+                            _is_sell_q130 = any(kw in _a_up_q130 for kw in ('SELL', 'CONSIDER', 'REDUCE', 'SWAP', 'WEAK'))
+                            _er_q130 = str(row.get('exit_reason', '') or '').upper()
+                            _hard_q130 = any(kw in _er_q130 for kw in ('EMERGENCY', 'STOP LOSS', 'THESIS BREAK', 'TRAILING STOP', 'CIRCUIT BREAKER', 'CRISIS'))
+                            _hs_tier_q130 = str(row.get('hard_stop_tier', '') or '').upper()
+                            _hs_active_q130 = _hs_tier_q130 in ('EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP', 'SCALE_OUT_20')
+                            if _is_sell_q130 and not _hard_q130 and not _hs_active_q130:
+                                _sym_q130 = row['symbol']
+                                _hist_q130 = self.recommendation_history.get_recommendation_summary(_sym_q130, days=14)
+                                _hist_rows_q130 = _hist_q130.to_dict('records') if _hist_q130 is not None and not _hist_q130.empty else []
+                                _pp_q130 = row.get('current_profit_pct')
+                                try:
+                                    _pp_q130 = float(_pp_q130) if _pp_q130 is not None and pd.notna(_pp_q130) else None
+                                except (TypeError, ValueError):
+                                    _pp_q130 = None
+                                _v2_q130 = _score_v2_val
+                                _cd_q130 = EnhancedTop200StockAnalyzer._evaluate_regime_flip_cooldown(
+                                    symbol=_sym_q130,
+                                    history_rows=_hist_rows_q130,
+                                    current_regime=_regime_val or '',
+                                    current_v2_score=_v2_q130,
+                                    profit_pct=_pp_q130,
+                                )
+                                if _cd_q130.get('suppress'):
+                                    logging.info(
+                                        f"[Q130] {_sym_q130}: cooldown override at record - "
+                                        f"{_action_to_record} -> HOLD "
+                                        f"({_cd_q130.get('prior_regime', '?')} -> {_regime_val}, "
+                                        f"{_cd_q130.get('days_since', '?')}d ago)"
+                                    )
+                                    _action_to_record = 'HOLD'
+                    except Exception as _q130_err:
+                        logging.debug(f"per-row cooldown defender skipped for {row.get('symbol')}: {_q130_err}")
+
                     self.recommendation_history.record_recommendation(
                         symbol=row['symbol'],
-                        action=row.get('action_recommendation', row['action_type']),
+                        action=_action_to_record,
                         score=score_val,
                         price=price_val,
                         fundamentals=fundamentals,
@@ -10681,6 +11180,89 @@ Trading Plan ({risk_tolerance} RISK):
                     # Create simplified dataframe
                     alloc_df_simple = alloc_df[existing_cols].copy()
 
+                    # [Investor-audit Q132] EXCEL-WRITE COOLDOWN DEFENDER.
+                    # The earlier Q127/Q128/Q131 passes operate on `alloc_df`,
+                    # but this Excel rendering uses `alloc_df_simple` (a copy
+                    # taken at line 11143). Between those passes and here,
+                    # something is mutating `allocation_df['action_recommendation']`
+                    # for KAYNES specifically (production 2026-05-19 15:19 run
+                    # showed Q131 safe-skipped KAYNES as HOLD, yet Excel ended
+                    # up with KAYNES at CONSIDER SELLING). To guarantee the
+                    # Excel sheet honours the cooldown, re-run the helper on
+                    # `alloc_df_simple` for every current holding and force
+                    # HOLD on suppress=True rows.
+                    try:
+                        _cur_regime_excel = str(getattr(self, 'current_market_regime', '') or '').upper()
+                        if 'cooldown_suppression_reason' not in alloc_df_simple.columns:
+                            alloc_df_simple['cooldown_suppression_reason'] = ''
+                        _excel_cd_overrides = 0
+                        _excel_cd_details = []
+                        for _idx_e, _row_e in alloc_df_simple.iterrows():
+                            if not bool(_row_e.get('is_current_holding', False)):
+                                continue
+                            _act_e_raw = alloc_df_simple.at[_idx_e, 'action_recommendation']
+                            _act_e = str(_act_e_raw).upper()
+                            if 'SELL' not in _act_e and 'CONSIDER' not in _act_e and 'REDUCE' not in _act_e and 'SWAP' not in _act_e:
+                                continue
+                            _er_e = str(_row_e.get('exit_reason', '') or '').upper()
+                            if any(kw in _er_e for kw in ('EMERGENCY', 'STOP LOSS', 'THESIS BREAK', 'TRAILING STOP', 'CIRCUIT BREAKER', 'CRISIS')):
+                                continue
+                            _hs_tier_e = str(_row_e.get('hard_stop_tier', '') or '').upper()
+                            if _hs_tier_e in ('EMERGENCY', 'HARD_STOP', 'SOFT_STOP', 'THESIS_BREAK', 'TRAILING_STOP', 'SCALE_OUT_20'):
+                                continue
+                            _sym_e = _row_e.get('symbol', '')
+                            try:
+                                _hist_e = self.recommendation_history.get_recommendation_summary(_sym_e, days=14)
+                                _hist_rows_e = _hist_e.to_dict('records') if _hist_e is not None and not _hist_e.empty else []
+                            except Exception:
+                                _hist_rows_e = []
+                            if not _hist_rows_e:
+                                continue
+                            _pp_e = _row_e.get('current_profit_pct')
+                            try:
+                                _pp_e = float(_pp_e) if _pp_e is not None and pd.notna(_pp_e) else None
+                            except (TypeError, ValueError):
+                                _pp_e = None
+                            _v2_e = _row_e.get('hybrid_overall_score_v2')
+                            try:
+                                _v2_e = float(_v2_e) if _v2_e is not None and pd.notna(_v2_e) else None
+                            except (TypeError, ValueError):
+                                _v2_e = None
+                            _cd_e = EnhancedTop200StockAnalyzer._evaluate_regime_flip_cooldown(
+                                symbol=_sym_e,
+                                history_rows=_hist_rows_e,
+                                current_regime=_cur_regime_excel,
+                                current_v2_score=_v2_e,
+                                profit_pct=_pp_e,
+                            )
+                            if _cd_e.get('suppress'):
+                                _orig_act_e = _act_e_raw
+                                alloc_df_simple.at[_idx_e, 'action_recommendation'] = 'HOLD'
+                                if 'exit_strategy' in alloc_df_simple.columns:
+                                    alloc_df_simple.at[_idx_e, 'exit_strategy'] = '🛡️ RECENT-BUY COOLDOWN'
+                                if 'exit_reason' in alloc_df_simple.columns:
+                                    alloc_df_simple.at[_idx_e, 'exit_reason'] = _cd_e.get('reason', '')
+                                alloc_df_simple.at[_idx_e, 'cooldown_suppression_reason'] = _cd_e.get('reason', '')
+                                if 'priority' in alloc_df_simple.columns:
+                                    alloc_df_simple.at[_idx_e, 'priority'] = 'LOW'
+                                if 'profit_booking_pct' in alloc_df_simple.columns:
+                                    alloc_df_simple.at[_idx_e, 'profit_booking_pct'] = 0
+                                if 'keep_stock' in alloc_df_simple.columns:
+                                    alloc_df_simple.at[_idx_e, 'keep_stock'] = True
+                                _excel_cd_overrides += 1
+                                _excel_cd_details.append(
+                                    f"{_sym_e}: {_orig_act_e} -> HOLD "
+                                    f"({_cd_e.get('prior_regime', '?')} -> {_cur_regime_excel}, "
+                                    f"{_cd_e.get('days_since', '?')}d ago)"
+                                )
+                        if _excel_cd_overrides > 0:
+                            print(f"   🛡️ EXCEL-WRITE COOLDOWN: {_excel_cd_overrides} action(s) re-suppressed before Excel render")
+                            for _line_e in _excel_cd_details[:10]:
+                                print(f"      • {_line_e}")
+                    except Exception as _excel_cd_err:
+                        print(f"   ⚠️ EXCEL-WRITE COOLDOWN ERROR: {_excel_cd_err}")
+                        logging.exception(f"excel-write cooldown pass failed: {_excel_cd_err}")
+
                     # MI-L04 POST ML override removed — exits now governed by score + P&L, not 39% ML model.
                     _ml_cp  = 'ml_signal'         if 'ml_signal'         in alloc_df_simple.columns else None
                     _own_cp = 'is_current_holding' if 'is_current_holding' in alloc_df_simple.columns else None
@@ -11092,6 +11674,18 @@ Trading Plan ({risk_tolerance} RISK):
                             _swap_target = _sw_act.split('->')[1].strip()
                             if _swap_target:
                                 alloc_df_simple.at[_sw_idx, 'rotation_target'] = _swap_target
+                        elif 'SWAP' in _sw_act and not str(_sw_row.get('rotation_target', '')).strip():
+                            _sw_sym = str(_sw_row.get('symbol', ''))
+                            _buy_rows = alloc_df_simple[
+                                alloc_df_simple['action_recommendation'].astype(str).str.contains(
+                                    'BUY|NEW POSITION', regex=True, na=False)
+                            ]
+                            if len(_buy_rows) > 0:
+                                _best_buy = _buy_rows.sort_values(
+                                    'hybrid_overall_score_v2' if 'hybrid_overall_score_v2' in _buy_rows.columns
+                                    else 'overall_score', ascending=False
+                                ).iloc[0]
+                                alloc_df_simple.at[_sw_idx, 'rotation_target'] = str(_best_buy.get('symbol', ''))
 
                     # [Rule 5] Record SCALE_OUT_20 rotation events in booking_history.json
                     # so we have a permanent audit trail of partial trims and their
@@ -14321,9 +14915,17 @@ def generate_top_10_categories(results_df, analyzer=None):
         ['symbol', 'company_name', 'growth_score', 'revenue_growth', 'earnings_growth', 'technical_score', 'current_price']
     ]
     for i, (_, row) in enumerate(growth.iterrows(), 1):
+        _gs_raw = pd.to_numeric(row.get('growth_score', 0), errors='coerce')
+        _rg_raw = pd.to_numeric(row.get('revenue_growth', 0), errors='coerce')
+        _eg_raw = pd.to_numeric(row.get('earnings_growth', 0), errors='coerce')
+        _cp_raw = pd.to_numeric(row.get('current_price', 0), errors='coerce')
+        _gs = 0.0 if pd.isna(_gs_raw) else float(_gs_raw)
+        _rg = 0.0 if pd.isna(_rg_raw) else float(_rg_raw)
+        _eg = 0.0 if pd.isna(_eg_raw) else float(_eg_raw)
+        _cp = 0.0 if pd.isna(_cp_raw) else float(_cp_raw)
         print(f"{i:2d}. {row['symbol']:12} | {str(row['company_name'])[:30]:30} | "
-              f"Growth: {row['growth_score']:5.1f} | Rev: {row['revenue_growth']:6.1f}% | "
-              f"Earn: {row['earnings_growth']:6.1f}% | Price: Rs{row['current_price']:7.1f}")
+              f"Growth: {_gs:5.1f} | Rev: {_rg:6.1f}% | "
+              f"Earn: {_eg:6.1f}% | Price: Rs{_cp:7.1f}")
     
     # 3. TOP 10 FUNDAMENTALLY STRONG AND TECHNICALLY STRONG
     print("\n3. TOP 10 FUNDAMENTALLY STRONG & TECHNICALLY STRONG:")
@@ -15243,16 +15845,50 @@ def main():
                 total_proceeds_max = total_proceeds_min + skip_total
                 net_min = total_investment - total_proceeds_min
                 net_max = total_investment - total_proceeds_max
-                
+
+                # [Investor-audit Q129] Reconcile NET against user's actual input
+                # capital. The legacy "NET: You NEED Rs X new capital" message
+                # ignored portfolio_amount and reported BUY minus SELL as if the
+                # user had to come up with that delta from scratch. Production
+                # hit: 2026-05-19 11:40 run showed "NEED Rs414,827" while the user
+                # had Rs310,000 input -> looked like a Rs100K+ shortfall, when in
+                # reality the allocation block had already deployed user cash
+                # correctly. Now we surface input vs deployment vs surplus.
+                # NOTE: this action-plan block lives inside main(), not inside
+                # an EnhancedTop200StockAnalyzer method - so `self` is not in
+                # scope. We must read from the module-level `args` or the
+                # `analyzer` instance instead.
+                _user_input = 0.0
+                try:
+                    _user_input = float(getattr(analyzer, 'portfolio_amount', 0) or 0)
+                except (NameError, TypeError, ValueError):
+                    try:
+                        _user_input = float(getattr(args, 'portfolio_amount', 0) or 0)
+                    except (NameError, TypeError, ValueError):
+                        _user_input = 0.0
+
                 print('='*100)
                 print('💰 FINAL NUMBERS:\n')
                 print('MINIMUM (Priority 1-5 only):')
-                print(f"Sell: ₹{total_proceeds_min:,.0f} (SWAP + SELL + EXIT + BOOK)")
-                print(f"Buy: ₹{total_investment:,.0f} (NEW + INCREASE)")
-                if net_min < 0:
-                    print(f"✅ NET: You GET ₹{abs(net_min):,.0f} BACK\n")
+                print(f"Sell proceeds (SWAP + SELL + EXIT + BOOK):  ₹{total_proceeds_min:,.0f}")
+                print(f"Buy orders   (NEW + INCREASE):              ₹{total_investment:,.0f}")
+                print(f"Net cash deployment (Buy - Sell):           ₹{net_min:>+,.0f}")
+                if _user_input > 0:
+                    _cash_after = _user_input - max(0, net_min)
+                    print(f"Your input cash (--portfolio-amount):       ₹{_user_input:,.0f}")
+                    if net_min <= 0:
+                        print(f"✅ Cash surplus after rebalance:            ₹{_user_input + abs(net_min):,.0f} "
+                              f"(SELLs cover all BUYs + free up cash)\n")
+                    elif net_min <= _user_input:
+                        print(f"✅ Within budget — cash leftover after BUYs: ₹{_cash_after:,.0f}\n")
+                    else:
+                        _short = net_min - _user_input
+                        print(f"⚠️  Shortfall — need ₹{_short:,.0f} more cash on top of your ₹{_user_input:,.0f}\n")
                 else:
-                    print(f"⚠️  NET: You NEED ₹{net_min:,.0f} new capital\n")
+                    if net_min < 0:
+                        print(f"✅ NET: You GET ₹{abs(net_min):,.0f} BACK (no new capital needed)\n")
+                    else:
+                        print(f"⚠️  NET: You NEED ₹{net_min:,.0f} new capital\n")
 
                 # [Investor-audit Q4] Tax-loss harvest summary. Sums realised
                 # losses on actionable SELLs (P&L<0) so the operator can see
@@ -15325,11 +15961,20 @@ def main():
                     logging.debug(f'portfolio risk summary skipped: {_rp_err}')
                 
                 if skip_total > 0:
-                    print('MAXIMUM (include optional):')
-                    if net_max < 0:
-                        print(f"✅ NET: You GET ₹{abs(net_max):,.0f} BACK")
+                    print('MAXIMUM (include optional Priority 2.5 sells):')
+                    print(f"Net cash deployment (Buy - Sell - Optional):  ₹{net_max:>+,.0f}")
+                    if _user_input > 0:
+                        if net_max <= 0:
+                            print(f"✅ Cash surplus after rebalance:              ₹{_user_input + abs(net_max):,.0f}")
+                        elif net_max <= _user_input:
+                            print(f"✅ Within budget — cash leftover after BUYs:  ₹{_user_input - net_max:,.0f}")
+                        else:
+                            print(f"⚠️  Shortfall — need ₹{net_max - _user_input:,.0f} more cash on top of your ₹{_user_input:,.0f}")
                     else:
-                        print(f"⚠️  NET: You NEED ₹{net_max:,.0f} new capital")
+                        if net_max < 0:
+                            print(f"✅ NET: You GET ₹{abs(net_max):,.0f} BACK")
+                        else:
+                            print(f"⚠️  NET: You NEED ₹{net_max:,.0f} new capital")
                 
                 print('='*100)
                 

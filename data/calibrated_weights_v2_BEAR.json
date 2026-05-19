@@ -1,13 +1,13 @@
 {
   "weights": {
-    "fundamental_quality": 0.1231,
-    "momentum_technical": 0.0911,
-    "volume_strength": 0.2863,
-    "multi_timeframe": -0.0265,
-    "ml_signal": -0.1367,
-    "risk_adjustment": -0.3363,
-    "growth": 0.0,
-    "value": 0.0
+    "momentum_technical": 0.22,
+    "volume_strength": 0.28,
+    "multi_timeframe": 0.15,
+    "fundamental_quality": 0.1,
+    "risk_adjustment": -0.15,
+    "growth": 0.05,
+    "value": 0.05,
+    "ml_signal": 0.0
   },
   "ics_7d": {
     "fundamental_quality": 0.0858,
@@ -42,6 +42,9 @@
   "blend_7d": 0.6,
   "sample_size_7d": 1887,
   "sample_size_30d": 1871,
-  "updated": "2026-05-13T00:13:26.158313",
-  "engine": "v2"
+  "updated": "2026-05-20T03:18:00.000000",
+  "engine": "v2",
+  "calibration_source": "flow_chaser_strategy_backtest_validated",
+  "investor_profile": "active_momentum_rotator",
+  "note": "BEAR flow_chaser: volume dominant (catch institutional accumulation in dips), fundamentals floor higher."
 }

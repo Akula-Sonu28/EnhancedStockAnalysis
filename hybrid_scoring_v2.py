@@ -50,6 +50,17 @@ class HybridOptimizedScoringEngineV2(HybridOptimizedScoringEngine):
     MIN_ABS_IC = 0.01
     MAX_ABS_SINGLE_WEIGHT = 0.45
 
+    WEIGHT_BOUNDS = {
+        'risk_adjustment':      (-0.25, +0.40),
+        'fundamental_quality':  (+0.05, +0.30),
+        'momentum_technical':   (+0.05, +0.35),
+        'volume_strength':      (+0.02, +0.20),
+        'multi_timeframe':      (-0.10, +0.25),
+        'growth':               (+0.00, +0.20),
+        'value':                (+0.00, +0.15),
+        'ml_signal':            ( 0.00,  0.00),
+    }
+
     @classmethod
     def calibrate_weights_from_outcomes(cls, history_df: pd.DataFrame,
                                         blend_7d: Optional[float] = None) -> Optional[dict]:
@@ -153,9 +164,13 @@ class HybridOptimizedScoringEngineV2(HybridOptimizedScoringEngine):
         for _ in range(5):
             capped = False
             for k in list(weights.keys()):
-                if abs(weights[k]) > cls.MAX_ABS_SINGLE_WEIGHT:
-                    sign = 1.0 if weights[k] >= 0 else -1.0
-                    weights[k] = sign * cls.MAX_ABS_SINGLE_WEIGHT
+                lo, hi = cls.WEIGHT_BOUNDS.get(k, (-cls.MAX_ABS_SINGLE_WEIGHT,
+                                                     cls.MAX_ABS_SINGLE_WEIGHT))
+                if weights[k] < lo:
+                    weights[k] = lo
+                    capped = True
+                elif weights[k] > hi:
+                    weights[k] = hi
                     capped = True
             current_abs = sum(abs(v) for v in weights.values())
             if current_abs > 0 and abs(current_abs - 1.0) > 0.01:

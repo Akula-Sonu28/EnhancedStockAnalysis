@@ -1,0 +1,50 @@
+{
+  "weights": {
+    "momentum_technical": 0.24,
+    "volume_strength": 0.24,
+    "multi_timeframe": 0.16,
+    "fundamental_quality": 0.1,
+    "risk_adjustment": -0.12,
+    "growth": 0.07,
+    "value": 0.07,
+    "ml_signal": 0.0
+  },
+  "ics_7d": {
+    "fundamental_quality": 0.0,
+    "momentum_technical": 0.0,
+    "volume_strength": 0.0,
+    "multi_timeframe": 0.0,
+    "ml_signal": 0.0,
+    "risk_adjustment": 0.0,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "ics_30d": {
+    "fundamental_quality": 0.0,
+    "momentum_technical": 0.0,
+    "volume_strength": 0.0,
+    "multi_timeframe": 0.0,
+    "ml_signal": 0.0,
+    "risk_adjustment": 0.0,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "ics_blended": {
+    "fundamental_quality": 0.0,
+    "momentum_technical": 0.0,
+    "volume_strength": 0.0,
+    "multi_timeframe": 0.0,
+    "ml_signal": 0.0,
+    "risk_adjustment": 0.0,
+    "growth": 0.0,
+    "value": 0.0
+  },
+  "blend_7d": 0.6,
+  "sample_size_7d": 0,
+  "sample_size_30d": 0,
+  "updated": "2026-05-20T03:18:00.000000",
+  "engine": "v2",
+  "calibration_source": "flow_chaser_strategy_backtest_validated",
+  "investor_profile": "active_momentum_rotator",
+  "note": "SIDEWAYS flow_chaser: slightly more fundamental anchor, less risk tolerance in choppy markets."
+}

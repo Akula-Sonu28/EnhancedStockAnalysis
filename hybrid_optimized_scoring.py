@@ -112,8 +112,7 @@ class HybridOptimizedScoringEngine:
 
             def _to_pct(val):
                 v = self._safe_float(val, 0.0)
-                # If |v| < 5 treat as decimal (0.15 -> 15%); else treat as percent.
-                return v * 100.0 if abs(v) < 5 else v
+                return v * 100.0 if abs(v) < 1.0 else v
 
             eps_pct = _to_pct(eg_raw)
             rev_pct = _to_pct(rg_raw)
@@ -254,9 +253,9 @@ class HybridOptimizedScoringEngine:
         """
         try:
             volume_ratio = self._safe_float(stock_data.get('enhanced_volume_ratio', stock_data.get('volume_ratio')), 1.0)
-            vol_score = float(np.clip((volume_ratio - 0.5) / 2.5 * 100.0, 0, 100))
-            if volume_ratio >= 0.8 and vol_score < 15:
-                vol_score = 15.0
+            vol_score = float(np.clip((volume_ratio - 0.3) / 2.7 * 100.0, 0, 100))
+            if volume_ratio >= 0.3 and vol_score < 20:
+                vol_score = 20.0
             _quality = str(stock_data.get('volume_quality', 'MODERATE')).upper()
             if _quality == 'LOW':
                 vol_score *= 0.5
@@ -558,15 +557,19 @@ class HybridOptimizedScoringEngine:
                     weights = {k: v / _wsum for k, v in weights.items()}
             elif _calibrated:
                 weights = {k: _calibrated.get(k, _regime_defaults.get(k, 0)) for k in _regime_defaults}
-                if not ml_active and weights.get('ml_signal', 0) != 0:
+                if not ml_active and weights.get('ml_signal', 0) > 0:
                     _leaked = weights['ml_signal']
                     weights['ml_signal'] = 0.0
                     weights['momentum_technical'] = weights.get('momentum_technical', 0) + _leaked
-                if not mtf_available and weights.get('multi_timeframe', 0) != 0:
+                elif not ml_active:
+                    weights['ml_signal'] = 0.0
+                if not mtf_available and weights.get('multi_timeframe', 0) > 0:
                     _mtf_w = weights['multi_timeframe']
                     weights['multi_timeframe'] = 0.0
                     weights['risk_adjustment'] = weights.get('risk_adjustment', 0.40) + _mtf_w * 0.6
                     weights['momentum_technical'] = weights.get('momentum_technical', 0.20) + _mtf_w * 0.4
+                elif not mtf_available:
+                    weights['multi_timeframe'] = 0.0
                 # [v3 Layer 4] Signed-weight aware normalisation. v2 calibration
                 # produces signed weights (anti-predictive components get negative
                 # weights). Pre-fix, sum(weights) <= 0 would silently skip

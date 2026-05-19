@@ -182,6 +182,24 @@ class AnalysisConfig:
     # Rotation friction (Phase 3c): minimum score advantage for capital rotation.
     ROTATION_FRICTION_POINTS: float = 5.0
 
+    # [Investor-audit Q127] Recent-BUY Minimum-Hold Cooldown.
+    # When the system issues a SELL/WEAK_SELL/REDUCE on a position that was a
+    # NEW_POSITION/BUY within REGIME_FLIP_COOLDOWN_DAYS, the SELL is suppressed
+    # and overridden to HOLD. Prevents whipsaws driven by regime-classifier
+    # oscillation (SIDEWAYS<->BEAR within hours), bottom-20% ranking artefacts,
+    # and same-day score noise.
+    # Variable names retain the REGIME_FLIP_ prefix for backward compatibility,
+    # but the trigger is no longer regime-dependent (Round 23a, 2026-05-18 PM).
+    # EXCEPTIONS (still allow SELL):
+    #   - P&L below REGIME_FLIP_HARD_STOP_PCT (true loss, not artefact)
+    #   - V2 score below REGIME_FLIP_V2_COLLAPSE for REGIME_FLIP_V2_STREAK runs
+    #   - Hard-stop tier already EMERGENCY/HARD_STOP/THESIS_BREAK/TRAILING_STOP
+    REGIME_FLIP_COOLDOWN_ENABLED: bool = True
+    REGIME_FLIP_COOLDOWN_DAYS: int = 7
+    REGIME_FLIP_HARD_STOP_PCT: float = -0.10
+    REGIME_FLIP_V2_COLLAPSE: float = 30.0
+    REGIME_FLIP_V2_STREAK: int = 2
+
     # V2 Scoring Engine shadow mode (Phase 1/2): when True, v2 score is computed
     # alongside v1 but does NOT drive actions. Promotion is gated by data/v2_promotion_status.json.
     V2_SHADOW_MODE: bool = True

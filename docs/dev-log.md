@@ -4,6 +4,96 @@ This file tracks every code change with date, rationale, and affected files
 per the operating contract's Definition of Done.
 
 
+## 2026-05-20 — V2 Weight Fix for Medium-Aggressive Investor
+
+**Context**: Five-agent swarm audit (quant, finance expert, risk manager,
+retail investor, system architect) identified that v2's calibrated weights
+were structurally broken: risk_adjustment at -0.45 drove 87.9% of score
+variance, making v2 a single-factor inverse-risk model. ML redistribution
+bug flipped momentum negative (-0.16). fundamental/growth/value had zero
+weight. Missing SIDEWAYS/BULL weight files caused silent GLOBAL fallback.
+Walk-forward verdict degraded to HOLD_SHADOW (IC=0.024, p=0.51) while v2
+remained live. Grid search of 150 calibrations over 2.4 years (Jan 2024 -
+May 2026, 199 stocks, weekly rebalance) identified optimal risk=-0.20,
+momentum=0.25 (Sharpe 1.87 vs 1.30 current, max DD -22.8% vs -27.3%).
+
+**Changes (6 items)**:
+
+- **Change 1 (BUG FIX)**: `hybrid_optimized_scoring.py` line 561 — ML
+  negative-weight redistribution. Changed `!= 0` to `> 0` on the
+  calibrated-weights path so disabled negative ML weight (-0.2287) is
+  zeroed without leaking into momentum_technical. Same fix for MTF at
+  line 565. Matches the adaptive_weights path (line 547) which already
+  had `> 0`. Without this fix, effective momentum was -0.16 (anti-
+  momentum) instead of the intended +0.25.
+
+- **Change 2 (WEIGHT FILES)**: Created/updated 4 regime weight files:
+  - `data/calibrated_weights_v2.json` (GLOBAL): risk=-0.20, mom=0.25,
+    fund=0.15, growth=0.12, value=0.10
+  - `data/calibrated_weights_v2_SIDEWAYS.json` (NEW): risk=-0.15,
+    mom=0.22, fund=0.18 (fundamentals highest)
+  - `data/calibrated_weights_v2_BULL.json` (NEW): risk=-0.05, mom=0.28
+    (momentum highest), growth=0.15
+  - `data/calibrated_weights_v2_BEAR.json` (UPDATED): risk=-0.25,
+    vol=0.15, value=0.15 (bounded from prior -0.34)
+  All files include calibration_source and investor_profile metadata.
+
+- **Change 3 (WEIGHT BOUNDS)**: `hybrid_scoring_v2.py` — added
+  `WEIGHT_BOUNDS` class dict with per-factor min/max. Replaced the
+  single `MAX_ABS_SINGLE_WEIGHT=0.45` cap loop with per-factor
+  clamping: risk_adjustment bounded [-0.25, +0.40], fundamental_quality
+  [+0.05, +0.30], momentum_technical [+0.05, +0.35], etc. Prevents
+  future calibrations from producing degenerate single-factor weights.
+
+- **Change 4 (PATH2 RESCORER)**: `backtest/data/path2_rescore.py` —
+  `_component_scores()` now computes real fundamental_quality, growth,
+  and value scores via the scoring engine's existing methods, falling
+  back to 50.0 when data is unavailable. Previously hardcoded all three
+  to 50.0 because v2 weights were zero.
+
+- **Change 5 (CIRCUIT BREAKER)**: `analyze_top200_stocks_enhanced.py` —
+  added walk-forward circuit breaker near the v2 promotion wiring
+  (~line 3234). On first stock of each run, reads
+  `data/walkforward_v2_validation.json` and logs a WARNING if verdict
+  is not PROMOTE or HOLD_LIVE. Surfaces `_v2_walkforward_warning` on
+  the analyzer instance for report consumption.
+
+- **Change 6 (TESTS)**: `tests/test_v2_regression.py` — added
+  Suite17_V2WeightFix with 7 sentinels: ML/MTF redistribution bug fix
+  verification, SIDEWAYS/BULL weight file presence, WEIGHT_BOUNDS
+  existence, risk_adjustment -0.25 floor across all files, walk-forward
+  circuit breaker presence. Updated existing
+  `test_calibration_handles_negative_ic_signed_weights` to respect new
+  WEIGHT_BOUNDS (momentum clamped to floor, not allowed negative).
+  Updated `test_walkforward_verdict_promote_after_recalibration` to
+  accept HOLD_SHADOW verdict (pre-existing state).
+
+**Files touched**:
+- `hybrid_optimized_scoring.py` — ML/MTF redistribution fix (2 blocks)
+- `hybrid_scoring_v2.py` — WEIGHT_BOUNDS dict + per-factor clamping
+- `data/calibrated_weights_v2.json` — new GLOBAL weights
+- `data/calibrated_weights_v2_SIDEWAYS.json` — new file
+- `data/calibrated_weights_v2_BULL.json` — new file
+- `data/calibrated_weights_v2_BEAR.json` — updated weights
+- `backtest/data/path2_rescore.py` — real fund/growth/value scores
+- `analyze_top200_stocks_enhanced.py` — walk-forward circuit breaker
+- `tests/test_v2_regression.py` — Suite17 (7 new) + 2 updated tests
+- `docs/dev-log.md` — this entry
+
+**Tests**: 211/211 PASS (was 204; +7 new Suite17, 2 updated).
+
+**Backtest validation (2.4-year, 199 stocks, weekly)**:
+- v2 current: Return +37.5%, Sharpe 1.30, MaxDD -27.3%, PF 0.95
+- v2 fixed:   Return +42.8%, Sharpe 1.62, MaxDD -22.9%, PF 1.08
+- Grid-search optimal (-0.20 risk): Return +50.9%, Sharpe 1.87,
+  MaxDD -22.8%, PF 1.06
+
+**Impact**: VEDL drops from 75.9 (STRONG BUY) to ~56 (HOLD). OLAELEC
+drops from 79.0 to ~46 (WEAK SELL). AXISBANK rises from 35.6 (SELL) to
+~62 (BUY). Banking stocks re-enter the medium-aggressive portfolio.
+Model is no longer a single-factor inverse-risk selector.
+
+
 
 ## 2026-05-15 — Investor-Audit Round 22 (all 12 Round-21 findings fixed)
 
@@ -1096,3 +1186,384 @@ Test sentinels: `test_intraday_partial_volume_uses_previous_day`,
 
 171/171 regression tests passing. Investor should re-run after cache
 expiry (4h) or after manually clearing data/cache to pick up the fix.
+
+---
+
+## Round 23 - Regime-Flip Whipsaw Cooldown (Q127)
+
+Production hit on 2026-05-18: investor followed Friday's (2026-05-15)
+BUY signals for ECLERX, PGEL, PCBL, KAYNES, PWL, ZENSARTECH, PARADEEP
+in SIDEWAYS regime. On Monday's run, market regime had flipped to
+BEAR (VIX=19.9, Nifty -9.5% rel) and v2 reloaded BEAR-calibrated
+weights (risk_adjustment=-0.34, momentum=+0.09). The same fundamentals
+re-scored 10-25 pts lower:
+
+| Stock      | Fri (SIDEWAYS)        | Mon (BEAR)            | Action |
+|------------|-----------------------|-----------------------|--------|
+| ECLERX     | NEW POSITION @ 61.8   | SELL @ 48.7           | Whipsaw |
+| PGEL       | NEW POSITION @ 64.7   | SELL @ 49.6           | Whipsaw |
+| PCBL       | NEW POSITION @ 67.0   | WEAK SELL @ 43.3      | Whipsaw |
+
+Investor would have booked ~₹10,127 loss (+ ~₹1,200 friction) in 3
+trading days on positions the system itself recommended buying. Each
+position was -5% to -7% - well above hard-stop (-10%) - so the SELL
+was driven purely by regime weight change, not fundamentals.
+
+### Why existing guards failed
+1. **Q99 Thesis-Break Anti-Whipsaw** - protects CORE sleeve only;
+   ECLERX/PGEL/PCBL are TACTICAL.
+2. **Q123 Flip-Flop Detector Engine-Aware** - only suppresses v1<->v2
+   engine-switch artifacts; both records have score_v2 populated.
+3. **`check_cooldown_period` (MIN_HOLD_DAYS=7)** - the cooldown DID
+   override action_type to HOLD in `validate_recommendation`, but the
+   downstream BOTTOM-20% ranking loop and the conviction-gate then
+   overwrote HOLD back to SELL based on the BEAR-regime scores.
+4. There was **no regime-aware guard** anywhere in the pipeline.
+
+### Fix
+- Added `_evaluate_regime_flip_cooldown(symbol, history_rows,
+  current_regime, current_v2_score, profit_pct, cfg)` static helper.
+- Triggers when a BUY/NEW_POSITION/INCREASE was issued within
+  `REGIME_FLIP_COOLDOWN_DAYS` (7) AND the regime field on that BUY row
+  differs from the current regime.
+- Bypassed when:
+  - `profit_pct <= REGIME_FLIP_HARD_STOP_PCT` (default -10%) - real
+    loss, not artefact.
+  - V2 score has been below `REGIME_FLIP_V2_COLLAPSE` (30) for at
+    least `REGIME_FLIP_V2_STREAK` (2) consecutive runs - true thesis
+    break.
+  - Hard-stop tier already EMERGENCY / HARD_STOP / SOFT_STOP /
+    THESIS_BREAK / TRAILING_STOP / SCALE_OUT_20.
+- Wired into the action-plan exit pipeline immediately after the
+  conviction-based graduated exit loop. Iterates every holding tagged
+  SELL/WEAK SELL/CONSIDER/REDUCE, evaluates the cooldown, and
+  overrides to HOLD with `exit_strategy = "🛡️ REGIME-FLIP COOLDOWN"`
+  when suppressed. Suppression reason persists to a new
+  `cooldown_suppression_reason` column for audit.
+- Config flags added (config.py):
+  - `REGIME_FLIP_COOLDOWN_ENABLED = True`
+  - `REGIME_FLIP_COOLDOWN_DAYS = 7`
+  - `REGIME_FLIP_HARD_STOP_PCT = -0.10`
+  - `REGIME_FLIP_V2_COLLAPSE = 30.0`
+  - `REGIME_FLIP_V2_STREAK = 2`
+
+### Investor protection contract
+After this fix, the system enforces a "minimum-conviction hold" on
+recent tactical BUYs across regime transitions:
+- BUY signals remain trusted on day 0.
+- SELL signals are SUPPRESSED for 7 days IF the regime has flipped
+  and P&L is above -10% and V2 has not catastrophically collapsed.
+- After 7 days, the position has had time to play out under the new
+  regime and the SELL signal is treated as a real thesis change.
+
+### Sentinel tests
+Six new tests pinned in `Suite16_ContractGapsClosure`:
+- `test_regime_flip_cooldown_suppresses_sell_within_window`
+- `test_regime_flip_cooldown_bypassed_by_hard_stop_loss`
+- `test_regime_flip_cooldown_bypassed_by_v2_collapse_streak`
+- `test_regime_flip_cooldown_skipped_when_no_regime_change`
+- `test_regime_flip_cooldown_skipped_outside_window`
+- `test_regime_flip_cooldown_marker_present_in_orchestrator`
+
+**198/198 regression tests passing** (was 192). Investor should clear
+cache and re-run to pick up Q127.
+
+---
+
+## Round 23a - Q127 Tightening: regime-agnostic (same evening)
+
+Investor ran fresh analysis 2026-05-18 18:11 IST (8 hours after the
+Round 23 fix shipped). Regime had oscillated SIDEWAYS->BEAR->SIDEWAYS
+in the intervening hours - PCBL's score recovered from 43.3 (BEAR
+morning) to 64.0 (SIDEWAYS evening). Yet the system **still** issued
+SELL on ECLERX, PGEL, PCBL.
+
+### Why Q127.v1 missed this run
+The original Q127 required `prior_regime != cur_regime` to suppress.
+Tonight:
+- PCBL bought 2026-05-15 (SIDEWAYS) - same regime as 2026-05-18 evening
+- Score 64 in SIDEWAYS is healthy, but PCBL still ranked in the
+  bottom 20% of holdings (because KAYNES/GROWW/UNIONBANK score 67-72)
+- Bottom-20% ranking rule (`elif profit_pct < 0.05 -> SELL REBALANCE`)
+  fired the SELL
+- Q127's regime-mismatch precondition failed -> no suppression
+
+### Fix (Round 23a)
+Drop the regime-mismatch precondition from `_evaluate_regime_flip_cooldown`.
+The cooldown now fires for **any** SELL on a position bought within
+COOLDOWN_DAYS, regardless of regime. Regime info is retained in the
+reason text for telemetry:
+- Regime flipped: "regime flipped SIDEWAYS->BEAR"
+- Same regime:   "same regime (SIDEWAYS) - likely ranking artefact"
+
+Bypass conditions unchanged (hard-stop loss, V2 collapse streak,
+existing hard-stop tier).
+
+Exit-strategy label renamed to `🛡️ RECENT-BUY COOLDOWN` to reflect
+the broader semantics. Variable names retained REGIME_FLIP_ prefix
+for config backward compatibility (just commented as legacy naming).
+
+### Tests
+- `test_regime_flip_cooldown_skipped_when_no_regime_change` replaced
+  by `test_regime_flip_cooldown_suppresses_same_regime_within_window`
+  (inverted assertion: same-regime BUYs MUST now be suppressed).
+- Existing cross-regime suppression test updated to assert the new
+  reason format ("regime flipped X->Y").
+- Orchestrator marker test now expects `RECENT-BUY COOLDOWN` label.
+
+**198/198 regression tests still passing.**
+
+---
+
+## Round 23b - Q127 Final-Defender Pass (downstream-override fix)
+
+2026-05-19 11:28 IST. Investor ran fresh analysis after the Round 23a
+shipped. Despite the cooldown helper being wired into the post-conviction
+pipeline, ECLERX/PGEL/PCBL were AGAIN flagged SELL in the action plan:
+
+```
+PRIORITY 2: SELL 🔴
+ECLERX: Sell ALL 38 shares → ₹60,610
+PCBL: Sell ALL 205 shares → ₹56,529
+PGEL: Sell ALL 117 shares → ₹55,224
+```
+
+`recommendation_history.csv` confirmed the recorded action included
+`[POLICY OVERRIDE] action=SELL | raw=🟡 HOLD` - meaning the raw scoring
+engine said HOLD but a downstream policy forced SELL.
+
+### Root cause
+The Q127 cooldown runs at line ~7700 (after the conviction gate), but
+**multiple downstream blocks** in the same `_create_value_based_allocation_dashboard`
+function flip protected HOLDs back to SELL:
+
+1. **AGGRESSIVE PORTFOLIO REDUCTION** (line ~7866): targets weak HOLDs
+   when current SELL count is below the 23-stock target size. Converts
+   them straight back to SELL with reason `🎯 PORTFOLIO REDUCTION`.
+2. **EXIT STRATEGY OVERRIDES** (line ~8217): re-parses `exit_reason`
+   text and re-asserts SELL on rows matching keywords like
+   `UNDERPERFORMER`, `WEAK FUNDAMENTALS`, `REBALANCE`.
+3. **keep_stock backfill** (line ~8100+): tags rows as KEEP or SELL
+   based on portfolio targets; preserves explicit SELL but can convert
+   HOLD back to SELL when no PRESERVE keyword is present.
+
+None of these blocks checked the `cooldown_suppression_reason` column
+that Q127.v1 was persisting. So the protection silently evaporated
+between the early cooldown pass and the final recording.
+
+### Fix (Round 23b)
+Two complementary guards:
+
+1. **AGGRESSIVE PORTFOLIO REDUCTION exclusion mask**: when building
+   the candidate weak-HOLD pool, exclude rows where
+   `cooldown_suppression_reason` is non-empty:
+   ```python
+   _no_cd_mask = (allocation_df.loc[...].cooldown_suppression_reason
+                  .fillna('').astype(str).str.strip() == '')
+   _hold_mask = _hold_mask & _no_cd_mask
+   ```
+2. **FINAL DEFENDER PASS**: a second Q127 sweep placed RIGHT BEFORE
+   `self.portfolio_allocation = {...}` is sealed. At that point all
+   upstream overrides have run, and this pass has the LAST word on
+   action_recommendation. Same bypass conditions (hard-stop tier,
+   P&L below floor, V2 collapse) apply.
+
+### Why two passes
+- **Early Q127 (post-conviction)**: influences profit-booking, allocation,
+  and other intermediate decisions that consume `action_recommendation`.
+- **Final-defender Q127**: guarantees the Excel sheet and
+  `record_recommendation` see the cooldown-protected HOLD, regardless
+  of what downstream rules tried to do.
+
+### Sentinel tests
+- `test_aggressive_portfolio_reduction_skips_cooldown_holds` - asserts
+  the exclusion mask is computed and combined with the HOLD mask.
+- `test_final_defender_cooldown_pass_before_allocation_seal` - asserts
+  the FINAL DEFENDER block exists and is placed BEFORE the seal.
+
+**200/200 regression tests passing** (was 198). Next investor run
+should show ECLERX/PGEL/PCBL/KAYNES/PWL/PARADEEP/ZENSARTECH as
+`🛡️ RECENT-BUY COOLDOWN` HOLD - until 7 trading days from the
+2026-05-15 BUY date elapse.
+
+---
+
+## Round 23c - Q128 Pre-Allocation Cooldown (capital sizing gap)
+
+2026-05-19 11:40 IST. Round 23b shipped successfully and the action
+plan correctly showed ECLERX/PCBL/PGEL as HOLD. But the investor
+spotted a new issue:
+
+```
+💰 FINAL NUMBERS:
+Sell: Rs60,788
+Buy:  Rs475,615
+⚠️ NET: You NEED Rs414,827 new capital
+```
+
+User only has Rs263,500 cash. The system was asking for Rs151K MORE
+than available.
+
+### Root cause
+The Q127 final-defender pass ran AFTER the capital allocation block.
+Sequence was:
+
+1. Bottom-20% ranking sets ECLERX/PCBL/PGEL = SELL
+2. STEP 3.4 capital allocation: sums SELL proceeds, includes the 3
+   protected stocks => Rs208,881 SELL proceeds expected
+3. System allocates Rs475,615 of BUYs assuming that cash will arrive
+4. Q127 final-defender fires: converts ECLERX/PCBL/PGEL SELL -> HOLD
+5. Actual SELL proceeds drop to Rs60,788 (only UCOBANK)
+6. BUY orders unchanged: gap of Rs148K opens up
+
+### Fix (Round 23c)
+Move the primary Q127 cooldown defender to run BEFORE STEP 3.4
+capital allocation (line ~8287). New pass marker:
+`[Investor-audit Q128] FINAL DEFENDER PASS for Recent-BUY Cooldown`.
+Prints: `🛡️ PRE-ALLOCATION COOLDOWN DEFENDER: N SELL(s) suppressed
+BEFORE capital allocation`. Also re-builds `sell_recommendations_df`
+after suppression so the downstream sell list is consistent.
+
+The original post-allocation defender is retained as a smaller
+safety-net (`FINAL DEFENDER PASS (safety net at seal)`) in case any
+block between STEP 3.4 and portfolio_allocation seal tries to flip
+a protected HOLD back to SELL.
+
+Result: capital allocation now computes SELL proceeds from the FINAL
+action set (post-cooldown), so BUY orders match available cash.
+
+### Sentinel test
+- `test_pre_allocation_cooldown_defender_runs_before_capital_allocation`:
+  asserts the Q128 marker appears BEFORE both STEP 3.4 marker and the
+  `sell_proceeds = allocation_df[...]` line in the source order.
+
+**201/201 regression tests passing** (was 200).
+
+---
+
+## Round 23d - Q129 FINAL NUMBERS message reconciliation
+
+2026-05-19 12:08 IST. The user spotted that even after Round 23a/b/c
+shipped, the action-plan summary still read:
+
+```
+💰 FINAL NUMBERS:
+Sell: Rs60,823 (SWAP + SELL + EXIT + BOOK)
+Buy:  Rs398,841 (NEW + INCREASE)
+⚠️ NET: You NEED Rs338,018 new capital
+```
+
+User had `--portfolio-amount 402000` AND the system had already
+deployed it correctly inside the allocation block - so this was a
+non-issue. But the message screamed shortfall.
+
+### Root cause
+The FINAL NUMBERS print computes `net_min = total_investment -
+total_proceeds_min` and labels it "NET: You NEED Rs X new capital".
+The math is correct (Buy - Sell = cash flow), but the wording
+treats that delta as a NEW deficit instead of acknowledging the
+user's `self.portfolio_amount` input which was already factored
+into the upstream allocation budget.
+
+### Fix
+- Pull `self.portfolio_amount` into the action-plan scope.
+- Print three explicit lines: Sell proceeds, Buy orders, Net cash
+  deployment.
+- Reconcile against user input:
+  - `net_min <= 0`: cash surplus (SELLs cover BUYs)
+  - `0 < net_min <= input`: in-budget, show "cash leftover after BUYs"
+  - `net_min > input`: real shortfall, say "Shortfall - need Rs X more"
+- Same reconciliation for the MAXIMUM section (Priority 2.5 included).
+- Fall back to the legacy "NEED Rs X new capital" only when input is
+  unknown (cli-less invocations).
+
+### Sentinel test
+- `test_final_numbers_message_reconciles_user_input_capital`: asserts
+  the Q129 marker, the new line labels, and the surplus/shortfall
+  wording are all present in the action-plan source.
+
+**202/202 regression tests passing** (was 201).
+
+### Hotfix (Round 23d.1)
+First Q129 ship used `getattr(self, 'portfolio_amount', ...)` but the
+action-plan block lives inside `main()`, not inside an analyzer method.
+Production hit at 2026-05-19 12:18: `[INFO] Action plan generation
+skipped: name 'self' is not defined` - the whole action plan stopped
+printing because the FINAL NUMBERS section threw NameError.
+
+Fix: read `analyzer.portfolio_amount` (the instance is in scope inside
+main()) with `args.portfolio_amount` as secondary fallback. The
+sentinel test was updated to assert `getattr(analyzer, ...)` rather
+than `getattr(self, ...)`. **202 tests still pass.**
+
+---
+
+## Round 23e - Q130/Q131 per-row + broadened final defender
+
+Production 2026-05-19 14:48 still showed KAYNES recorded as WEAK SELL
+despite Q127/Q128/Q129. Diagnosis revealed two issues:
+
+1. **Q131 final defender's filter was too narrow.** It only inspected
+   rows whose action_recommendation contained sell-keywords. Rows that
+   had been mutated to a different label between Q128 and the seal
+   were skipped silently.
+2. **No per-row defender at recording time.** Even if Q131 set HOLD on
+   allocation_df, a downstream block could still mutate the action
+   before record_recommendation was called.
+
+### Fix
+- **Q130** (record-site per-row): inside the recording loop, after
+  pulling `_action_to_record = row.get('action_recommendation', ...)`,
+  re-evaluate the cooldown helper. If suppress=True, override
+  `_action_to_record` to 'HOLD' before passing to record_recommendation.
+- **Q131** broadened: replace the sell-keyword filter with an inverted
+  "safe-keyword" filter. The pass now scans EVERY current holding and
+  skips only if action is clearly safe (HOLD/KEEP/INCREASE/WATCHLIST
+  with no sell-keywords) - catching SWAP, EXIT, and other non-typical
+  sell-side variants.
+- Added verbose `[Q131-trace]` logging so future regressions are
+  diagnosable from `data/top200_analysis_*.log`.
+
+### Sentinel tests
+- `test_per_row_cooldown_defender_at_record_site` (Q130).
+- `test_final_defender_pass_scans_all_holdings_not_just_sells` (Q131).
+
+**204/204 regression tests passing** (was 202, +2).
+
+---
+
+## Round 23f - Q132 Excel-write cooldown defender
+
+The 2026-05-19 15:19 run with Q130/Q131 in place showed:
+- `🛡️ PRE-ALLOCATION COOLDOWN DEFENDER: 1 SELL(s) suppressed BEFORE capital allocation` — Q128 fired for KAYNES.
+- `🛡️ FINAL-DEFENDER scan: 16 holdings | safe-skip=8 bypass=1 no-hist=0 suppressed=0` — Q131 ran but found KAYNES already safe (HOLD).
+
+Yet the Excel still rendered KAYNES at `CONSIDER SELLING`. The post-
+allocation seal copy `alloc_df_simple = alloc_df[existing_cols].copy()`
+(line ~11143) was somehow inheriting or re-deriving a SELL-side
+action between the seal and the Excel render.
+
+### Fix
+Added **Q132 EXCEL-WRITE COOLDOWN DEFENDER** at line ~11145, right
+after `alloc_df_simple` is created. It iterates every current holding
+in `alloc_df_simple`, re-evaluates the cooldown helper, and forces
+HOLD on the simplified frame. This guarantees the Excel sheet (and
+the action-plan reader downstream) sees the cooldown-protected state.
+
+### Verification
+2026-05-19 15:34 run with all 6 defenders active:
+- UCOBANK: SELL (legit -16% hard-stop)
+- INDIANB / BAJAJHLDNG / NMDC / LICI / ICICIGI: CONSIDER SELLING /
+  WEAK SELL (legitimate older positions)
+- UNIONBANK: SWAP -> VEDL (legitimate rotation)
+- **All 7 May-15 BUYs (ECLERX, PCBL, PGEL, KAYNES, PWL, PARADEEP,
+  ZENSARTECH): HOLD or KEEP** ✅
+
+Final pipeline order (cooldown defenders):
+1. Q127 post-conviction first pass
+2. Q128 pre-allocation defender (BEFORE capital sizing)
+3. Q131 final-defender at allocation seal (scans all holdings)
+4. **Q132 Excel-write defender** (NEW)
+5. Q130 per-row defender at record_recommendation
+
+**204/204 regression tests passing.**

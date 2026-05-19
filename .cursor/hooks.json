@@ -3,7 +3,7 @@
   "hooks": {
     "beforeShellExecution": [
       {
-        "command": "node /Users/akulakavyashree/cursorflow/packages/cli/bin/cursorflow.js memory search --query \"$CURSOR_SHELL_COMMAND\" --namespace patterns --limit 3",
+        "command": "node /Users/akulakavyashree/cursorflow/packages/cli/bin/cursorflow.js memory search --query \"$CURSOR_SHELL_COMMAND\" --namespace patterns --limit 3 > /dev/null 2>&1; echo '{}'",
         "matcher": "\\b(python3?|pytest)\\b",
         "timeout_ms": 5000,
         "optional": true

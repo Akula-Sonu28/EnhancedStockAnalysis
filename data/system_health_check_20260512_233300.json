@@ -1,0 +1,125 @@
+{
+  "timestamp": "2026-05-12T23:33:00",
+  "verdict": "HEALTHY",
+  "phases": {
+    "static": {
+      "pass": true,
+      "details": "38 .py files AST-clean; config.json: 73 keys all within validation bounds; static_validator: 5 pre-existing lints (2 in analyzer, 3 in recommendation_history), zero new"
+    },
+    "tests": {
+      "pass": true,
+      "details": "test_v2_regression.py: 111/111 PASS (was 109; +2 new sentinels added). test_regression_fixes.py: 3 pre-existing failures (matches documented baseline); no new failures.",
+      "suite_inventory": {
+        "Suite1_ContractPreservation": 3,
+        "Suite2_UniverseFilter": 7,
+        "Suite3_ExhaustionThresholds": 5,
+        "Suite4_HardStop": 9,
+        "Suite5_V2Isolation": 4,
+        "Suite6_RotationFriction": 6,
+        "Suite7_CacheCompatibility": 2,
+        "Suite8_DQ_NATALUM": 9,
+        "Suite9_P0_StopTier_DQLate": 6,
+        "Suite10_Phase05_v3Layer3": 7,
+        "Suite11_v3Calibration": 12,
+        "Suite12_HistoricalCalibration": 14,
+        "Suite13_RegimeConditional": 11,
+        "Suite14_Performance": 9,
+        "Suite15_WalkForward": 7,
+        "total": 111
+      }
+    },
+    "data": {
+      "pass": true,
+      "details": "10 of 11 required data files OK; 1 soft gap (last_known_regime.json missing, auto-rebuilt on next analysis run); 204 fresh cache files for today; 2 stale .bak files archived to .archive/",
+      "files_ok": [
+        "calibrated_weights_v2.json (age 0d, signed weights present)",
+        "calibrated_weights_v2_BEAR.json (age 0d)",
+        "v2_promotion_status.json (mode=historical, eligible_today=True)",
+        "historical_outcomes.csv (5,835 rows, schema OK)",
+        "regime_ic_diagnostic.json (verdict=REGIME_CONDITIONAL_ALPHA)",
+        "walkforward_v2_validation.json (verdict=PROMOTE)",
+        "recommendation_history.csv (25 cols, schema OK)",
+        "booking_history.json",
+        "data/cache/*comprehensive_*.json (204 fresh today / 500 total)",
+        "reports/Enhanced_Stock_Report_*.xlsx (latest age 9.5h)"
+      ],
+      "files_missing_recoverable": [
+        "data/last_known_regime.json (auto-rebuilt by MarketRegimeDetector on next analysis run)"
+      ],
+      "auto_fixed": [
+        "Archived data/recommendation_history.csv.pre_etf_cleanup_20260425_103835.bak (17d old)",
+        "Archived data/recommendation_history.csv.pre_v2_backfill.bak (5d old)"
+      ]
+    },
+    "features": {
+      "pass": true,
+      "details": "17/17 session fixes have source-level sentinels present; 2 new pinned regression tests added to Suite14 for today's stale-weights TTL guard + IC Telemetry weight-age row",
+      "fixes_verified": [
+        "Phase 0 STOP_TIER plumbing (P&L not booking fraction)",
+        "Phase 0 MARICO DQ regression (results_df seeding for late-injected rows)",
+        "Phase 0.5 HARD_STOP-driven SELL not silenced by validate_recommendation",
+        "Signed-weight normalisation in calculate_hybrid_score",
+        "Schema extension: hybrid_* + score_v2 + regime in recommendation_history.csv",
+        "PAPER_TRADING_MODE composite config flag",
+        "Strict promotion gate constants (IC>=0.05, spread>=3pp, n>=200, sell_hit>=50%)",
+        "Historical IC backfill scripts (build_historical_outcomes, historical_ic_diagnostic)",
+        "Tier C2 regime-conditional v2 calibration + regime-aware loader",
+        "Performance: adaptive submit throttle (_THROTTLE_FIRST_N)",
+        "Performance: adaptive batch pause (gated by batch_duration < 15s)",
+        "Performance: --fast flag for cosmetic sheets",
+        "Walk-forward validator + verdict logic",
+        "Stale-weights TTL guard (14d hard, 7d warn) - TODAY",
+        "IC Telemetry weight-age row - TODAY"
+      ],
+      "new_sentinels_added": [
+        "Suite14.test_stale_weights_ttl_constants_present",
+        "Suite14.test_ic_telemetry_surfaces_weight_age"
+      ]
+    },
+    "e2e": {
+      "pass": true,
+      "details": "Analyzer ran clean: 25 sheets generated, zero Traceback/FAIL/unhashable in log. Wall time 89s (above 60s flag, but expected: today's v2-cache invalidation forced fresh v2 score recomputation across all stocks; next run should drop back to ~40-45s as cache warms)",
+      "wall_time_sec": 89.24,
+      "sheets_generated": 25,
+      "phase_0_05_flagged": "10/10 deep-loss holdings have STOP_TIER in {HARD_STOP, EMERGENCY}",
+      "v2_divergence": "199/212 stocks with |V2 RAW - V1 RAW| > 1 (signed weights active)",
+      "ic_telemetry_keys": {
+        "WALK-FORWARD VERDICT": "PROMOTE",
+        "v2 weight age (days)": 0,
+        "v2 weight status": "FRESH"
+      },
+      "errors_in_log": 0
+    }
+  },
+  "manual_attention": [
+    "last_known_regime.json missing - non-blocking; auto-rebuilt on next analysis run. If next run does not produce it, investigate MarketRegimeDetector",
+    "End-to-end wall time was 89s vs 40s baseline - explained by v2 cache invalidation earlier today; verify next run drops back under 60s",
+    "Walk-forward verdict is PROMOTE on historical evidence but operator decided to stay in shadow mode pending forward validation - revisit Fri May 15 per established cadence"
+  ],
+  "auto_fixed": [
+    "Archived 2 stale .bak files (config.json/recommendation_history backups older than 5 days) to .archive/",
+    "Added Suite14.test_stale_weights_ttl_constants_present and Suite14.test_ic_telemetry_surfaces_weight_age sentinels"
+  ],
+  "regression_summary": {
+    "v2_regression_tests": "111/111 (was 109; +2 new)",
+    "regression_fixes_tests": "3 pre-existing failures (baseline, no new)",
+    "static_validator_lints": "5 pre-existing (2 in analyzer, 3 in recommendation_history)",
+    "v1_byte_identity": "59.7 on canonical input (re-pinned across Suite11, Suite13, Suite14, Suite15)"
+  },
+  "operating_contract_compliance": {
+    "rule_1_dual_mandate_core_tactical": "Not implemented - flagged in prior audit",
+    "rule_2a_universe_nifty_500": "Partial - 200 stocks, 500-stock CSV exists but not default",
+    "rule_2b_no_hard_exclusions": "Compliant",
+    "rule_3a_multi_factor_QGMV": "Partial - Quality and Momentum present, Growth and Value absent as explicit factors",
+    "rule_3b_adaptive_weights": "Compliant - signed weights from walk-forward calibration",
+    "rule_3c_expose_sub_scores": "Partial - FUND/MOM/VOL/MTF/RISK columns, not labelled Q/G/M/V",
+    "rule_4_adaptive_holdings_count": "Not implemented - fixed per risk_profile",
+    "rule_5_profit_booking_rotation": "Partial - tiered booking exists, no flat 20% rule",
+    "rule_6a_tactical_hard_stop_10pct": "Compliant (applied to ALL holdings, not sleeve-specific)",
+    "rule_6b_trailing_stop_15pct_peak": "Not implemented - label exists but no peak persistence",
+    "rule_6c_core_no_price_stop": "Not implemented - no sleeve distinction",
+    "rule_6d_regime_tightens_stops": "Partial - exposure adjusts, stops do not",
+    "rule_7_light_overlay_only": "Not compliant - crisis_detector adds cross-asset adjustments",
+    "rule_8_hard_stops_active": "Compliant"
+  }
+}

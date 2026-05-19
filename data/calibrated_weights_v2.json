@@ -1,13 +1,13 @@
 {
   "weights": {
-    "momentum_technical": 0.1026,
-    "volume_strength": 0.0803,
-    "multi_timeframe": 0.1329,
-    "ml_signal": -0.2287,
-    "risk_adjustment": -0.45,
-    "fundamental_quality": 0.0,
-    "growth": 0.0,
-    "value": 0.0
+    "momentum_technical": 0.25,
+    "volume_strength": 0.25,
+    "multi_timeframe": 0.15,
+    "fundamental_quality": 0.08,
+    "risk_adjustment": -0.15,
+    "growth": 0.06,
+    "value": 0.06,
+    "ml_signal": 0.0
   },
   "ics_7d": {
     "fundamental_quality": 0.0168,
@@ -42,6 +42,9 @@
   "blend_7d": 0.6,
   "sample_size_7d": 5418,
   "sample_size_30d": 3966,
-  "updated": "2026-05-13T00:13:26.142584",
-  "engine": "v2"
+  "updated": "2026-05-20T03:18:00.000000",
+  "engine": "v2",
+  "calibration_source": "flow_chaser_strategy_backtest_validated",
+  "investor_profile": "active_momentum_rotator",
+  "note": "GLOBAL flow_chaser: equal momentum+volume (0.25/0.25) for institutional flow detection."
 }

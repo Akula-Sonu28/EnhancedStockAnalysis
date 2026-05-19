@@ -24,64 +24,8 @@
     "last_updated": "2025-10-16 10:52:54",
     "peak_price": 837.8,
     "peak_updated": "2026-05-15 10:20:16",
-    "peak_v2": 46.9,
-    "peak_v2_updated": "2026-05-13 02:50:22"
-  },
-  "BANKINDIA": {
-    "original_qty": 180,
-    "current_qty": 146,
-    "original_price": 126.04,
-    "avg_cost": 111.89,
-    "total_booked_qty": 34,
-    "total_booked_pct": 18.88888888888889,
-    "booking_sessions": [
-      {
-        "date": "2025-10-06",
-        "qty_booked": 17,
-        "qty_remaining": 163,
-        "pct_booked": 9.44
-      },
-      {
-        "date": "2025-10-16 10:17:31",
-        "qty_booked": 17,
-        "qty_remaining": 146,
-        "pct_booked": 9.444444444444445
-      }
-    ],
-    "first_tracked": "2025-10-06 20:55:51",
-    "last_updated": "2025-10-16 10:52:54",
-    "peak_price": 143.75,
-    "peak_updated": "2026-05-14 14:38:15",
-    "peak_v2": 49.3,
-    "peak_v2_updated": "2026-05-13 02:50:21"
-  },
-  "BANKBARODA": {
-    "original_qty": 100,
-    "current_qty": 80,
-    "original_price": 266.6,
-    "avg_cost": 232.4,
-    "total_booked_qty": 20,
-    "total_booked_pct": 20.0,
-    "booking_sessions": [
-      {
-        "date": "2025-10-06",
-        "qty_booked": 10,
-        "qty_remaining": 90,
-        "pct_booked": 10.0
-      },
-      {
-        "date": "2025-10-16 10:17:31",
-        "qty_booked": 10,
-        "qty_remaining": 80,
-        "pct_booked": 10.0
-      }
-    ],
-    "first_tracked": "2025-10-06 20:55:51",
-    "last_updated": "2025-10-16 10:52:54",
-    "peak_price": 268.75,
-    "peak_updated": "2026-05-14 14:38:14",
-    "peak_v2": 47.7,
-    "peak_v2_updated": "2026-05-13 02:39:20"
+    "peak_v2": 45.1,
+    "peak_v2_updated": "2026-05-20 03:29:03"
   },
   "UNIONBANK": {
     "original_qty": 255,
@@ -102,61 +46,91 @@
     "last_updated": "2026-04-22 12:21:40",
     "peak_price": 164.9,
     "peak_updated": "2026-05-15 01:44:16",
-    "peak_v2": 47.1,
-    "peak_v2_updated": "2026-05-13 02:50:23"
+    "peak_v2": 42.8,
+    "peak_v2_updated": "2026-05-20 03:29:04"
   },
   "BAJAJHLDNG": {
     "peak_price": 10409.0,
     "peak_updated": "2026-05-15 10:20:16",
-    "peak_v2": 51.6,
-    "peak_v2_updated": "2026-05-13 02:50:21"
-  },
-  "GICRE": {
-    "peak_price": 385.15,
-    "peak_updated": "2026-05-13 11:50:34",
-    "peak_v2": 38.8,
-    "peak_v2_updated": "2026-05-13 02:50:22"
+    "peak_v2": 48.0,
+    "peak_v2_updated": "2026-05-20 03:29:03"
   },
   "NMDC": {
     "peak_price": 93.65,
     "peak_updated": "2026-05-14 14:38:17",
-    "peak_v2": 45.7,
-    "peak_v2_updated": "2026-05-15 01:44:16"
-  },
-  "SBIN": {
-    "peak_price": 982.3,
-    "peak_updated": "2026-05-14 14:38:17",
-    "peak_v2": 55.9,
-    "peak_v2_updated": "2026-05-13 02:39:21"
+    "peak_v2": 48.3,
+    "peak_v2_updated": "2026-05-20 03:29:04"
   },
   "UCOBANK": {
     "peak_price": 25.62,
     "peak_updated": "2026-05-13 11:50:36",
-    "peak_v2": 48.0,
-    "peak_v2_updated": "2026-05-13 02:50:23"
+    "peak_v2": 42.0,
+    "peak_v2_updated": "2026-05-20 03:29:04"
   },
   "ICICIGI": {
     "peak_price": 1848.9,
     "peak_updated": "2026-05-15 01:44:15",
-    "peak_v2": 37.8,
-    "peak_v2_updated": "2026-05-13 02:50:22"
+    "peak_v2": 43.6,
+    "peak_v2_updated": "2026-05-20 03:29:03"
   },
   "LICI": {
     "peak_price": 809.35,
     "peak_updated": "2026-05-15 10:20:16",
-    "peak_v2": 45.5,
-    "peak_v2_updated": "2026-05-13 02:50:22"
+    "peak_v2": 47.4,
+    "peak_v2_updated": "2026-05-20 03:29:03"
   },
   "GROWW": {
     "peak_price": 190.42,
     "peak_updated": "2026-05-15 10:20:16",
-    "peak_v2": 47.3,
-    "peak_v2_updated": "2026-05-15 10:20:16"
+    "peak_v2": 45.6,
+    "peak_v2_updated": "2026-05-20 03:29:03"
   },
   "SAREGAMA": {
-    "peak_price": 401.2,
-    "peak_updated": "2026-05-15 10:20:16",
-    "peak_v2": 70.5,
-    "peak_v2_updated": "2026-05-15 10:20:16"
+    "peak_price": 415.75,
+    "peak_updated": "2026-05-15 19:30:07",
+    "peak_v2": 62.5,
+    "peak_v2_updated": "2026-05-20 03:29:04"
+  },
+  "ECLERX": {
+    "peak_price": 1595.0,
+    "peak_updated": "2026-05-19 11:27:17",
+    "peak_v2": 53.9,
+    "peak_v2_updated": "2026-05-20 03:29:03"
+  },
+  "PARADEEP": {
+    "peak_price": 124.05,
+    "peak_updated": "2026-05-19 15:34:15",
+    "peak_v2": 46.7,
+    "peak_v2_updated": "2026-05-20 03:29:04"
+  },
+  "PWL": {
+    "peak_price": 114.4,
+    "peak_updated": "2026-05-19 14:48:46",
+    "peak_v2": 53.4,
+    "peak_v2_updated": "2026-05-20 03:29:04"
+  },
+  "ZENSARTECH": {
+    "peak_price": 498.95,
+    "peak_updated": "2026-05-19 11:27:18",
+    "peak_v2": 47.3,
+    "peak_v2_updated": "2026-05-20 03:29:04"
+  },
+  "KAYNES": {
+    "peak_price": 3122.0,
+    "peak_updated": "2026-05-19 11:27:17",
+    "peak_v2": 43.6,
+    "peak_v2_updated": "2026-05-20 03:29:03"
+  },
+  "PCBL": {
+    "peak_price": 275.9,
+    "peak_updated": "2026-05-19 12:00:01",
+    "peak_v2": 37.3,
+    "peak_v2_updated": "2026-05-20 03:29:04"
+  },
+  "PGEL": {
+    "peak_price": 472.0,
+    "peak_updated": "2026-05-19 11:27:17",
+    "peak_v2": 43.2,
+    "peak_v2_updated": "2026-05-20 03:29:04"
   }
 }

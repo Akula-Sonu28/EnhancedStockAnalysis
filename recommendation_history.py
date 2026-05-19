@@ -386,7 +386,7 @@ class RecommendationHistory:
             # the suspicion threshold.
             calib_events = self._v2_calibration_event_dates()
             most_recent_calib = max(calib_events) if calib_events else None
-            CALIB_DELTA_SUSPECT_PP = 15.0  # > 15pp swing across a refresh = artefact
+            CALIB_DELTA_SUSPECT_PP = 10.0  # > 10pp swing across a weight refresh = artefact
 
             improved, deteriorated, new_stocks = [], [], []
             seen = set()
@@ -1113,11 +1113,23 @@ class RecommendationHistory:
                     if _has_v2(rows[i]) != _has_v2(rows[i+1]):
                         continue
                     # [Investor-audit Q123 cont.] v1-driven action artifact?
-                    # When one leg had >=15pt v1-v2 divergence, the action
-                    # was driven by v1 (the now-shadow engine). Real flip-
-                    # flops happen on v2-consistent legs.
                     if _v1_driven_action(rows[i]) or _v1_driven_action(rows[i+1]):
                         continue
+                    # Weight-recalibration artifact? If one leg predates
+                    # the latest calibration event and scores diverge by
+                    # >=10pp, the flip is a weight-change artifact.
+                    _ce = self._v2_calibration_event_dates()
+                    _lc = max(_ce) if _ce else None
+                    if _lc is not None:
+                        _ff_d0 = pd.to_datetime(dates[i], errors='coerce')
+                        if (pd.notna(_ff_d0)
+                                and _ff_d0.replace(tzinfo=None) < _lc.replace(tzinfo=None)):
+                            _ff_s0_raw = pd.to_numeric(rows[i].get('score_v2', 0), errors='coerce')
+                            _ff_s1_raw = pd.to_numeric(rows[i+1].get('score_v2', 0), errors='coerce')
+                            _ff_s0 = 0.0 if pd.isna(_ff_s0_raw) else float(_ff_s0_raw)
+                            _ff_s1 = 0.0 if pd.isna(_ff_s1_raw) else float(_ff_s1_raw)
+                            if abs(_ff_s1 - _ff_s0) >= 10.0:
+                                continue
                     _d0 = pd.to_datetime(dates[i], errors='coerce')
                     _d1 = pd.to_datetime(dates[i+1], errors='coerce')
                     if pd.isna(_d0) or pd.isna(_d1):
