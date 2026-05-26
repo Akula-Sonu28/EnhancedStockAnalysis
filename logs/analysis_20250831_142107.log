@@ -1,9 +1,0 @@
-2025-08-31 14:21:07,535 - INFO - Initializing analysis components...
-2025-08-31 14:21:07,549 - INFO - Database initialized successfully
-2025-08-31 14:21:08,709 - INFO - Found 49 stocks to analyze
-2025-08-31 14:21:08,818 - ERROR - No fundamental data available
-2025-08-31 14:21:15,716 - INFO - Completed analysis for RELIANCE: 39.32 (SELL)
-2025-08-31 14:21:15,833 - ERROR - No fundamental data available
-2025-08-31 14:21:20,430 - INFO - Completed analysis for TCS: 40.21 (HOLD)
-2025-08-31 14:21:20,532 - ERROR - No fundamental data available
-2025-08-31 14:21:21,572 - INFO - Analysis session completed

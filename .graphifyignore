@@ -1,0 +1,39 @@
+# Binary caches and generated artifacts
+backtest/cache/
+backtest/results/
+*.pkl
+*.pyc
+__pycache__/
+.venv/
+venv/
+env/
+
+# Large / generated data
+data/raw/
+data/cache/
+data/snapshots/
+archived/data/
+reports/
+logs/
+Holding/
+orders.csv
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.local
+config.json
+
+# Generated dashboards and backups
+*.xlsx
+*.bak
+backups/
+Portfolio_Allocation_Dashboard.html
+
+# Graphify local-only (per upstream docs)
+graphify-out/manifest.json
+graphify-out/cost.json

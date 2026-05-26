@@ -25,6 +25,10 @@ Reports:
     Per-regime out-of-sample IC (does any regime show real generalisation?).
     Decisive verdict written to data/walkforward_v2_validation.json.
 
+    --mode fixed-turbo-mtf: skip step 1; score each TEST slice with production
+    Turbo MTF weights from config (DUAL_STRATEGY_PROFILES). Writes
+    data/walkforward_v2_validation_fixed_turbo.json.
+
 Exit codes:
     0 - validation complete (regardless of verdict; promotion decision is downstream)
     1 - insufficient data
@@ -47,6 +51,9 @@ sys.path.insert(0, str(REPO_ROOT))
 
 OUTCOMES_PATH = REPO_ROOT / 'data' / 'historical_outcomes.csv'
 RESULT_PATH = REPO_ROOT / 'data' / 'walkforward_v2_validation.json'
+RESULT_PATH_FIXED_TURBO = REPO_ROOT / 'data' / 'walkforward_v2_validation_fixed_turbo.json'
+
+MODES = ('calibrate', 'fixed-turbo-mtf')
 
 # Strict gating thresholds (same as the strict promotion check)
 IC_FLOOR = 0.05
@@ -62,6 +69,8 @@ HYBRID_COLS = (
     'hybrid_multi_timeframe',
     'hybrid_ml_signal',
     'hybrid_risk_adjustment',
+    'hybrid_growth',
+    'hybrid_value',
 )
 WEIGHT_KEY_FROM_COMPONENT = {
     'hybrid_fundamental_quality': 'fundamental_quality',
@@ -70,7 +79,31 @@ WEIGHT_KEY_FROM_COMPONENT = {
     'hybrid_multi_timeframe':     'multi_timeframe',
     'hybrid_ml_signal':           'ml_signal',
     'hybrid_risk_adjustment':     'risk_adjustment',
+    'hybrid_growth':              'growth',
+    'hybrid_value':               'value',
 }
+
+
+def _load_fixed_turbo_weights(weights_path: Path = None) -> dict:
+    """Load production Turbo MTF weights (no per-fold recalibration)."""
+    if weights_path is not None:
+        blob = json.loads(weights_path.read_text())
+        w = blob.get('weights') or blob
+        return {k: float(v) for k, v in w.items()}
+
+    from config import get_config
+    profiles = getattr(get_config(), 'DUAL_STRATEGY_PROFILES', {}) or {}
+    turbo = profiles.get('turbo_mtf') or {}
+    weights = turbo.get('weights')
+    if weights:
+        return {k: float(v) for k, v in weights.items()}
+
+    fallback = REPO_ROOT / 'data' / 'calibrated_weights_v2.json'
+    if fallback.exists():
+        blob = json.loads(fallback.read_text())
+        w = blob.get('weights') or blob
+        return {k: float(v) for k, v in w.items()}
+    return {}
 
 
 def _ic(series_a: pd.Series, series_b: pd.Series) -> tuple:
@@ -137,6 +170,51 @@ def _synthesise_v2_score(test_df: pd.DataFrame, weights: dict) -> pd.Series:
     return score_v2.where(has_any, other=float('nan'))
 
 
+def _evaluate_split_fixed(test: pd.DataFrame, weights: dict, label: str,
+                          n_train: int = 0) -> dict:
+    """Apply fixed weights to the TEST slice only (no train calibration)."""
+    if not weights:
+        return {
+            'label': label,
+            'status': 'WEIGHTS_MISSING',
+            'n_train': int(n_train),
+            'n_test': int(len(test)),
+        }
+    v2_test = _synthesise_v2_score(test, weights)
+    ret_col = 'return_30d'
+    if ret_col not in test.columns:
+        return {'label': label, 'status': 'NO_RETURN_30D'}
+    ret = pd.to_numeric(test[ret_col], errors='coerce')
+    v1_test = pd.to_numeric(test.get('score'), errors='coerce') if 'score' in test.columns else None
+
+    v2_rho, v2_p, v2_n = _ic(v2_test, ret)
+    v2_q5, v2_q1, v2_spread, _ = _quintile_spread(v2_test, ret)
+
+    if v1_test is not None:
+        v1_rho, v1_p, v1_n = _ic(v1_test, ret)
+        v1_q5, v1_q1, v1_spread, _ = _quintile_spread(v1_test, ret)
+    else:
+        v1_rho = v1_p = v1_n = None
+        v1_q5 = v1_q1 = v1_spread = None
+
+    return {
+        'label': label,
+        'status': 'OK',
+        'n_train': int(n_train),
+        'n_test': int(len(test)),
+        'weights_train': {k: round(float(v), 4) for k, v in weights.items()},
+        'v2': {
+            'ic_30d': v2_rho, 'ic_p': v2_p, 'ic_n': v2_n,
+            'q5': v2_q5, 'q1': v2_q1, 'spread_pp': v2_spread,
+        },
+        'v1': {
+            'ic_30d': v1_rho, 'ic_p': v1_p, 'ic_n': v1_n,
+            'q5': v1_q5, 'q1': v1_q1, 'spread_pp': v1_spread,
+        },
+        'edge_v2_minus_v1': (v2_rho - v1_rho) if (v2_rho is not None and v1_rho is not None) else None,
+    }
+
+
 def _evaluate_split(train: pd.DataFrame, test: pd.DataFrame, label: str) -> dict:
     """Calibrate on train, evaluate v2 forward IC on test. Returns metrics dict."""
     weights = _calibrate_on(train)
@@ -182,9 +260,13 @@ def _evaluate_split(train: pd.DataFrame, test: pd.DataFrame, label: str) -> dict
     }
 
 
-def _per_regime_eval(train: pd.DataFrame, test: pd.DataFrame) -> dict:
-    """Calibrate ONCE on full train; evaluate test per regime."""
-    weights = _calibrate_on(train)
+def _per_regime_eval(train: pd.DataFrame, test: pd.DataFrame,
+                     fixed_weights: dict = None) -> dict:
+    """Evaluate test per regime. Calibrate on train unless fixed_weights supplied."""
+    if fixed_weights is not None:
+        weights = fixed_weights
+    else:
+        weights = _calibrate_on(train)
     if not weights:
         return {}
     out = {}
@@ -265,15 +347,34 @@ def _verdict(primary: dict, folds_summary: dict, regime: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--mode', choices=MODES, default='calibrate',
+        help='calibrate: re-fit weights each train slice (default). '
+             'fixed-turbo-mtf: apply production Turbo MTF weights to each test slice.',
+    )
     parser.add_argument('--train-frac', type=float, default=TRAIN_FRAC_PRIMARY,
                         help=f'Primary train fraction (default {TRAIN_FRAC_PRIMARY})')
     parser.add_argument('--folds', type=int, default=N_FOLDS_DEFAULT,
                         help='Number of expanding-window folds for robustness')
+    parser.add_argument('--weights-file', type=str, default='',
+                        help='Optional JSON weights file (fixed-turbo-mtf mode only)')
     parser.add_argument('--no-write', action='store_true',
-                        help='Print only; do not persist data/walkforward_v2_validation.json')
+                        help='Print only; do not persist JSON results')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format='[wf] %(message)s')
+    fixed_mode = args.mode == 'fixed-turbo-mtf'
+    fixed_weights = None
+    if fixed_mode:
+        wpath = Path(args.weights_file) if args.weights_file else None
+        fixed_weights = _load_fixed_turbo_weights(wpath)
+        if not fixed_weights:
+            print('ERROR: fixed-turbo-mtf mode requires Turbo MTF weights in config or data/calibrated_weights_v2.json')
+            return 2
+        print('Mode: FIXED TURBO MTF (no per-fold recalibration)')
+        print('Weights:', json.dumps({k: round(v, 4) for k, v in fixed_weights.items()}, sort_keys=True))
+    else:
+        print('Mode: CALIBRATE (re-fit weights on each train slice)')
 
     if not OUTCOMES_PATH.exists():
         print(f'ERROR: {OUTCOMES_PATH} missing - run scripts/build_historical_outcomes.py first')
@@ -306,7 +407,10 @@ def main() -> int:
     test = df.iloc[split_idx:].copy()
     print(f'\nPrimary split: train n={len(train)} ({train["date"].min().date()}..{train["date"].max().date()}); '
           f'test n={len(test)} ({test["date"].min().date()}..{test["date"].max().date()})')
-    primary = _evaluate_split(train, test, label='80/20')
+    if fixed_mode:
+        primary = _evaluate_split_fixed(test, fixed_weights, label='80/20', n_train=len(train))
+    else:
+        primary = _evaluate_split(train, test, label='80/20')
 
     # === Expanding-window folds ===
     print(f'\nRunning {args.folds}-fold expanding-window validation...')
@@ -319,7 +423,10 @@ def main() -> int:
         te = df.iloc[train_end:test_end].copy()
         if len(tr) < 100 or len(te) < 50:
             continue
-        m = _evaluate_split(tr, te, label=f'fold_{f+1}')
+        if fixed_mode:
+            m = _evaluate_split_fixed(te, fixed_weights, label=f'fold_{f+1}', n_train=len(tr))
+        else:
+            m = _evaluate_split(tr, te, label=f'fold_{f+1}')
         folds.append(m)
         ic = (m.get('v2') or {}).get('ic_30d')
         print(f'  fold {f+1}: n_train={len(tr)} n_test={len(te)} v2_IC_30d={ic}')
@@ -336,7 +443,7 @@ def main() -> int:
 
     # === Per-regime on primary split ===
     print('\nPer-regime out-of-sample IC (primary split):')
-    regime = _per_regime_eval(train, test)
+    regime = _per_regime_eval(train, test, fixed_weights=fixed_weights if fixed_mode else None)
     for rg, blob in regime.items():
         if blob.get('status') == 'OK':
             print(f'  {rg}: n={blob["n"]}, IC={blob.get("ic_30d")}, '
@@ -348,6 +455,7 @@ def main() -> int:
 
     out = {
         'updated': datetime.now().isoformat(),
+        'mode': args.mode,
         'eligible_rows': int(len(df)),
         'date_span': {
             'first': df['date'].min().strftime('%Y-%m-%d'),
@@ -359,6 +467,8 @@ def main() -> int:
         'per_regime': regime,
         'verdict': verdict,
     }
+    if fixed_mode:
+        out['fixed_weights'] = {k: round(float(v), 4) for k, v in fixed_weights.items()}
 
     print('\n' + '=' * 70)
     print('PRIMARY 80/20 OUT-OF-SAMPLE VERDICT')
@@ -389,9 +499,10 @@ def main() -> int:
     print(f"  next_action: {verdict['next_action']}")
 
     if not args.no_write:
-        RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        RESULT_PATH.write_text(json.dumps(out, indent=2, default=str))
-        print(f'\nWrote {RESULT_PATH}')
+        dest = RESULT_PATH_FIXED_TURBO if fixed_mode else RESULT_PATH
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(json.dumps(out, indent=2, default=str))
+        print(f'\nWrote {dest}')
 
     return 0
 

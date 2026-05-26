@@ -232,26 +232,29 @@ class HoldingsOrdersMerger:
                         new_row_df = pd.DataFrame([new_holding])
                         updated_holdings = pd.concat([updated_holdings, new_row_df], ignore_index=True)
                         logger.info(f"Added BUY order: {symbol} - {qty} shares at Rs.{price}")
-                    else:
-                        # Update existing holding (increase quantity)
+                    elif not sells_already_processed:
+                        # Holdings snapshot is pre-trade — increase existing position
                         idx = updated_holdings[updated_holdings['Instrument'] == symbol].index[0]
                         current_qty = updated_holdings.loc[idx, 'Qty.']
                         current_avg_cost = updated_holdings.loc[idx, 'Avg. cost']
                         current_invested = updated_holdings.loc[idx, 'Invested']
-                        
+
                         new_price = float(order.get('Avg. price', current_avg_cost))
                         new_invested = qty * new_price
-                        
-                        # Calculate new average cost
+
                         total_invested = current_invested + new_invested
                         total_qty = current_qty + qty
                         new_avg_cost = total_invested / total_qty if total_qty > 0 else current_avg_cost
-                        
-                        # Update holdings
+
                         updated_holdings.loc[idx, 'Qty.'] = total_qty
                         updated_holdings.loc[idx, 'Avg. cost'] = new_avg_cost
                         updated_holdings.loc[idx, 'Invested'] = total_invested
                         logger.info(f"Updated BUY order: {symbol} - added {qty} shares, new total: {total_qty}")
+                    else:
+                        logger.info(
+                            f"Skipped BUY order: {symbol} - already in current holdings "
+                            f"(broker CSV is post-trade)"
+                        )
                 
                 # Process SELL orders - Only if not already processed
                 elif order_type == 'SELL' and not sells_already_processed:

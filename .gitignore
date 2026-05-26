@@ -14,6 +14,9 @@ models/*.h5
 
 # Generated log files
 data/top200_analysis_*.log
+data/nifty200_analysis_*.log
+data/ml_training_*.log
+data/analysis.log
 data/*.log
 logs/
 *.log
@@ -32,6 +35,30 @@ data/*.pkl
 data/*.db
 data/recommendation_history.csv
 data/recommendation_history_backup.csv
+data/booking_history.json
+
+# Backtest / walk-forward / audit artifacts (regenerate locally)
+data/*_backtest.json
+data/monthly_vs_weekly_rebalance.json
+data/mtf_momentum_backtest.json
+data/turbo_mtf_cadence_comparison*.json
+scripts/test_installed_skills.py
+scripts/hooks/
+data/*_results.json
+data/*_comparison*.json
+data/walkforward_v2_validation*.json
+data/post_analysis_audit_latest.md
+data/installed_skills_test_latest.md
+data/v2_promotion_status.json
+data/backtest_result_*.xlsx
+data/calibration_grid_search_results.json
+data/regime_ic_diagnostic.json
+data/system_health_check_*.json
+data/six_month_return_check.json
+data/strategy_explorer_results.json
+data/weight_comparison_backtest*.json
+data/random_universe_backtest.json
+data/top_n_picks_backtest.json
 
 # Runtime cache and snapshots
 data/cache/
@@ -77,6 +104,37 @@ backups/
 
 # Temporary files
 stock_list_template1.csv
+stock_list_template500.csv.bak.*
+orders.csv
+
+# Local holdings / broker exports (use data/zerodha/ or Holding/ locally)
+Holding/
+
+# Agent bundles / IDE noise (not app source)
+.agents/
+.claude/
+.cursor/skills-external/
+.cursor/hooks/
+skills-lock.json
+
+# Installed optional Cursor skills (keep repo-specific skills tracked)
+.cursor/skills/ab-test-setup/
+.cursor/skills/alpha-backtest/
+.cursor/skills/alpha-evaluate/
+.cursor/skills/alpha-monitor/
+.cursor/skills/backtesting-frameworks/
+.cursor/skills/data-scientist/
+.cursor/skills/debugging-strategies/
+.cursor/skills/frontend-design/
+.cursor/skills/portfolio-analytics/
+.cursor/skills/position-sizing/
+.cursor/skills/python-testing-patterns/
+.cursor/skills/regime-detection/
+.cursor/skills/risk-management/
+.cursor/skills/trade-journal/
+.cursor/skills/walk-forward-validation/
+.cursor/skills/xlsx-official/
+.cursor/skills/external-skills-README.md
 
 # Virtual environments  
 venv/
