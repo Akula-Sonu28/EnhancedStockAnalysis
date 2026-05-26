@@ -18,7 +18,7 @@ The following workspace rules are loaded for every interaction (see
   investor-safety guardrails, known bug patterns, post-change
   testing protocol).
 
-## On-demand domain skill
+## On-demand domain skills
 
 `.cursor/skills/stock-analysis-system/SKILL.md` (with the deeper
 `reference.md`) is the single source of truth for the project
@@ -26,6 +26,18 @@ architecture: the v1 + v2 scoring engines, config thresholds,
 recommendation lifecycle, hard-stop tier table, regression suite
 map, and v2 promotion state machine. Read it before any change to
 scoring, allocation, exits, history schema, or report contracts.
+
+`.cursor/skills/frontend-design/SKILL.md` governs HTML/UI work:
+distinctive production-grade interfaces (no generic AI aesthetics).
+Before restyling `Portfolio_Allocation_Dashboard.html` or
+`portfolio_guide.html`, open `frontend/design-playbook.html` and
+reuse its **Tape & Ledger** tokens (`--tape-*` CSS variables).
+Presentation only — data contracts remain in `stock-analysis-system`.
+
+`.cursor/skills/post-analysis-audit/SKILL.md` — after each
+`analyze_top200_stocks_enhanced.py` run, the user may type **`ANALYSE`**
+to run `scripts/post_analysis_audit.py` and get a PASS/WARN/FAIL report
+(Excel contracts, log, history, IC telemetry, dual-strategy hints).
 
 ## Behavioural rules
 
@@ -51,7 +63,7 @@ report:
 
 ```bash
 python3 -c "import ast; ast.parse(open('FILE').read())"   # syntax
-python3 tests/test_v2_regression.py                        # 192 suites
+python3 tests/test_v2_regression.py                        # 222 suites
 python3 tests/test_regression_fixes.py                     # broader regression
 python3 -m pytest backtest/tests/ -v                       # backtest layer
 ```
@@ -63,45 +75,4 @@ with: Context, Findings (one bullet per fix with severity),
 Files touched, Tests, and any Open / deferred items.
 Investor-audit rounds are numbered (`Round N`) and each finding gets
 a stable ID (`F-NEW-N`) so prior rounds can be cross-referenced.
-
-## Cursorflow tooling (additive, project-specific rules above always win)
-
-This workspace also has cursorflow registered as an MCP server
-(`.cursor/mcp.json`) and as a set of generic role skills
-(`.cursor/skills/cursorflow-*.md`). Use it only as a coordination /
-memory layer — it does NOT replace any rule above.
-
-### When to reach for cursorflow tools
-
-- Before re-deriving a known fix or threshold, run `memory_search`
-  in namespaces `patterns`, `edits`, or `decisions` to see if a prior
-  session already solved it.
-- After a non-trivial fix lands and tests pass, `memory_store` a
-  pattern record in the `patterns` namespace (e.g. key
-  `pattern-v2-weight-cap-2026-05`, value = one-line lesson).
-- For multi-step changes that span scoring + history + report, use
-  `swarm_init` then `agent_spawn` to coordinate, and
-  `task_create` / `task_complete` to track sub-steps.
-- For long debug sessions, `session_*` tools persist context so a
-  `LOAD MEMORY` / `SUMMARIZE SESSION` cycle survives chat resets.
-
-### Generic cursorflow role skills
-
-`.cursor/skills/cursorflow-{architect,coder,tester,reviewer,researcher}.md`
-are generic role hints. The project-specific
-`.cursor/skills/stock-analysis-system/SKILL.md` is the source of
-truth for this codebase and overrides them on any conflict.
-
-### Hooks
-
-`.cursor/hooks.json` runs `memory_search` before `python3` / `pytest`
-shell commands and stores an edit trail after every file edit. Both
-hooks are `optional: true` and fail open — they never block work.
-Tighten the matcher there if they get noisy.
-
-### Local installation note
-
-`@cursorflow/cli` is not on npm; the MCP and hook commands reference
-the local checkout at `/Users/akulakavyashree/cursorflow/packages/cli`.
-If that path moves, update `.cursor/mcp.json` and `.cursor/hooks.json`.
 

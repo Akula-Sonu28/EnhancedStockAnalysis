@@ -24,6 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from backtest.cooldown import resolve_policy
 from backtest.engine import BacktestEngine, EngineConfig
 from backtest.data.path1_loader import Path1Loader
 from backtest.data.prices import PriceCache
@@ -76,18 +77,7 @@ def run_path1(args) -> int:
     print(f'Path 1: engine={args.engine}, dense window {dense_start} -> {dense_end}')
     print(f'        running {start} -> {end}, {len(snapshots)} decision dates')
 
-    cfg = EngineConfig(
-        initial_capital=args.capital,
-        target_positions=args.top_n,
-        max_positions=max(args.top_n + 5, args.top_n),
-        sector_cap_pct=args.sector_cap,
-        rebalance=args.rebalance,
-        min_universe=args.min_universe,
-        allow_rotation=not args.no_rotation,
-        benchmark_symbol=args.benchmark,
-        selection_mode=args.selection,
-        min_entry_score=args.min_entry_score,
-    )
+    cfg = _engine_config_from_args(args)
 
     engine = BacktestEngine(engine_label=args.engine, cfg=cfg)
     result = engine.run(snapshots)
@@ -142,18 +132,7 @@ def run_path2(args) -> int:
     print(f'Path 2: engine={args.engine}, trailing {months_back}m window '
           f'{start} -> {end}, {len(snapshots)} decision dates')
 
-    cfg = EngineConfig(
-        initial_capital=args.capital,
-        target_positions=args.top_n,
-        max_positions=max(args.top_n + 5, args.top_n),
-        sector_cap_pct=args.sector_cap,
-        rebalance=args.rebalance,
-        min_universe=args.min_universe,
-        allow_rotation=not args.no_rotation,
-        benchmark_symbol=args.benchmark,
-        selection_mode=args.selection,
-        min_entry_score=args.min_entry_score,
-    )
+    cfg = _engine_config_from_args(args)
     engine = BacktestEngine(engine_label=args.engine, cfg=cfg)
     result = engine.run(snapshots)
     out_dir = write_result(result, mode='path2', extra_meta={'cli_args': vars(args)})
@@ -192,18 +171,7 @@ def run_compare(args) -> int:
         if not snaps:
             print(f'ERROR: no snapshots for {engine}')
             return 2
-        cfg = EngineConfig(
-            initial_capital=args.capital,
-            target_positions=args.top_n,
-            max_positions=max(args.top_n + 5, args.top_n),
-            sector_cap_pct=args.sector_cap,
-            rebalance=args.rebalance,
-            min_universe=args.min_universe,
-            allow_rotation=not args.no_rotation,
-            benchmark_symbol=args.benchmark,
-            selection_mode=args.selection,
-            min_entry_score=args.min_entry_score,
-        )
+        cfg = _engine_config_from_args(args)
         eng = BacktestEngine(engine_label=engine, cfg=cfg)
         res = eng.run(snaps)
         out_dir = write_result(res, mode='path1',
@@ -222,6 +190,23 @@ def run_compare(args) -> int:
     print(f'  edge:     Rs {diff:>+12,.0f}  '
           f'({v2_res.summary["total_return_pct"] - v1_res.summary["total_return_pct"]:+.2f}pp)')
     return 0
+
+
+def _engine_config_from_args(args) -> EngineConfig:
+    cd = resolve_policy(getattr(args, 'cooldown', 'off'))
+    return EngineConfig(
+        initial_capital=args.capital,
+        target_positions=args.top_n,
+        max_positions=max(args.top_n + 5, args.top_n),
+        sector_cap_pct=args.sector_cap,
+        rebalance=args.rebalance,
+        min_universe=args.min_universe,
+        allow_rotation=not args.no_rotation,
+        benchmark_symbol=args.benchmark,
+        selection_mode=args.selection,
+        min_entry_score=args.min_entry_score,
+        cooldown_policy=cd,
+    )
 
 
 def _add_common(p: argparse.ArgumentParser) -> None:
@@ -248,6 +233,9 @@ def _add_common(p: argparse.ArgumentParser) -> None:
                    default=None)
     p.add_argument('--end', type=lambda s: datetime.strptime(s, '%Y-%m-%d').date(),
                    default=None)
+    p.add_argument('--cooldown', default='off',
+                   help='Recent-buy cooldown policy (off, prod_5d, profit_5pct_5d, …); '
+                        'run scripts/backtest_cooldown_comparison.py for grid')
 
 
 def main(argv: list[str] | None = None) -> int:

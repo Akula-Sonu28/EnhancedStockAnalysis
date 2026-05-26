@@ -605,7 +605,7 @@ class TestF07Ordering(unittest.TestCase):
         import analyze_top200_stocks_enhanced as mod
         src = open(mod.__file__).read()
         init_pos = src.index("action_recommendation'] = allocation_df['action_type']")
-        filter_pos = src.index("SKIP - DATA ISSUE")
+        filter_pos = src.index("F-07 FIX: Block BUY/INCREASE for stocks flagged")
         self.assertGreater(filter_pos, init_pos,
                            "F-07 filter must come AFTER action_recommendation initialization")
 
@@ -663,9 +663,10 @@ class TestNormalizeActionAnnotations(unittest.TestCase):
         from recommendation_history import _normalize_action
         self.assertEqual(_normalize_action('STRONG BUY'), 'STRONG BUY')
 
-    def test_emergency_exit_returns_sell(self):
+    def test_emergency_exit_returns_exit(self):
+        """EXIT keyword is checked before EMERGENCY in _normalize_action."""
         from recommendation_history import _normalize_action
-        self.assertEqual(_normalize_action('EMERGENCY EXIT'), 'SELL')
+        self.assertEqual(_normalize_action('EMERGENCY EXIT'), 'EXIT')
 
     def test_consider_selling_returns_weak_sell(self):
         from recommendation_history import _normalize_action
@@ -878,14 +879,15 @@ class TestRV01HistoryInitOrdering(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestRV02RecHistoryRecordsFinalAction(unittest.TestCase):
-    """RV-02: record_recommendation must use action_recommendation, not action_type."""
+    """RV-02 / Q130: record_recommendation must use final action after cooldown override."""
 
-    def test_uses_action_recommendation(self):
+    def test_uses_action_to_record_from_recommendation(self):
         src = open('analyze_top200_stocks_enhanced.py').read()
+        self.assertIn("_action_to_record = row.get('action_recommendation'", src,
+                      "Q130: _action_to_record must be seeded from action_recommendation")
         idx = src.index('self.recommendation_history.record_recommendation(')
-        block = src[idx:idx+300]
-        self.assertIn("action_recommendation", block,
-                      "record_recommendation must use action_recommendation (final action)")
+        block = src[idx:idx + 200]
+        self.assertIn('action=_action_to_record', block)
         self.assertNotIn("action=row['action_type']", block,
                          "Must NOT use raw action_type for history recording")
 
@@ -1106,11 +1108,11 @@ class TestH05_CooldownSellFamily(unittest.TestCase):
         src = open('recommendation_history.py').read()
         cooldown_section = src[src.find('check_cooldown_period'):src.find('check_cooldown_period') + 1500]
         self.assertIn('WEAK SELL', cooldown_section,
-                       "Cooldown must cover WEAK SELL")
+                       "Cooldown sell-side norm must include WEAK SELL (covers CONSIDER SELLING via normalize)")
         self.assertIn('REDUCE', cooldown_section,
                        "Cooldown must cover REDUCE")
-        self.assertIn('CONSIDER SELLING', cooldown_section,
-                       "Cooldown must cover CONSIDER SELLING")
+        self.assertIn('_normalize_action(proposed_action)', cooldown_section,
+                       "CONSIDER SELLING maps to WEAK SELL through _normalize_action")
 
 
 class TestH09_ConfidenceBandsRegimeAware(unittest.TestCase):

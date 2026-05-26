@@ -19,5 +19,6 @@ scikit-learn>=0.24.0
 filelock>=3.0.0
 xlsxwriter>=3.0.0
 growwapi>=0.1.0
+kiteconnect>=5.0.0
 python-dotenv>=1.0.0
 # sqlite3 is part of Python's standard library

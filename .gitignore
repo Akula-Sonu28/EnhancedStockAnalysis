@@ -36,6 +36,10 @@ data/recommendation_history_backup.csv
 # Runtime cache and snapshots
 data/cache/
 data/snapshots/
+backtest/cache/
+graphify-out/
+data/turbo_mtf_cadence_trades/
+data/cooldown_policy_comparison*.json
 data/last_known_regime.json
 data/*.lock
 *.lock
@@ -83,6 +87,9 @@ env/
 # Secrets (Groww API credentials, etc.)
 .env
 .env.local
+
+# Zerodha Kite exports (profile, margins — sensitive)
+data/zerodha/
 
 # IDE files
 .idea/

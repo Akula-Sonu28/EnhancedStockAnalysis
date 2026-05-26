@@ -44,6 +44,12 @@ import requests
 import pickle
 from pathlib import Path
 import sqlite3
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parent / '.env')
+except ImportError:
+    pass
 import hashlib
 import shutil
 try:
@@ -269,9 +275,61 @@ class StockDataBundle:
 
 class EnhancedTop200StockAnalyzer:
     """Enhanced comprehensive analyzer for top 200 NSE stocks with undervaluation detection"""
+
+    _dry_run_mode = False
+    _MTF_TIMEFRAMES = {
+        'daily': {'period': '3mo', 'interval': '1d', 'weight': 0.5},
+        'weekly': {'period': '1y', 'interval': '1wk', 'weight': 0.3},
+        'monthly': {'period': '2y', 'interval': '1mo', 'weight': 0.2},
+    }
+    _MTF_YF_LOCK = threading.Lock()
+    _MTF_YF_LAST_CALL = 0.0
+
+    @classmethod
+    def _is_yfinance_rate_limit(cls, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return 'too many requests' in msg or '429' in msg or 'rate limit' in msg
+
+    @classmethod
+    def _wait_mtf_yfinance_slot(cls) -> None:
+        delay = float(getattr(_config, 'MTF_YFINANCE_DELAY_SEC', getattr(_config, 'REQUEST_DELAY', 0.5)))
+        with cls._MTF_YF_LOCK:
+            now = time.time()
+            wait = delay - (now - cls._MTF_YF_LAST_CALL)
+            if wait > 0:
+                time.sleep(wait)
+            cls._MTF_YF_LAST_CALL = time.time()
+
+    @classmethod
+    def _fetch_mtf_yfinance_history(cls, ticker, period: str, interval: str):
+        """Throttled yfinance history fetch for MTF weekly/monthly slices."""
+        retries = int(getattr(_config, 'MTF_YFINANCE_RETRY_ATTEMPTS', 3))
+        delay = float(getattr(_config, 'MTF_YFINANCE_DELAY_SEC', getattr(_config, 'REQUEST_DELAY', 0.5)))
+        last_err = None
+        for attempt in range(retries):
+            try:
+                cls._wait_mtf_yfinance_slot()
+                return ticker.history(period=period, interval=interval)
+            except Exception as exc:
+                last_err = exc
+                if cls._is_yfinance_rate_limit(exc) and attempt < retries - 1:
+                    wait = (2 ** attempt) * max(delay, 0.5)
+                    logging.warning(
+                        f"MTF yfinance rate limit (attempt {attempt + 1}/{retries}), "
+                        f"waiting {wait:.1f}s"
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("MTF yfinance history fetch failed without exception")
     
     def __init__(self, max_workers=None, csv_file=None, risk_profile="moderate", 
-                 focus_growth=False, focus_momentum=False, min_volatility=0.0):
+                 focus_growth=False, focus_momentum=False, min_volatility=0.0,
+                 dry_run: bool = False):
+        self.dry_run = bool(dry_run)
+        EnhancedTop200StockAnalyzer._dry_run_mode = self.dry_run
         self.max_workers = max_workers if max_workers is not None else _config.MAX_WORKERS
         # V5.0: corrected/improved engines removed from pipeline (kept on disk for reference)
         self.hybrid_scoring_engine = HybridOptimizedScoringEngine()  # [LATEST] LATEST: V4.0 Multi-market validated
@@ -287,7 +345,7 @@ class EnhancedTop200StockAnalyzer:
         self.crisis_data = None                    # [GAP-18] Detected once in analyze_batch(), read-only in workers
         self.sentiment_analyzer = SentimentAnalyzer()  # [PHASE 2] Phase 2: Sentiment Analysis
         self.volume_analyzer = VolumeAnalyzer()  # [PHASE 2] Phase 2: Volume Profile & Order Flow
-        self.recommendation_history = RecommendationHistory()  # 🔧 FIX: Track recommendation consistency
+        self.recommendation_history = RecommendationHistory(dry_run=self.dry_run)  # 🔧 FIX: Track recommendation consistency
         self.early_breakout_detector = EarlyBreakoutDetector()  # 🚀 NEW: Pre-breakout & exit signals
         
         # 🚀 NEW: Market Regime Adaptive System
@@ -604,6 +662,9 @@ class EnhancedTop200StockAnalyzer:
 
     @classmethod
     def _save_booking_history(cls, data):
+        if cls._dry_run_mode:
+            logging.debug("[dry-run] skip booking_history write")
+            return
         path = cls._booking_history_path()
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1004,6 +1065,119 @@ class EnhancedTop200StockAnalyzer:
         return result
 
     @staticmethod
+    def _primary_action_is_sell_side(action) -> bool:
+        """True when primary action_recommendation is sell-side (AUDIT-003).
+
+        HIGH CONVICTION dual-strategy consensus must exclude symbols whose
+        primary action is an exit, reduce, swap, or scale-out signal.
+        """
+        if action is None:
+            return False
+        raw = str(action).upper()
+        if any(k in raw for k in (
+            'CONSIDER SELL', 'SCALE_OUT', 'SCALE OUT', 'SECTOR OVERWEIGHT',
+            'EMERGENCY', 'STOP LOSS', 'THESIS_BREAK', 'TRAILING_STOP',
+        )):
+            return True
+        from recommendation_history import _normalize_action
+        return _normalize_action(str(action)) in (
+            'SELL', 'WEAK SELL', 'REDUCE', 'SWAP', 'EXIT', 'SCALE_OUT_20',
+        )
+
+    @staticmethod
+    def _gate_action_for_universe(symbol, stock_data, proposed_action, cfg=None):
+        """Block buy-side actions for excluded or illiquid instruments (AUDIT-008)."""
+        try:
+            from config import get_config as _gc
+            from src.universe_filter import is_tradeable
+            cfg = cfg or _gc()
+        except Exception:
+            return proposed_action, ''
+        if not getattr(cfg, 'EXCLUDE_ETFS', True):
+            return proposed_action, ''
+        sym = str(symbol or '').upper().strip()
+        if not sym:
+            return proposed_action, ''
+        sd = stock_data or {}
+        avg_vol = sd.get('avg_volume_10d')
+        if avg_vol is None:
+            avg_vol = sd.get('average_volume') or sd.get('current_volume')
+        price = sd.get('current_price') or sd.get('enhanced_current_price')
+        ok, reason = is_tradeable(
+            sym,
+            avg_volume=avg_vol,
+            current_price=price,
+            min_adv_crores=getattr(cfg, 'MIN_ADV_CRORES', 10.0),
+        )
+        if ok:
+            return proposed_action, ''
+        act_up = str(proposed_action or '').upper()
+        if any(k in act_up for k in ('BUY', 'NEW POSITION', 'INCREASE', 'STRONG BUY', 'MOMENTUM')):
+            return f'HOLD (NOT TRADEABLE: {reason})', reason
+        return proposed_action, reason
+
+    @staticmethod
+    def _apply_universe_filter_to_allocation_df(allocation_df, results_df, cfg=None):
+        """Apply universe filter to allocation action_recommendation column."""
+        if allocation_df is None or allocation_df.empty:
+            return allocation_df
+        if 'action_recommendation' not in allocation_df.columns:
+            return allocation_df
+        for _uf_idx in allocation_df.index:
+            _sym_uf = allocation_df.at[_uf_idx, 'symbol'] if 'symbol' in allocation_df.columns else None
+            if not _sym_uf:
+                continue
+            _src_uf = results_df[results_df['symbol'] == _sym_uf] if results_df is not None else None
+            _sd_uf = _src_uf.iloc[0].to_dict() if _src_uf is not None and not _src_uf.empty else allocation_df.loc[_uf_idx].to_dict()
+            _cur_uf = allocation_df.at[_uf_idx, 'action_recommendation']
+            _new_uf, _reason_uf = EnhancedTop200StockAnalyzer._gate_action_for_universe(
+                _sym_uf, _sd_uf, _cur_uf, cfg)
+            if _new_uf != _cur_uf:
+                allocation_df.at[_uf_idx, 'action_recommendation'] = _new_uf
+                logging.warning(f"[UNIVERSE FILTER] {_sym_uf}: {_cur_uf} -> {_new_uf} ({_reason_uf})")
+        return allocation_df
+
+    @staticmethod
+    def _load_backtest_sheets_for_excel():
+        """Load BT sheets from backtest/results (preferred) or legacy xlsx fallback."""
+        sheets = []
+        results_root = os.path.join('backtest', 'results')
+        if os.path.isdir(results_root):
+            run_dirs = sorted(
+                [d for d in glob.glob(os.path.join(results_root, '*'))
+                 if os.path.isdir(d) and os.path.isfile(os.path.join(d, 'summary.json'))],
+                key=os.path.getmtime,
+                reverse=True,
+            )
+            run_dir = None
+            for suffix in ('path2_v2', 'path1_v2', 'path2_v1', 'path1_v1'):
+                run_dir = next((d for d in run_dirs if suffix in os.path.basename(d)), None)
+                if run_dir:
+                    break
+            if run_dir is None and run_dirs:
+                run_dir = run_dirs[0]
+            if run_dir:
+                with open(os.path.join(run_dir, 'summary.json'), encoding='utf-8') as _sf:
+                    _summary = json.load(_sf)
+                sheets.append(('BT Summary', pd.DataFrame([_summary])))
+                _eq_path = os.path.join(run_dir, 'equity.csv')
+                if os.path.isfile(_eq_path):
+                    sheets.append(('BT Equity Curve', pd.read_csv(_eq_path)))
+                _tr_path = os.path.join(run_dir, 'trades.csv')
+                if os.path.isfile(_tr_path):
+                    sheets.append(('BT Trades', pd.read_csv(_tr_path)))
+                return sheets, os.path.basename(run_dir)
+        _bt_files = sorted(glob.glob('data/backtest_result_*.xlsx'), reverse=True)
+        if _bt_files:
+            _bt_xl = pd.ExcelFile(_bt_files[0])
+            for _bt_sheet in _bt_xl.sheet_names[:3]:
+                _bt_df = pd.read_excel(_bt_xl, sheet_name=_bt_sheet)
+                if not _bt_df.empty:
+                    sheets.append((f'BT {_bt_sheet}'[:31], _bt_df))
+            return sheets, os.path.basename(_bt_files[0])
+        return sheets, None
+
+    @staticmethod
     def _should_rotate(holding_score: float,
                        candidate_score: float,
                        holding_rsi: float = 50.0,
@@ -1151,6 +1325,28 @@ class EnhancedTop200StockAnalyzer:
                 return hashlib.md5(open(p, 'rb').read()).hexdigest()[:8]
         return 'nw'
 
+    @staticmethod
+    def _rescore_with_alternate_weights(allocation_df, weights):
+        """Rescore portfolio stocks with an alternate weight set using deviation-from-50."""
+        COMP_MAP = {
+            'hybrid_fundamental_quality': 'fundamental_quality',
+            'hybrid_momentum_technical': 'momentum_technical',
+            'hybrid_volume_strength': 'volume_strength',
+            'hybrid_multi_timeframe': 'multi_timeframe',
+            'hybrid_ml_signal': 'ml_signal',
+            'hybrid_risk_adjustment': 'risk_adjustment',
+            'hybrid_growth': 'growth',
+            'hybrid_value': 'value',
+        }
+        score = pd.Series(50.0, index=allocation_df.index)
+        for col, wkey in COMP_MAP.items():
+            w = weights.get(wkey, 0.0)
+            if w == 0.0 or col not in allocation_df.columns:
+                continue
+            comp = pd.to_numeric(allocation_df[col], errors='coerce').fillna(50.0)
+            score += (comp - 50.0) * w
+        return score.clip(0, 100)
+
     def get_cache_path(self, symbol: str, analysis_type: str = "comprehensive") -> str:
         """Get cache file path for a symbol and analysis type"""
         fp = getattr(self, '_weight_fp', 'nw')
@@ -1168,6 +1364,89 @@ class EnhancedTop200StockAnalyzer:
         
         return (current_time - cache_time) < expiry_seconds
     
+    def _dry_run_bypass_cache(self, symbol: str) -> bool:
+        """Dry-run previews must recompute held names so action plans are stable.
+
+        Stale comprehensive cache on IGIL/SOLARINDS etc. caused back-to-back
+        dry-runs to diverge (INCREASE vs HOLD, different NEW picks) even when
+        the market was closed.
+        """
+        if not getattr(self, 'dry_run', False):
+            return False
+        sym = str(symbol or '').upper().strip()
+        if not sym:
+            return False
+        held = getattr(self, '_holdings_dict', None) or {}
+        return sym in held
+
+    @staticmethod
+    def _compute_portfolio_price_fields(hist, current_price) -> dict:
+        """Derive 52w high/low, annualized vol, and 20D % change from OHLCV."""
+        cp = _nv(current_price, 0)
+        if hist is None or hist.empty:
+            return {
+                '52_week_high': cp,
+                '52_week_low': cp,
+                'volatility': 0.0,
+                'enhanced_price_change_20d': 0.0,
+                'portfolio_price_fields_valid': False,
+            }
+        high_52 = float(hist['High'].max()) if len(hist) > 0 else cp
+        low_52 = float(hist['Low'].min()) if len(hist) > 0 else cp
+        if len(hist) > 20:
+            returns = hist['Close'].pct_change().dropna()
+            _vol = returns.std() * (252 ** 0.5) * 100
+            volatility = 0.0 if (len(returns) == 0 or np.isnan(_vol)) else float(_vol)
+        else:
+            volatility = 0.0
+        if len(hist) >= 20:
+            price_20d_ago = hist['Close'].iloc[-20]
+            if price_20d_ago and price_20d_ago != 0 and not np.isnan(price_20d_ago):
+                chg_20d = float((cp - price_20d_ago) / price_20d_ago * 100)
+            else:
+                chg_20d = 0.0
+        else:
+            chg_20d = 0.0
+        return {
+            '52_week_high': high_52,
+            '52_week_low': low_52,
+            'volatility': volatility,
+            'enhanced_price_change_20d': chg_20d,
+            'portfolio_price_fields_valid': True,
+        }
+
+    @staticmethod
+    def _cache_portfolio_fields_need_backfill(cached: dict) -> bool:
+        """True when a cache row has not been stamped with valid portfolio price fields."""
+        return cached.get('portfolio_price_fields_valid') is not True
+
+    def _backfill_cache_portfolio_fields(self, symbol: str, cached: dict) -> dict:
+        """Patch missing 52w/vol/20D fields on cache hits without a full rescore."""
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker(f"{symbol}.NS")
+            self._wait_mtf_yfinance_slot()
+            hist = ticker.history(period='1y', interval='1d')
+            if hist.empty or len(hist) < 20:
+                return cached
+            cp_raw = cached.get('current_price')
+            try:
+                current_price = float(cp_raw) if cp_raw not in (None, '', 0) else float(hist['Close'].iloc[-1])
+            except (TypeError, ValueError):
+                current_price = float(hist['Close'].iloc[-1])
+            patched = dict(cached)
+            patched.update(self._compute_portfolio_price_fields(hist, current_price))
+            if patched.get('portfolio_price_fields_valid'):
+                self.save_to_cache(symbol, patched)
+                logging.info(
+                    f"[cache-backfill] {symbol}: patched portfolio price fields "
+                    f"(avoiding full recompute)"
+                )
+            return patched
+        except Exception as exc:
+            logging.warning(f"[cache-backfill] {symbol}: failed ({exc})")
+            return cached
+
     def load_from_cache(self, symbol: str, analysis_type: str = "comprehensive") -> Optional[Dict]:
         """Load analysis data from cache if available and valid"""
         if not self.cache_enabled:
@@ -2071,7 +2350,11 @@ class EnhancedTop200StockAnalyzer:
         try:
             start_time = time.time()
 
-            cached = self.load_from_cache(symbol)
+            if self._dry_run_bypass_cache(symbol):
+                logging.info(f"[dry-run] {symbol}: bypassing cache (current holding)")
+                cached = None
+            else:
+                cached = self.load_from_cache(symbol)
             # [Investor-audit Q14] Force a cache miss when critical price
             # history fields are missing OR pinned to their 0.0 fallback.
             # The exception path in _calculate_support_resistance / the
@@ -2087,18 +2370,16 @@ class EnhancedTop200StockAnalyzer:
             # compatible when fresh analysis succeeds.
             _cached_fallback = None
             if cached is not None:
-                _missing_critical = (
-                    cached.get('enhanced_price_change_20d') is None
-                    or cached.get('enhanced_price_change_20d') == 0.0
-                    or not cached.get('52_week_high')
-                    or not cached.get('volatility')
-                )
-                if _missing_critical:
-                    logging.info(f"[cache-refresh] {symbol}: critical fields missing, forcing recompute")
-                    # Keep the old cache as a graceful fallback if fresh
-                    # analysis fails (e.g. rate-limited).
+                if self._cache_portfolio_fields_need_backfill(cached):
                     _cached_fallback = dict(cached)
-                    cached = None
+                    _patched = self._backfill_cache_portfolio_fields(symbol, dict(cached))
+                    if not self._cache_portfolio_fields_need_backfill(_patched):
+                        cached = _patched
+                    else:
+                        logging.info(
+                            f"[cache-refresh] {symbol}: critical fields missing, forcing recompute"
+                        )
+                        cached = None
             if cached is not None:
                 if cached.get('improved_overall_score', 0) == 0:
                     cached['improved_overall_score'] = cached.get('final_blended_score', cached.get('risk_adjusted_score', 0))
@@ -2353,12 +2634,20 @@ class EnhancedTop200StockAnalyzer:
                     'mtf_signal_quality': mtf_data.get('mtf_signal_quality', 'LOW'),
                     'mtf_timeframe_agreement': mtf_data.get('mtf_timeframe_agreement', 0),
                     'mtf_composite_score': mtf_data.get('mtf_composite_score', 50),
+                    'mtf_timeframe_coverage_pct': mtf_data.get('mtf_timeframe_coverage_pct', 100),
+                    'mtf_missing_timeframes': mtf_data.get('mtf_missing_timeframes', ''),
                     'daily_trend': mtf_data.get('daily_trend', 'NEUTRAL'),
                     'weekly_trend': mtf_data.get('weekly_trend', 'NEUTRAL'),
                     'monthly_trend': mtf_data.get('monthly_trend', 'NEUTRAL')
                 })
-                stock_data['mtf_analysis_status'] = 'success'
-                logging.info(f"Multi-timeframe analysis completed for {symbol}: Trend={mtf_data.get('mtf_trend_signal')}, Agreement={mtf_data.get('mtf_timeframe_agreement'):.1f}%, Score={mtf_data.get('mtf_composite_score')}")
+                stock_data['mtf_analysis_status'] = mtf_data.get('mtf_analysis_status', 'success')
+                logging.info(
+                    f"Multi-timeframe analysis completed for {symbol}: "
+                    f"Trend={mtf_data.get('mtf_trend_signal')}, "
+                    f"Agreement={mtf_data.get('mtf_timeframe_agreement'):.1f}%, "
+                    f"Coverage={mtf_data.get('mtf_timeframe_coverage_pct', 100):.0f}%, "
+                    f"Score={mtf_data.get('mtf_composite_score')}"
+                )
             else:
                 stock_data['mtf_analysis_status'] = 'failed'
                 logging.warning(f"Multi-timeframe analysis failed for {symbol}")
@@ -3165,53 +3454,43 @@ class EnhancedTop200StockAnalyzer:
             # is missing, so a stale-cache row gets backfilled on next run.
             try:
                 _need_hist = (
-                    not stock_data.get('52_week_high')
-                    or stock_data.get('volatility') in (None, 0, 0.0)
-                    or stock_data.get('enhanced_price_change_20d') is None
+                    not stock_data.get('portfolio_price_fields_valid')
+                    and (
+                        stock_data.get('52_week_high') in (None, 0, 0.0)
+                        or stock_data.get('volatility') is None
+                        or stock_data.get('enhanced_price_change_20d') is None
+                    )
                 )
                 if _need_hist:
                     hist = bundle.hist_1y   # A-005: reuse pre-downloaded 1Y slice
-                    info = bundle.info      # A-005: reuse pre-downloaded ticker.info
                     
                     if not hist.empty:
                         current_price = stock_data.get('current_price', hist['Close'].iloc[-1])
-                        
-                        # 52-week high and low
-                        stock_data['52_week_high'] = float(hist['High'].max()) if len(hist) > 0 else current_price
-                        stock_data['52_week_low'] = float(hist['Low'].min()) if len(hist) > 0 else current_price
-                        
-                        # Volatility (annualized percentage)
-                        if len(hist) > 20:
-                            returns = hist['Close'].pct_change().dropna()
-                            _vol = returns.std() * (252 ** 0.5) * 100
-                            stock_data['volatility'] = 0.0 if (len(returns) == 0 or np.isnan(_vol)) else float(_vol)
-                        else:
-                            stock_data['volatility'] = 0.0
-                        
-                        # 20-day price change
-                        if len(hist) >= 20:
-                            price_20d_ago = hist['Close'].iloc[-20]
-                            if price_20d_ago and price_20d_ago != 0 and not np.isnan(price_20d_ago):
-                                stock_data['enhanced_price_change_20d'] = float((current_price - price_20d_ago) / price_20d_ago * 100)
-                            else:
-                                stock_data['enhanced_price_change_20d'] = 0.0
-                        else:
-                            stock_data['enhanced_price_change_20d'] = 0.0
-                        
-                        logging.debug(f"Added portfolio fields for {symbol}: 52W_HIGH={stock_data['52_week_high']:.2f}, VOL={stock_data.get('volatility', 0):.2f}%")
+                        stock_data.update(
+                            self._compute_portfolio_price_fields(hist, current_price)
+                        )
+                        logging.debug(
+                            f"Added portfolio fields for {symbol}: "
+                            f"52W_HIGH={stock_data['52_week_high']:.2f}, "
+                            f"VOL={stock_data.get('volatility', 0):.2f}%"
+                        )
                     else:
-                        # Set defaults if no historical data
-                        stock_data['52_week_high'] = stock_data.get('current_price', 0)
-                        stock_data['52_week_low'] = stock_data.get('current_price', 0)
-                        stock_data['volatility'] = 0.0
-                        stock_data['enhanced_price_change_20d'] = 0.0
+                        stock_data.update({
+                            '52_week_high': stock_data.get('current_price', 0),
+                            '52_week_low': stock_data.get('current_price', 0),
+                            'volatility': 0.0,
+                            'enhanced_price_change_20d': 0.0,
+                            'portfolio_price_fields_valid': False,
+                        })
             except Exception as e:
                 logging.warning(f"Failed to fetch portfolio enhancement fields for {symbol}: {e}")
-                # Set defaults on error
-                stock_data['52_week_high'] = stock_data.get('current_price', 0)
-                stock_data['52_week_low'] = stock_data.get('current_price', 0)
-                stock_data['volatility'] = 0.0
-                stock_data['enhanced_price_change_20d'] = 0.0
+                stock_data.update({
+                    '52_week_high': stock_data.get('current_price', 0),
+                    '52_week_low': stock_data.get('current_price', 0),
+                    'volatility': 0.0,
+                    'enhanced_price_change_20d': 0.0,
+                    'portfolio_price_fields_valid': False,
+                })
             
             # Map real_rsi to enhanced_rsi_14 if not already set (for Portfolio Allocation sheet compatibility)
             if 'enhanced_rsi_14' not in stock_data or not stock_data.get('enhanced_rsi_14'):
@@ -3650,6 +3929,13 @@ class EnhancedTop200StockAnalyzer:
                 stock_data['pre_safety_recommendation'] = stock_data.get('pre_safety_recommendation', _original_rec)
                 stock_data['final_recommendation'] = f'HOLD (CORPORATE ACTION REVIEW — was {_original_rec})'
                 logging.warning(f"{symbol}: {_original_rec} downgraded to HOLD due to possible corporate action")
+
+            _uf_rec, _uf_reason = EnhancedTop200StockAnalyzer._gate_action_for_universe(
+                symbol, stock_data, stock_data.get('final_recommendation', phase2_recommendation), _config)
+            if _uf_rec != stock_data.get('final_recommendation'):
+                stock_data['final_recommendation'] = _uf_rec
+                stock_data['phase2_recommendation'] = _uf_rec
+                logging.warning(f"[UNIVERSE FILTER] {symbol}: gated — {_uf_reason}")
 
             # Score comparison (legacy fields zeroed for backward compat)
             stock_data['score_adjustment'] = 0
@@ -4548,63 +4834,87 @@ class EnhancedTop200StockAnalyzer:
             import yfinance as yf
 
             ticker = yf.Ticker(f"{symbol}.NS")
-            timeframes = {
-                'daily': {'period': '3mo', 'interval': '1d', 'weight': 0.5},
-                'weekly': {'period': '1y', 'interval': '1wk', 'weight': 0.3},
-                'monthly': {'period': '2y', 'interval': '1mo', 'weight': 0.2}
-            }
+            timeframes = self._MTF_TIMEFRAMES
 
             mtf_analysis = {}
             trend_signals = []
             momentum_signals = []
             volume_signals = []
+            missing_timeframes = []
+            coverage_weight = 0.0
+            total_weight = sum(tf['weight'] for tf in timeframes.values())
 
             for tf_name, tf_config in timeframes.items():
                 try:
-                    # A-005: use pre-downloaded daily slice if provided; download others fresh
-                    if tf_name == 'daily' and hist_daily is not None:
+                    if tf_name == 'daily' and hist_daily is not None and not hist_daily.empty:
                         hist = hist_daily
+                    elif tf_name == 'daily':
+                        hist = self._fetch_mtf_yfinance_history(
+                            ticker, tf_config['period'], tf_config['interval']
+                        )
                     else:
-                        hist = ticker.history(period=tf_config['period'], interval=tf_config['interval'])
-                    
+                        hist = self._fetch_mtf_yfinance_history(
+                            ticker, tf_config['period'], tf_config['interval']
+                        )
+
                     if hist.empty or len(hist) < 20:
+                        missing_timeframes.append(tf_name)
                         continue
-                    
-                    # Calculate timeframe-specific indicators
+
                     tf_data = self._calculate_timeframe_indicators(hist, tf_name)
                     mtf_analysis[tf_name] = tf_data
-                    
-                    # Collect signals for cross-timeframe analysis
+                    coverage_weight += tf_config['weight']
+
                     trend_signals.append({
                         'timeframe': tf_name,
                         'signal': tf_data.get('trend_signal', 'NEUTRAL'),
                         'strength': tf_data.get('trend_strength', 0),
                         'weight': tf_config['weight']
                     })
-                    
+
                     momentum_signals.append({
                         'timeframe': tf_name,
                         'signal': tf_data.get('momentum_signal', 'NEUTRAL'),
                         'strength': tf_data.get('momentum_strength', 0),
                         'weight': tf_config['weight']
                     })
-                    
+
                     volume_signals.append({
                         'timeframe': tf_name,
                         'signal': tf_data.get('volume_signal', 'NEUTRAL'),
                         'weight': tf_config['weight']
                     })
-                    
+
                 except Exception as e:
+                    missing_timeframes.append(tf_name)
                     logging.warning(f"Multi-timeframe analysis failed for {symbol} {tf_name}: {e}")
                     continue
-            
-            # Cross-timeframe signal validation
-            mtf_results = self._analyze_cross_timeframe_signals(trend_signals, momentum_signals, volume_signals)
-            
-            # Calculate multi-timeframe score
+
+            if not trend_signals:
+                return self._get_fallback_mtf_analysis()
+
+            timeframe_coverage = coverage_weight / total_weight if total_weight > 0 else 0.0
+            mtf_results = self._analyze_cross_timeframe_signals(
+                trend_signals, momentum_signals, volume_signals,
+                timeframe_coverage=timeframe_coverage,
+                missing_timeframes=missing_timeframes,
+            )
             mtf_score = self._calculate_multi_timeframe_score(mtf_analysis, mtf_results)
-            
+
+            if timeframe_coverage >= 1.0:
+                mtf_status = 'success'
+            elif timeframe_coverage > 0:
+                mtf_status = 'partial'
+            else:
+                mtf_status = 'failed'
+
+            if missing_timeframes:
+                logging.info(
+                    f"[mtf-partial] {symbol}: coverage={timeframe_coverage * 100:.0f}% "
+                    f"missing={','.join(missing_timeframes)} "
+                    f"agreement={mtf_results.get('timeframe_agreement', 0):.1f}%"
+                )
+
             return {
                 'mtf_trend_signal': mtf_results.get('consensus_trend', 'NEUTRAL'),
                 'mtf_momentum_signal': mtf_results.get('consensus_momentum', 'NEUTRAL'),
@@ -4614,11 +4924,14 @@ class EnhancedTop200StockAnalyzer:
                 'mtf_signal_quality': mtf_results.get('signal_quality', 'LOW'),
                 'mtf_timeframe_agreement': mtf_results.get('timeframe_agreement', 0),
                 'mtf_composite_score': mtf_score,
+                'mtf_timeframe_coverage_pct': round(timeframe_coverage * 100, 1),
+                'mtf_missing_timeframes': ','.join(missing_timeframes),
+                'mtf_analysis_status': mtf_status,
                 'daily_trend': mtf_analysis.get('daily', {}).get('trend_signal', 'NEUTRAL'),
                 'weekly_trend': mtf_analysis.get('weekly', {}).get('trend_signal', 'NEUTRAL'),
                 'monthly_trend': mtf_analysis.get('monthly', {}).get('trend_signal', 'NEUTRAL')
             }
-            
+
         except Exception as e:
             logging.warning(f"Multi-timeframe analysis failed for {symbol}: {e}")
             return self._get_fallback_mtf_analysis()
@@ -4712,9 +5025,17 @@ class EnhancedTop200StockAnalyzer:
                 'volume_signal': 'NEUTRAL'
             }
     
-    def _analyze_cross_timeframe_signals(self, trend_signals: list, momentum_signals: list, volume_signals: list) -> dict:
-        """Analyze signals across multiple timeframes for consensus"""
+    def _analyze_cross_timeframe_signals(
+        self,
+        trend_signals: list,
+        momentum_signals: list,
+        volume_signals: list,
+        timeframe_coverage: float = 1.0,
+        missing_timeframes: list = None,
+    ) -> dict:
+        """Analyze signals across multiple timeframes for consensus."""
         try:
+            coverage = max(0.0, min(1.0, float(timeframe_coverage)))
             # Trend consensus analysis
             trend_scores = {'BULLISH': 0, 'BEARISH': 0, 'NEUTRAL': 0}
             trend_weighted_strength = 0
@@ -4764,11 +5085,13 @@ class EnhancedTop200StockAnalyzer:
             
             max_volume = max(volume_scores.keys(), key=lambda k: volume_scores[k])
             
-            # Signal quality assessment
-            timeframe_agreement = (trend_agreement + momentum_agreement) / 2
-            if timeframe_agreement >= 0.8:
+            # Signal quality assessment — scale agreement by timeframe coverage so
+            # a lone daily slice cannot report 100% cross-timeframe agreement.
+            raw_agreement = (trend_agreement + momentum_agreement) / 2
+            timeframe_agreement = raw_agreement * coverage
+            if timeframe_agreement >= 0.8 and coverage >= 1.0:
                 signal_quality = 'HIGH'
-            elif timeframe_agreement >= 0.6:
+            elif timeframe_agreement >= 0.6 and coverage >= 0.8:
                 signal_quality = 'MEDIUM'
             else:
                 signal_quality = 'LOW'
@@ -4780,6 +5103,8 @@ class EnhancedTop200StockAnalyzer:
                 'trend_strength': avg_trend_strength,
                 'momentum_strength': avg_momentum_strength,
                 'timeframe_agreement': timeframe_agreement * 100,
+                'timeframe_coverage': coverage,
+                'missing_timeframes': list(missing_timeframes or []),
                 'signal_quality': signal_quality
             }
             
@@ -4855,6 +5180,9 @@ class EnhancedTop200StockAnalyzer:
             'mtf_signal_quality': 'LOW',
             'mtf_timeframe_agreement': 0,
             'mtf_composite_score': 50,
+            'mtf_timeframe_coverage_pct': 0.0,
+            'mtf_missing_timeframes': 'daily,weekly,monthly',
+            'mtf_analysis_status': 'failed',
             'daily_trend': 'NEUTRAL',
             'weekly_trend': 'NEUTRAL',
             'monthly_trend': 'NEUTRAL'
@@ -6002,6 +6330,14 @@ class EnhancedTop200StockAnalyzer:
                         df[col] = df[col].astype(str).str.replace(',', '', regex=False)
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
+            _BROKER_TO_NSE_XL = {
+                'GVTD': 'GVT&D', 'AREM': 'ARE&M', 'BAJAJAUTO': 'BAJAJ-AUTO',
+                'JKBANK': 'J&KBANK', 'MM': 'M&M', 'MMFIN': 'M&MFIN',
+                'NAMINDIA': 'NAM-INDIA',
+            }
+            if 'Instrument' in df.columns:
+                df['Instrument'] = df['Instrument'].astype(str).str.strip().replace(_BROKER_TO_NSE_XL)
+
             print(f"   ✅ Loaded {len(df)} holdings from Excel file (header row 11)")
             return df
             
@@ -6163,7 +6499,25 @@ class EnhancedTop200StockAnalyzer:
         """Load current portfolio holdings from CSV or Excel holdings file"""
         try:
             import glob
-            
+
+            try:
+                from src.zerodha_holdings import (
+                    fetch_holdings_dataframe,
+                    save_holdings_snapshot,
+                    zerodha_holdings_enabled,
+                )
+                if zerodha_holdings_enabled():
+                    _auto = os.environ.get("KITE_AUTO_LOGIN", "").lower() in ("1", "true", "yes")
+                    holdings_df = fetch_holdings_dataframe(auto_session=_auto)
+                    if holdings_df is not None and not holdings_df.empty:
+                        snapshot = save_holdings_snapshot(holdings_df)
+                        print(f"   [KITE] Loaded {len(holdings_df)} holdings from Zerodha API")
+                        print(f"   [KITE] Snapshot: {snapshot}")
+                        self._holdings_source_path = str(snapshot)
+                        return holdings_df
+            except Exception as _kite_err:
+                print(f"   [KITE] API holdings failed, falling back to files: {_kite_err}")
+
             # Check for both CSV and Excel holdings files
             holdings_csv_files = glob.glob('Holding/holdings*.csv')
             holdings_excel_files = glob.glob('Holding/Stocks_Holdings_Statement_*.xlsx')
@@ -6178,7 +6532,20 @@ class EnhancedTop200StockAnalyzer:
                     try:
                         holdings_df = pd.read_excel(latest_merged)
                         print(f"   📁 Loaded holdings from: {latest_merged} (merged portfolio)")
-                        
+
+                        _BROKER_TO_NSE_MRG = {
+                            'GVTD': 'GVT&D', 'AREM': 'ARE&M', 'BAJAJAUTO': 'BAJAJ-AUTO',
+                            'JKBANK': 'J&KBANK', 'MM': 'M&M', 'MMFIN': 'M&MFIN',
+                            'NAMINDIA': 'NAM-INDIA',
+                        }
+                        _sc_mrg = next((c for c in ['Instrument', 'Symbol'] if c in holdings_df.columns), None)
+                        if _sc_mrg:
+                            _before_mrg = holdings_df[_sc_mrg].tolist()
+                            holdings_df[_sc_mrg] = holdings_df[_sc_mrg].astype(str).str.strip().replace(_BROKER_TO_NSE_MRG)
+                            _ch_mrg = [(b, a) for b, a in zip(_before_mrg, holdings_df[_sc_mrg]) if str(b) != str(a)]
+                            if _ch_mrg:
+                                print(f"   🔄 Symbol normalization: {', '.join(f'{b}->{a}' for b,a in _ch_mrg)}")
+
                         # Filter out zero quantity stocks if any
                         if 'Qty.' in holdings_df.columns:
                             initial_count = len(holdings_df)
@@ -6222,6 +6589,20 @@ class EnhancedTop200StockAnalyzer:
                                 holdings_df[col] = holdings_df[col].str.replace(',', '', regex=False)
                             holdings_df[col] = pd.to_numeric(holdings_df[col], errors='coerce').fillna(0)
                 
+                _BROKER_TO_NSE = {
+                    'GVTD': 'GVT&D', 'AREM': 'ARE&M', 'BAJAJAUTO': 'BAJAJ-AUTO',
+                    'JKBANK': 'J&KBANK', 'MM': 'M&M', 'MMFIN': 'M&MFIN',
+                    'NAMINDIA': 'NAM-INDIA',
+                }
+                _sym_col_norm = 'Instrument' if 'Instrument' in holdings_df.columns else (
+                    'Symbol' if 'Symbol' in holdings_df.columns else None)
+                if _sym_col_norm:
+                    _before = holdings_df[_sym_col_norm].tolist()
+                    holdings_df[_sym_col_norm] = holdings_df[_sym_col_norm].astype(str).str.strip().replace(_BROKER_TO_NSE)
+                    _changed = [(b, a) for b, a in zip(_before, holdings_df[_sym_col_norm]) if str(b) != str(a)]
+                    if _changed:
+                        print(f"   🔄 Symbol normalization: {', '.join(f'{b}->{a}' for b,a in _changed)}")
+
                 # Filter out zero quantity stocks
                 if 'Qty.' in holdings_df.columns:
                     initial_count = len(holdings_df)
@@ -6269,6 +6650,15 @@ class EnhancedTop200StockAnalyzer:
                     if 'Current Value' in holdings_df.columns and 'Cur. val' not in holdings_df.columns:
                         holdings_df['Cur. val'] = holdings_df['Current Value']
                     
+                    _BROKER_TO_NSE_FB = {
+                        'GVTD': 'GVT&D', 'AREM': 'ARE&M', 'BAJAJAUTO': 'BAJAJ-AUTO',
+                        'JKBANK': 'J&KBANK', 'MM': 'M&M', 'MMFIN': 'M&MFIN',
+                        'NAMINDIA': 'NAM-INDIA',
+                    }
+                    _sc_fb = next((c for c in ['Instrument', 'Symbol'] if c in holdings_df.columns), None)
+                    if _sc_fb:
+                        holdings_df[_sc_fb] = holdings_df[_sc_fb].astype(str).str.strip().replace(_BROKER_TO_NSE_FB)
+
                     # Filter out zero quantity stocks
                     if 'Qty.' in holdings_df.columns:
                         initial_count = len(holdings_df)
@@ -9799,6 +10189,13 @@ class EnhancedTop200StockAnalyzer:
                 print(f"   ⚠️ FINAL-DEFENDER ERROR: {_fd2_err}")
                 logging.exception(f"final-defender cooldown pass failed: {_fd2_err}")
 
+            # AUDIT-008: Universe filter on allocation actions before history + Excel seal
+            try:
+                allocation_df = EnhancedTop200StockAnalyzer._apply_universe_filter_to_allocation_df(
+                    allocation_df, results_df, _config)
+            except Exception as _uf_alloc_err:
+                logging.warning(f"allocation universe filter skipped: {_uf_alloc_err}")
+
             self.portfolio_allocation = {
                 'allocation_df': allocation_df,
                 'sell_recommendations': sell_recommendations_df,
@@ -9879,6 +10276,9 @@ class EnhancedTop200StockAnalyzer:
                     # cooldown one more time here per-row and override the action
                     # variable passed to record_recommendation.
                     _action_to_record = row.get('action_recommendation', row.get('action_type', 'HOLD'))
+                    _sd_rec = _src.iloc[0].to_dict() if not _src.empty else row.to_dict()
+                    _action_to_record, _uf_rec_reason = EnhancedTop200StockAnalyzer._gate_action_for_universe(
+                        row['symbol'], _sd_rec, _action_to_record, _config)
                     try:
                         if row.get('is_current_holding', False):
                             _a_up_q130 = str(_action_to_record).upper()
@@ -12544,24 +12944,22 @@ Trading Plan ({risk_tolerance} RISK):
                 except Exception as _wc_err:
                     logging.debug(f"Weekly Changes sheet error: {_wc_err}")
 
-                # Backtest Results sheet (import from most recent backtest)
+                # Backtest Results — prefer backtest/results/* (AUDIT-019 / F8)
                 try:
-                    _bt_files = sorted(glob.glob('data/backtest_result_*.xlsx'), reverse=True)
-                    if _bt_files:
-                        _bt_age = (datetime.now() - datetime.fromtimestamp(os.path.getmtime(_bt_files[0]))).days
-                        if _bt_age > 30:
-                            print(f"   ⚠️  Backtest file is {_bt_age} days old — results may not reflect current scoring")
-                        _bt_xl = pd.ExcelFile(_bt_files[0])
-                        for _bt_sheet in _bt_xl.sheet_names[:3]:
-                            _bt_df = pd.read_excel(_bt_xl, sheet_name=_bt_sheet)
-                            if not _bt_df.empty:
-                                _safe_name = f"BT {_bt_sheet}"[:31]
-                                _bt_df.to_excel(writer, sheet_name=_safe_name, index=False)
-                                _bt_ws = writer.sheets[_safe_name]
-                                for ci, col in enumerate(_bt_df.columns):
-                                    _bt_ws.write(0, ci, col, header_format)
-                                self._auto_resize_columns(_bt_ws, _bt_df)
-                        print(f"   📊 Backtest Results imported from {os.path.basename(_bt_files[0])}")
+                    _bt_sheets, _bt_source = EnhancedTop200StockAnalyzer._load_backtest_sheets_for_excel()
+                    if _bt_sheets:
+                        for _bt_name, _bt_df in _bt_sheets:
+                            if _bt_df is None or _bt_df.empty:
+                                continue
+                            _safe_name = str(_bt_name)[:31]
+                            _bt_df.to_excel(writer, sheet_name=_safe_name, index=False)
+                            _bt_ws = writer.sheets[_safe_name]
+                            for ci, col in enumerate(_bt_df.columns):
+                                _bt_ws.write(0, ci, col, header_format)
+                            self._auto_resize_columns(_bt_ws, _bt_df)
+                        print(f"   📊 Backtest Results imported from {_bt_source}")
+                    else:
+                        print("   ℹ️  No backtest results found (backtest/results or data/backtest_result_*.xlsx)")
                 except Exception as _bt_err:
                     logging.debug(f"Backtest sheet import error: {_bt_err}")
 
@@ -12589,6 +12987,8 @@ Trading Plan ({risk_tolerance} RISK):
                         ('Cache Hit Rate', f"{self.performance_metrics.get('cache_hits', 0)}/{len(self.results)}"),
                         ('Config Source', 'config.json' if os.path.exists('config.json') else 'config.py defaults'),
                         ('Risk Profile', str(getattr(self, 'risk_profile', 'moderate'))),
+                        ('Sector Cap', str(getattr(_config, 'SECTOR_CAP', 10))),
+                        ('Sector Cap ROI-first Skip', 'overall_score>=50 exempt from REDUCE (see docs/config-contract.md)'),
                     ]
                     # [F-NEW-4] Active v2 weights file + regime-fallback flag.
                     # Surface the silent-fallback case loudly: if regime is X
@@ -15052,8 +15452,8 @@ def merge_holdings_and_orders():
             return
         
         # Load orders data
-            merger.load_orders_data(orders_file)
-        
+        merger.load_orders_data(orders_file)
+
         # Merge data
         if merger.merge_data():
             # Save merged data
@@ -15126,6 +15526,11 @@ def main():
                              'Management, and Price Predictions sheets. Saves '
                              '~15-25s per run. Recommended for cache-hot '
                              'iterations; not for production reports.')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Preview mode: produce reports and action plan but '
+                             'do NOT write recommendation_history.csv or '
+                             'booking_history.json. Use for same-day re-runs / '
+                             'ANALYSE without flip-flop churn.')
 
     args = parser.parse_args()
     # Plumb --fast onto the analyzer instance so the report generator can
@@ -15153,11 +15558,16 @@ def main():
         focus_growth=args.focus_growth,
         focus_momentum=args.focus_momentum,
         min_volatility=args.min_volatility,
+        dry_run=bool(args.dry_run),
     )
     analyzer.portfolio_amount = args.portfolio_amount
     analyzer.skip_risk = args.skip_risk
     analyzer.undervalued_only = args.undervalued_only
     analyzer.fast_mode = _FAST_MODE  # [perf] short-circuits cosmetic deep-dive sheets
+    if args.dry_run:
+        print("[DRY-RUN] History writes disabled — recommendation_history.csv and "
+              "booking_history.json will NOT be updated.")
+        logging.info("[dry-run] analyzer started with history writes disabled")
 
     # Handle TOP 10 only mode (quick insights from latest analysis)
     if args.top_10_only:
@@ -15325,7 +15735,10 @@ def main():
         report_file = analyzer.generate_comprehensive_report()
         
         if report_file:
-            analyzer.cleanup_cache(max_age_days=_config.CACHE_MAX_AGE_DAYS, max_files=500)
+            if not getattr(analyzer, 'dry_run', False):
+                analyzer.cleanup_cache(max_age_days=_config.CACHE_MAX_AGE_DAYS, max_files=500)
+            else:
+                logging.info("[dry-run] skipping cache cleanup (preserve preview stability)")
             print(f"\n[DONE] ANALYSIS COMPLETED SUCCESSFULLY!")
             print(f"[FILE] Report file: {report_file}")
             print(f"[LOG] Log file: {analyzer.log_filename}")
@@ -15565,7 +15978,10 @@ def main():
                         if _book is not None and not _book.empty:
                             _res = _spb.calculate_smart_booking_quantities(_book)
                             _spb.display_smart_summary(_res)
-                            _spb.save_booking_history()
+                            if not getattr(analyzer, 'dry_run', False):
+                                _spb.save_booking_history()
+                            else:
+                                logging.info("[dry-run] skip smart profit booking history write")
                             print(f"   [DONE] Smart profit booking analysis complete ({len(_book)} stocks)")
                         else:
                             print(f"   [INFO] No profit booking recommendations in current analysis")
@@ -15977,7 +16393,120 @@ def main():
                             print(f"⚠️  NET: You NEED ₹{net_max:,.0f} new capital")
                 
                 print('='*100)
-                
+
+                try:
+                    from config import get_config as _gc_dual
+                    _dual_profiles = getattr(_gc_dual(), 'DUAL_STRATEGY_PROFILES', {})
+                    if _dual_profiles and hasattr(analyzer, '_rescore_with_alternate_weights'):
+                        _alloc_dual = analyzer.portfolio_allocation.get('allocation_df')
+                        if _alloc_dual is None:
+                            _alloc_dual = locals().get('allocation_df')
+                        if _alloc_dual is not None and not _alloc_dual.empty:
+                            _sym_col_d = 'symbol' if 'symbol' in _alloc_dual.columns else _alloc_dual.columns[0]
+                            _hold_mask_d = _alloc_dual.get('is_current_holding', pd.Series(False, index=_alloc_dual.index)).astype(bool)
+                            _primary_label = 'PRIMARY'
+                            _primary_score_col = 'hybrid_overall_score_v2' if 'hybrid_overall_score_v2' in _alloc_dual.columns else 'overall_score'
+                            _primary_scores = pd.to_numeric(_alloc_dual.get(_primary_score_col, 50), errors='coerce').fillna(50)
+                            _primary_actions = _alloc_dual.get('action_recommendation', pd.Series('HOLD', index=_alloc_dual.index)).astype(str)
+
+                            print()
+                            print('='*100)
+                            print('DUAL STRATEGY VIEW')
+                            print('='*100)
+
+                            for _pkey, _profile in _dual_profiles.items():
+                                _plabel = _profile.get('label', _pkey)
+                                _pweights = _profile.get('weights', {})
+                                _alt_scores = analyzer._rescore_with_alternate_weights(_alloc_dual, _pweights)
+                                _alloc_dual[f'_alt_v2_{_pkey}'] = _alt_scores
+
+                            _buy_thr_d = 60.0
+                            _hold_thr_d = 50.0
+
+                            print(f'\n{"Stock":<14} {"Primary Action":<20}', end='')
+                            for _pkey, _profile in _dual_profiles.items():
+                                _short = _profile.get('label', _pkey)[:20]
+                                print(f' | {_short:<20} {"Score":>5}', end='')
+                            print(' | Consensus')
+                            print('-' * (14 + 20 + (24 + 6) * len(_dual_profiles) + 15))
+
+                            for _di, _dr in _alloc_dual.iterrows():
+                                _dsym = str(_dr.get(_sym_col_d, ''))[:13]
+                                _dpri = str(_dr.get('action_recommendation', 'HOLD'))[:19]
+                                row_str = f'{_dsym:<14} {_dpri:<20}'
+
+                                _signals = []
+                                for _pkey, _profile in _dual_profiles.items():
+                                    _ascore = float(_alloc_dual.at[_di, f'_alt_v2_{_pkey}'])
+                                    if _ascore >= _buy_thr_d:
+                                        _asignal = 'BUY'
+                                    elif _ascore >= _hold_thr_d:
+                                        _asignal = 'HOLD'
+                                    elif _ascore >= 40:
+                                        _asignal = 'WEAK SELL'
+                                    else:
+                                        _asignal = 'SELL'
+                                    _signals.append(_asignal)
+                                    row_str += f' | {_asignal:<20} {_ascore:>5.1f}'
+
+                                _all_buy = all(s in ('BUY',) for s in _signals)
+                                _all_sell = all(s in ('SELL', 'WEAK SELL') for s in _signals)
+                                _agree = 'BUY (both agree)' if _all_buy else ('SELL (both agree)' if _all_sell else 'SPLIT')
+                                row_str += f' | {_agree}'
+                                print(row_str)
+
+                            _consensus_buys = []
+                            for _di, _dr in _alloc_dual.iterrows():
+                                _pri_act_d = _dr.get('action_recommendation', 'HOLD')
+                                if EnhancedTop200StockAnalyzer._primary_action_is_sell_side(_pri_act_d):
+                                    continue
+                                _all_above = True
+                                for _pkey in _dual_profiles:
+                                    if float(_alloc_dual.at[_di, f'_alt_v2_{_pkey}']) < _buy_thr_d:
+                                        _all_above = False
+                                        break
+                                if _all_above:
+                                    _consensus_buys.append(str(_dr.get(_sym_col_d, '')))
+
+                            if _consensus_buys:
+                                print(f'\n  HIGH CONVICTION (both strategies say BUY): {", ".join(_consensus_buys)}')
+                            else:
+                                print(f'\n  No stocks have BUY consensus across both strategies.')
+
+                            for _pkey in _dual_profiles:
+                                if f'_alt_v2_{_pkey}' in _alloc_dual.columns:
+                                    _alloc_dual.drop(columns=[f'_alt_v2_{_pkey}'], inplace=True)
+
+                except Exception as _dual_err:
+                    logging.debug(f'Dual strategy view skipped: {_dual_err}')
+
+                try:
+                    from scripts.update_analysis_canvas import update_analysis_canvas
+                except ImportError:
+                    update_analysis_canvas = None
+
+                if update_analysis_canvas is not None:
+                    try:
+                        _canvas_alloc = None
+                        if getattr(analyzer, 'portfolio_allocation', None):
+                            _canvas_alloc = analyzer.portfolio_allocation.get('allocation_df')
+                        if _canvas_alloc is None or getattr(_canvas_alloc, 'empty', True):
+                            _canvas_alloc = locals().get('allocation_df')
+                        _regime_canvas = (
+                            getattr(analyzer, 'current_market_regime', None)
+                            or getattr(analyzer, 'market_regime', None)
+                            or 'Sideways'
+                        )
+                        _cash_canvas = float(getattr(args, 'portfolio_amount', 0) or 0)
+                        update_analysis_canvas(
+                            report_file,
+                            allocation_df=_canvas_alloc,
+                            portfolio_amount=_cash_canvas,
+                            regime=str(_regime_canvas),
+                        )
+                    except Exception as _canvas_err:
+                        logging.debug(f'Canvas auto-update skipped: {_canvas_err}')
+
             except Exception as ap_error:
                 print(f"\n[INFO] Action plan generation skipped: {ap_error}")
                 print(f"   Run 'python generate_action_plan.py' manually for detailed action plan")

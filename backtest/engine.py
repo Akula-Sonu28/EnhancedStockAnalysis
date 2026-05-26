@@ -37,6 +37,7 @@ from .data.path1_loader import (
 from .data.prices import PriceCache
 from .execution import Executor, ExecutionError
 from .portfolio import Portfolio
+from .cooldown import CooldownPolicy, should_suppress_sell
 from .strategy import StrategyAdapter, Decision
 
 
@@ -62,6 +63,13 @@ class EngineConfig:
     #                               as the floor is met. Used to stress-test ranking.
     selection_mode: str = 'rank'
     min_entry_score: float = 45.0    # floor in rank mode (HOLD-ish)
+    cooldown_policy: CooldownPolicy = field(
+        default_factory=CooldownPolicy.disabled,
+    )
+    # When True, run exit checks on every NSE trading day (not only score snapshots).
+    # Required for meaningful recent-buy cooldown simulation on weekly/biweekly cadence.
+    daily_exit_checks: bool = True
+    momentum_exhaustion_enabled: bool = True
 
 
 # ----- Run output -----------------------------------------------------------
@@ -103,6 +111,20 @@ def _rebalance_dates(all_dates: list[date], cadence: str) -> list[date]:
     raise ValueError(f'unknown cadence: {cadence}')
 
 
+def _trading_calendar(price_cache: PriceCache, start: date, end: date) -> list[date]:
+    """NSE trading days between start and end (weekday fallback if index missing)."""
+    df = price_cache.get('^NSEI', start, end)
+    if df is not None and not df.empty:
+        return sorted({ts.date() for ts in df.index})
+    days: list[date] = []
+    cur = start
+    while cur <= end:
+        if cur.weekday() < 5:
+            days.append(cur)
+        cur += timedelta(days=1)
+    return days
+
+
 def _sector_from_row(row: pd.Series, lookup: Optional[dict] = None) -> str:
     for col in ('sector', 'Sector', 'industry', 'Industry'):
         if col in row and pd.notna(row[col]):
@@ -128,6 +150,7 @@ class BacktestEngine:
         self.strategy = strategy or StrategyAdapter()
         self._mcap = first_market_cap_lookup()
         self._sector = first_sector_lookup()
+        self.cooldown_suppressions = 0
 
     # ----- price + market cap lookups passed to Executor ------------------
 
@@ -139,13 +162,116 @@ class BacktestEngine:
 
     # ----- main loop ------------------------------------------------------
 
+    def _marks_for_day(
+        self,
+        d: date,
+        portfolio: Portfolio,
+        snap: Optional[DateSnapshot],
+    ) -> tuple[dict[str, float], dict[str, float], str]:
+        mark_prices: dict[str, float] = {}
+        score_today: dict[str, float] = {}
+        regime_today = ''
+        if snap is not None:
+            for _, row in snap.df.iterrows():
+                sym = str(row['symbol'])
+                if pd.notna(row.get('current_price')):
+                    mark_prices[sym] = float(row['current_price'])
+                if pd.notna(row.get('score_engine')):
+                    score_today[sym] = float(row['score_engine'])
+                if pd.notna(row.get('regime')) and not regime_today:
+                    regime_today = str(row['regime'])
+        for sym in list(portfolio.positions.keys()):
+            if sym not in mark_prices:
+                p = self.prices.last_close_at_or_before(sym, d)
+                if p is not None:
+                    mark_prices[sym] = p
+        for sym, pos in portfolio.positions.items():
+            sc = score_today.get(sym)
+            pos.mark(mark_prices.get(sym, pos.last_mark_price), sc)
+        return mark_prices, score_today, regime_today
+
+    def _execute_exits(
+        self,
+        portfolio: Portfolio,
+        executor: Executor,
+        d: date,
+        mark_prices: dict[str, float],
+        score_today: dict[str, float],
+        regime_today: str,
+    ) -> int:
+        """Run exit/reduce checks; return count of sell attempts (incl. blocked)."""
+        attempts = 0
+        exit_decisions: list[tuple[str, Decision]] = []
+        for sym, pos in list(portfolio.positions.items()):
+            price = mark_prices.get(sym, pos.last_mark_price or pos.avg_cost)
+            profit_pct = pos.unrealized_pl_pct(price)
+            sc = score_today.get(sym, pos.last_score)
+            dec = self.strategy.check_open_position(
+                score=sc,
+                profit_pct=profit_pct,
+                rsi=50.0,
+                pattern_signal='',
+                market_regime=regime_today,
+                peak_score=pos.peak_score,
+                peak_price=pos.peak_price,
+                current_price=price,
+                symbol=sym,
+                as_of=d,
+                price_cache=self.prices,
+                entry_price=pos.avg_cost,
+                previous_exhaustion_score=pos.last_exhaustion_score,
+                momentum_exhaustion_enabled=self.cfg.momentum_exhaustion_enabled,
+            )
+            if dec.exhaustion_score > 0:
+                pos.last_exhaustion_score = dec.exhaustion_score
+            elif dec.action == 'HOLD':
+                pos.last_exhaustion_score = max(0.0, pos.last_exhaustion_score * 0.85)
+            if dec.action in ('SELL', 'REDUCE'):
+                dec.symbol = sym
+                exit_decisions.append((sym, dec))
+
+        for sym, dec in exit_decisions:
+            pos = portfolio.positions.get(sym)
+            if pos is None:
+                continue
+            attempts += 1
+            price = mark_prices.get(sym, pos.last_mark_price or pos.avg_cost)
+            profit_pct = pos.unrealized_pl_pct(price)
+            sc = score_today.get(sym, pos.last_score)
+            if self._cooldown_blocks_exit(
+                pos, d, profit_pct, sc, regime_today, dec,
+            ):
+                continue
+            qty_to_sell = max(1, int(round(pos.qty * dec.qty_pct)))
+            qty_to_sell = min(qty_to_sell, pos.qty)
+            try:
+                fill = executor.submit(
+                    symbol=sym, side='SELL', qty=qty_to_sell,
+                    decision_date=d,
+                    fill_date=self._estimate_fill_date(sym, d),
+                    reason=dec.reason,
+                )
+                portfolio.apply_sell_fill(fill, reason=dec.reason)
+            except ExecutionError as e:
+                logging.warning(f'[engine] sell failed {sym} on {d}: {e}')
+        return attempts
+
     def run(self, snapshots: list[DateSnapshot]) -> BacktestResult:
         if not snapshots:
             raise ValueError('no snapshots to backtest over')
         snapshots = sorted(snapshots, key=lambda s: s.decision_date)
+        snap_map = {s.decision_date: s for s in snapshots}
+        snap_dates = [s.decision_date for s in snapshots]
 
-        all_dates = [s.decision_date for s in snapshots]
-        rebal_dates = set(_rebalance_dates(all_dates, self.cfg.rebalance))
+        if self.cfg.daily_exit_checks:
+            all_days = _trading_calendar(
+                self.prices, snap_dates[0], snap_dates[-1],
+            )
+            all_days = sorted(set(all_days) | set(snap_dates))
+        else:
+            all_days = snap_dates
+
+        rebal_dates = set(_rebalance_dates(snap_dates, self.cfg.rebalance))
 
         portfolio = Portfolio(
             initial_capital=self.cfg.initial_capital,
@@ -162,76 +288,26 @@ class BacktestEngine:
 
         equity_curve: dict[date, float] = {}
         rebalance_log: list[dict] = []
+        last_regime = 'SIDEWAYS'
 
-        for snap in snapshots:
-            d = snap.decision_date
+        for d in all_days:
+            snap = snap_map.get(d)
             is_rebal = d in rebal_dates
+            mark_prices, score_today, regime_today = self._marks_for_day(
+                d, portfolio, snap,
+            )
+            if regime_today:
+                last_regime = regime_today
+            elif not regime_today:
+                regime_today = last_regime
 
-            # --- Mark portfolio with this date's prices for open positions
-            mark_prices: dict[str, float] = {}
-            score_today: dict[str, float] = {}
-            regime_today = ''
-            for _, row in snap.df.iterrows():
-                sym = str(row['symbol'])
-                if pd.notna(row.get('current_price')):
-                    mark_prices[sym] = float(row['current_price'])
-                if pd.notna(row.get('score_engine')):
-                    score_today[sym] = float(row['score_engine'])
-                if pd.notna(row.get('regime')) and not regime_today:
-                    regime_today = str(row['regime'])
+            exit_attempts = self._execute_exits(
+                portfolio, executor, d, mark_prices, score_today, regime_today,
+            )
 
-            # Fill mark prices for held symbols not in today's snapshot via OHLCV.
-            for sym in list(portfolio.positions.keys()):
-                if sym not in mark_prices:
-                    p = self.prices.last_close_at_or_before(sym, d)
-                    if p is not None:
-                        mark_prices[sym] = p
-
-            # Update peak trackers.
-            for sym, pos in portfolio.positions.items():
-                pos.mark(mark_prices.get(sym, pos.last_mark_price),
-                         score_today.get(sym))
-
-            # --- 1. EXIT/REDUCE checks on each open position --------------
-            exit_decisions: list[tuple[str, Decision]] = []
-            for sym, pos in list(portfolio.positions.items()):
-                price = mark_prices.get(sym, pos.last_mark_price or pos.avg_cost)
-                profit_pct = pos.unrealized_pl_pct(price)
-                sc = score_today.get(sym, pos.last_score)
-                dec = self.strategy.check_open_position(
-                    score=sc,
-                    profit_pct=profit_pct,
-                    rsi=50.0,                 # not in snapshot; use neutral
-                    pattern_signal='',
-                    market_regime=regime_today,
-                    peak_score=pos.peak_score,
-                    peak_price=pos.peak_price,
-                    current_price=price,
-                )
-                if dec.action in ('SELL', 'REDUCE'):
-                    dec.symbol = sym
-                    exit_decisions.append((sym, dec))
-
-            for sym, dec in exit_decisions:
-                pos = portfolio.positions.get(sym)
-                if pos is None:
-                    continue
-                qty_to_sell = max(1, int(round(pos.qty * dec.qty_pct)))
-                qty_to_sell = min(qty_to_sell, pos.qty)
-                try:
-                    fill = executor.submit(
-                        symbol=sym, side='SELL', qty=qty_to_sell,
-                        decision_date=d,
-                        fill_date=self._estimate_fill_date(sym, d),
-                        reason=dec.reason,
-                    )
-                    portfolio.apply_sell_fill(fill, reason=dec.reason)
-                except ExecutionError as e:
-                    logging.warning(f'[engine] sell failed {sym} on {d}: {e}')
-
-            # --- 2. ENTRY on rebalance dates -----------------------------
+            # --- ENTRY on rebalance dates (snapshot required) -------------
             new_buys: list[tuple[str, str, float, float]] = []
-            if is_rebal:
+            if snap is not None and is_rebal:
                 candidates = snap.df.copy()
                 candidates = candidates.sort_values('score_engine', ascending=False)
                 held = set(portfolio.positions.keys())
@@ -302,11 +378,10 @@ class BacktestEngine:
                     'universe_n': int(len(candidates)),
                     'held_pre': len(held) - bought_count,
                     'bought': bought_count,
-                    'sold': len(exit_decisions),
+                    'sold': exit_attempts,
                     'cash_pct': portfolio.cash_pct(mark_prices),
                 })
 
-            # --- 3. End-of-day equity snapshot ---------------------------
             equity_curve[d] = portfolio.equity(mark_prices)
 
         # --- Final state --------------------------------------------------
@@ -348,6 +423,8 @@ class BacktestEngine:
         summary['stcg_paid'] = round(portfolio.gains.stcg_paid, 2)
         summary['ltcg_paid'] = round(portfolio.gains.ltcg_paid, 2)
         summary['open_positions'] = len(final_positions)
+        summary['cooldown_suppressions'] = self.cooldown_suppressions
+        summary['cooldown_policy'] = self.cfg.cooldown_policy.name
 
         return BacktestResult(
             run_id='', engine_label=self.engine_label,
@@ -362,6 +439,34 @@ class BacktestEngine:
         )
 
     # ----- internals ------------------------------------------------------
+
+    def _cooldown_blocks_exit(
+        self,
+        pos,
+        as_of: date,
+        profit_pct: float,
+        score: float,
+        regime: str,
+        dec: Decision,
+    ) -> bool:
+        """True when cooldown suppresses this sell/reduce."""
+        policy = self.cfg.cooldown_policy
+        if not policy.enabled:
+            return False
+        suppress, _reason = should_suppress_sell(
+            policy=policy,
+            entry_date=pos.entry_date,
+            as_of=as_of,
+            profit_pct=profit_pct,
+            current_v2_score=score,
+            current_regime=regime,
+            exit_reason=dec.reason,
+            hard_stop_tier=dec.hard_stop_tier,
+            score_history=[score],
+        )
+        if suppress:
+            self.cooldown_suppressions += 1
+        return suppress
 
     def _estimate_fill_date(self, symbol: str, decision_date: date) -> date:
         """Best estimate of the actual next trading day (used purely for
@@ -393,6 +498,15 @@ class BacktestEngine:
             if not self.strategy.should_rotate(
                 candidate_score=sc, holding_score=weak_score,
                 holding_rsi=50.0, holding_profit_pct=profit_pct,
+            ):
+                continue
+            rot_dec = Decision(
+                symbol=weakest.symbol, action='SELL', qty_pct=1.0,
+                reason=f'rotation: {weakest.symbol}({weak_score:.1f}) -> {sym}({sc:.1f})',
+                score=weak_score,
+            )
+            if self._cooldown_blocks_exit(
+                weakest, decision_date, profit_pct, weak_score, regime, rot_dec,
             ):
                 continue
             # Execute the rotation: sell weak, buy new

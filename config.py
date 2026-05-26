@@ -200,6 +200,29 @@ class AnalysisConfig:
     REGIME_FLIP_V2_COLLAPSE: float = 30.0
     REGIME_FLIP_V2_STREAK: int = 2
 
+    DUAL_STRATEGY_PROFILES = {
+        'turbo_mtf': {
+            'label': 'TURBO MTF [PRIMARY]',
+            'rebalance': 'weekly',
+            'weights': {
+                'momentum_technical': 0.25, 'volume_strength': 0.05,
+                'multi_timeframe': 0.35, 'fundamental_quality': 0.05,
+                'risk_adjustment': -0.18, 'growth': 0.06, 'value': 0.06,
+                'ml_signal': 0.0,
+            },
+        },
+        'monthly_stable_balanced': {
+            'label': 'MONTHLY (Stable Balanced)',
+            'rebalance': 'monthly',
+            'weights': {
+                'momentum_technical': 0.20, 'volume_strength': 0.10,
+                'multi_timeframe': 0.20, 'fundamental_quality': 0.25,
+                'risk_adjustment': -0.10, 'growth': 0.08, 'value': 0.07,
+                'ml_signal': 0.0,
+            },
+        },
+    }
+
     # V2 Scoring Engine shadow mode (Phase 1/2): when True, v2 score is computed
     # alongside v1 but does NOT drive actions. Promotion is gated by data/v2_promotion_status.json.
     V2_SHADOW_MODE: bool = True
@@ -215,6 +238,9 @@ class AnalysisConfig:
     # Rate Limiting (consolidated from src/config.py — CB-05; REQUEST_DELAY used by nse_scraper)
     REQUEST_DELAY: float = 0.5
     REQUESTS_PER_MIN: int = 20  # reserved; yfinance wrapper uses internal rate control
+    # MTF weekly/monthly yfinance calls (separate from bundle 5y fetch storm)
+    MTF_YFINANCE_DELAY_SEC: float = 0.35
+    MTF_YFINANCE_RETRY_ATTEMPTS: int = 3
     RETRY_LIMIT: int = 3  # reserved; analyzer uses RETRY_ATTEMPTS
     RETRY_BACKOFF: int = 2  # reserved
 

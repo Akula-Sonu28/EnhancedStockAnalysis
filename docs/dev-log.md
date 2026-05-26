@@ -3,6 +3,158 @@
 This file tracks every code change with date, rationale, and affected files
 per the operating contract's Definition of Done.
 
+## 2026-05-24 — Analyzer `--dry-run` (same-day history churn fix)
+
+**Context:** Off-hours re-runs mutated `recommendation_history.csv` (same-day
+overwrite policy), causing flip-flops (e.g. SOLARINDS HOLD→SELL) without new
+market data.
+
+**Findings:**
+- F-DRY-RUN (MEDIUM): Added `--dry-run` CLI flag; `RecommendationHistory(dry_run=)`
+  skips `record_recommendation` / `update_outcomes` writes; booking_history and
+  smart profit booking saves gated when dry-run active.
+
+**Files touched:** `recommendation_history.py`, `analyze_top200_stocks_enhanced.py`,
+`tests/test_v2_regression.py` (Suite8), `.cursor/skills/post-analysis-audit/SKILL.md`
+
+**Tests:** `python3 tests/test_v2_regression.py` (Suite8 dry-run cases)
+
+
+## 2026-05-24 — Post-audit Batch 1 (AUDIT-003 HIGH CONVICTION)
+
+**Context:** Master audit 2026-05-24 flagged CRITICAL AUDIT-003 — dual-strategy
+HIGH CONVICTION listed symbols whose primary action was sell-side (e.g. ECLERX).
+
+**Findings:**
+- AUDIT-003 (CRITICAL): Added `_primary_action_is_sell_side()` and filter before
+  `_consensus_buys` append (~L16108).
+
+**Files touched:** `analyze_top200_stocks_enhanced.py`, `tests/test_v2_regression.py`
+
+**Tests:** `python3 tests/test_v2_regression.py` — **214/214 PASS** (Suite18 added)
+
+**Open:** Batches 2–6 of post-audit remediation plan.
+
+
+## 2026-05-24 — Post-audit Batch 2 (AUDIT-007 stale tests)
+
+**Context:** `test_regression_fixes.py` had 4 failures from intentional Q130 and
+`_normalize_action` ordering — tests updated, not production.
+
+**Findings:**
+- AUDIT-007 (HIGH): F-07 sentinel uses current marker; EMERGENCY EXIT→EXIT;
+  RV02 expects `_action_to_record`; cooldown test documents WEAK SELL normalize path.
+
+**Files touched:** `tests/test_regression_fixes.py`
+
+**Tests:** `python3 tests/test_regression_fixes.py` — **135/135 PASS**
+
+**Open:** Batches 3–6.
+
+
+## 2026-05-24 — Post-audit Batch 3 (AUDIT-004/005 promotion + config contract)
+
+**Context:** Stale `v2_promotion_status.json` and undocumented config.json overrides.
+
+**Findings:**
+- AUDIT-004 (HIGH): Refreshed `data/v2_promotion_status.json` (forward + historical);
+  `promotion_ready=false` with live v2.
+- AUDIT-005 (HIGH): Added `docs/config-contract.md`; linked from `reference.md`;
+  Suite23 sentinel; _Metadata sector ROI-first row.
+
+**Files touched:** `docs/config-contract.md`, `reference.md`, `analyze_top200_stocks_enhanced.py`,
+`tests/test_v2_regression.py`, `data/v2_promotion_status.json`
+
+**Tests:** `python3 tests/test_v2_regression.py` — **217/217 PASS**
+
+**Open:** Batches 4–6.
+
+
+## 2026-05-24 — Post-audit Batch 4 (AUDIT-008 universe filter on actions)
+
+**Context:** Universe filter ran only at CSV load (`is_excluded_instrument`); buy-side actions
+could reach allocation, history, and Excel for excluded/illiquid symbols.
+
+**Findings:**
+- AUDIT-008 (HIGH): Added `_gate_action_for_universe()` and `_apply_universe_filter_to_allocation_df()`
+  using `src.universe_filter.is_tradeable`; wired at per-stock analyze, pre-seal allocation, and
+  Q130 record site.
+
+**Files touched:** `analyze_top200_stocks_enhanced.py`, `tests/test_v2_regression.py`
+
+**Tests:** `python3 tests/test_v2_regression.py` — **220/220 PASS** (Suite21 added)
+
+**Open:** Batches 5–6.
+
+
+## 2026-05-24 — Post-audit Batch 5 (AUDIT-019/F8 backtest Excel wire)
+
+**Context:** Excel BT sheets globbed stale `data/backtest_result_*.xlsx` instead of current
+`backtest/results/` pipeline output.
+
+**Findings:**
+- AUDIT-019 / F8 (MEDIUM): Added `_load_backtest_sheets_for_excel()` — prefers
+  `backtest/results/*/summary.json` + equity/trades CSV (path2_v2 first); legacy xlsx fallback.
+  Writes `BT Summary`, `BT Equity Curve`, `BT Trades`.
+
+**Files touched:** `analyze_top200_stocks_enhanced.py`, `tests/test_v2_regression.py`
+
+**Tests:** `python3 tests/test_v2_regression.py` — **222/222 PASS** (Suite25 added)
+
+**Open:** Batch 6 (docs + graphify).
+
+
+## 2026-05-24 — Post-audit Batch 6 (docs triage + graphify)
+
+**Context:** Close remediation plan documentation; defer out-of-scope audit items; refresh knowledge graph.
+
+**Findings:**
+- Updated `AGENTS.md` test count (192 → **222** suites).
+- Audit triage table appended below (FIXED / DEFERRED / OPEN).
+- Graphify CLI installed via `uv tool install graphifyy`; `graphify update .` run post-edits.
+
+**Files touched:** `AGENTS.md`, `docs/dev-log.md`
+
+**Tests:** Full protocol — `test_v2_regression.py` 222/222, `test_regression_fixes.py` 135/135,
+`pytest backtest/tests/` 40/40.
+
+**Open:** Deferred items per human decisions (see triage table).
+
+### Post-audit triage (2026-05-24)
+
+| ID | Severity | Status | Notes |
+|----|----------|--------|-------|
+| AUDIT-001 | CRITICAL | **DEFERRED** | Forward v2 IC n=0 until ~2026-06-12 backfill; v2 stays LIVE |
+| AUDIT-002 | CRITICAL | **DEFERRED** | Walk-forward HOLD_SHADOW vs live v2 — reconcile after forward IC |
+| AUDIT-003 | CRITICAL | **FIXED** | Batch 1 — HIGH CONVICTION excludes sell-side primaries |
+| AUDIT-004 | HIGH | **FIXED** | Batch 3 — promotion status refreshed |
+| AUDIT-005 | HIGH | **FIXED** | Batch 3 — `docs/config-contract.md` documents intentional overrides |
+| AUDIT-006 | HIGH | **DEFERRED** | Historical v2 fails gates — monitor; no revert to shadow |
+| AUDIT-007 | HIGH | **FIXED** | Batch 2 — stale regression tests updated |
+| AUDIT-008 | HIGH | **FIXED** | Batch 4 — universe filter on action surfaces |
+| AUDIT-009 | HIGH | **DEFERRED** | 16K orchestrator refactor — out of scope |
+| AUDIT-010 | HIGH | **DOCUMENTED** | Sector ROI-first skip (score≥50) — intentional; reference + _Metadata |
+| AUDIT-018 | MEDIUM | **DEFERRED** | return_30d lag — expected until ~2026-06-12 |
+| AUDIT-019 | MEDIUM | **FIXED** | Batch 5 — BT sheets wired to backtest/results |
+| AUDIT-022 | MEDIUM | **DEFERRED** | HTML → Tape & Ledger migration — confirm before visual restyle |
+| AUDIT-029 | LOW | **FIXED** | AGENTS.md test count updated to 222 |
+
+
+## 2026-05-24 — Post-analysis ANALYSE workflow
+
+**Context:** User requested a repeatable post-run audit when typing `ANALYSE`
+after each `analyze_top200_stocks_enhanced.py` run.
+
+**Changes:**
+- Added `.cursor/skills/post-analysis-audit/SKILL.md` + `reference.md` (agent workflow).
+- Added `scripts/post_analysis_audit.py` (automated PASS/WARN/FAIL checks).
+- Wired `ANALYSE` / `ANALYZE` in `core-interaction.mdc` and `AGENTS.md`.
+
+**Tests:** `python3 scripts/post_analysis_audit.py` on 20260524 run — detects ECLERX
+dual-strategy FAIL; exit code 1.
+
+**Open:** Fix HIGH CONVICTION filter in `analyze_top200_stocks_enhanced.py` (~16108).
+
 
 ## 2026-05-20 — V2 Weight Fix for Medium-Aggressive Investor
 
@@ -1567,3 +1719,81 @@ Final pipeline order (cooldown defenders):
 5. Q130 per-row defender at record_recommendation
 
 **204/204 regression tests passing.**
+
+## 2026-05-22 — frontend-design skill + Tape & Ledger UI playbook
+
+**Context**: User requested the `frontend-design` agent skill and a
+production-grade reference UI for HTML report work in this repo.
+
+**Changes**:
+- Added `.cursor/skills/frontend-design/SKILL.md` (verbatim skill body +
+  Stock Analysis binding to playbook).
+- Added `.cursor/skills/frontend-design/reference.md` (token table,
+  badge mapping, font link, anti-patterns).
+- Added `frontend/design-playbook.html` — living **Tape & Ledger**
+  aesthetic (Fraunces / Newsreader / IBM Plex Mono; copper-on-obsidian;
+  stat grid, nav, badges, searchable holdings table, token swatches).
+- Updated `AGENTS.md` on-demand skills section.
+
+**Files touched**: skill dir, `frontend/design-playbook.html`, `AGENTS.md`
+
+**Tests**: N/A (docs + static HTML only)
+
+**Open**: Migrate inline HTML in `analyze_top200_stocks_enhanced.py` and
+`portfolio_guide.html` to playbook tokens when report restyle is approved
+(breaking visual change — confirm first).
+
+## 2026-05-26 — Dry-run holdings cache bypass (preview stability)
+
+**Context**: Back-to-back `--dry-run` previews diverged (IGIL INCREASE vs HOLD,
+EMMVEE vs VEDL NEW) because run #1 purged cache and run #2 served stale
+comprehensive cache hits on held names while the market was closed.
+
+**Fix**:
+- `_dry_run_bypass_cache()`: force full recompute for symbols in
+  `_holdings_dict` when `dry_run=True`.
+- Skip `cleanup_cache()` after dry-run completes so preview runs do not
+  delete cache files mid-session.
+
+**Files touched**: `analyze_top200_stocks_enhanced.py`,
+`tests/test_v2_regression.py`
+
+**Tests**: `test_dry_run_bypasses_cache_for_holdings` (Suite16)
+
+**Open**: NEW-candidate stability (non-held names) still rank-sensitive on
+cache hits; optional future `DRY_RUN_FRESH_UNIVERSE` if needed.
+
+## 2026-05-26 — MTF partial coverage + yfinance throttle
+
+**Context**: VEDL score drifted 75.2 → 72.1 between back-to-back dry runs
+because run #1 hit Yahoo rate limits on weekly/monthly MTF fetches; lone
+daily slice reported 100% agreement and inflated MTF composite (+3 pts).
+
+**Fix**:
+- Scale `timeframe_agreement` by weighted coverage (daily-only → 50% cap).
+- `mtf_analysis_status`: `success` | `partial` | `failed`; log `[mtf-partial]`.
+- Throttle MTF yfinance calls (`MTF_YFINANCE_DELAY_SEC=0.35`) with lock +
+  exponential backoff retries on 429/rate-limit.
+
+**Files touched**: `analyze_top200_stocks_enhanced.py`, `config.py`,
+`tests/test_v2_regression.py`
+
+**Tests**: `test_mtf_agreement_scaled_by_timeframe_coverage`,
+`test_mtf_yfinance_throttle_and_retry`
+
+## 2026-05-26 — Cache backfill (warm-run speed)
+
+**Context**: ~448/473 cache hits forced full recompute because Q14 treated
+`enhanced_price_change_20d == 0.0` and falsy `volatility` as always stale.
+Each dry-run rescored ~467/500 names (~6 min).
+
+**Fix**:
+- `portfolio_price_fields_valid` flag on cache rows after hist backfill.
+- `[cache-backfill]`: one lightweight 1Y yfinance fetch patches 52w/vol/20D
+  on cache hits instead of full analyze.
+- Full `[cache-refresh]` only when backfill fails.
+
+**Files touched**: `analyze_top200_stocks_enhanced.py`,
+`tests/test_v2_regression.py`
+
+**Tests**: `test_cache_backfill_skips_zero_stub_recompute`, updated Q14 test

@@ -22,6 +22,7 @@ Obey these short commands:
 - `HIGH LEVEL DESIGN` → reasoning + architectural draft first, no code yet.
 - `JUST CODE` → final code only, no explanations.
 - `REASONING VISIBLE` → short explanation before code.
+- `ANALYSE` / `ANALYZE` → post-run audit of the latest analysis (read and follow `.cursor/skills/post-analysis-audit/SKILL.md`; run `python3 scripts/post_analysis_audit.py`).
 - Default → infer intent from request context.
 
 ## Architecture-First Rule
@@ -50,3 +51,12 @@ When the user types `SUMMARIZE SESSION`, output this exact format and suggest co
 ### LOAD MEMORY
 
 When the user types `LOAD MEMORY`, ask: "Please paste the latest summary so I can rehydrate context." After pasting, reply: "Context loaded. Continuing work from previous session."
+
+### ANALYSE (post-run audit)
+
+When the user types `ANALYSE` or `ANALYZE` after an analysis run:
+
+1. Read `.cursor/skills/post-analysis-audit/SKILL.md` and execute its workflow.
+2. Run `python3 scripts/post_analysis_audit.py` (add `--terminal` if terminal capture is available).
+3. Reply with executive summary, PASS/WARN/FAIL table, action plan extract, and follow-ups.
+4. Do not modify scoring code unless the user asks to fix a finding.

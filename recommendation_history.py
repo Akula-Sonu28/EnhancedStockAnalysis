@@ -77,14 +77,18 @@ def _normalize_action(action: str) -> str:
 class RecommendationHistory:
     """Manages historical recommendations and enforces consistency rules"""
     
-    def __init__(self, history_file: str = 'data/recommendation_history.csv'):
+    def __init__(self, history_file: str = 'data/recommendation_history.csv',
+                 dry_run: bool = False):
         """
         Initialize recommendation history tracker
         
         Args:
             history_file: Path to CSV file storing recommendation history
+            dry_run: When True, record_recommendation / update_outcomes do not
+                mutate history on disk or in memory (preview / ANALYSE runs).
         """
         self.history_file = history_file
+        self.dry_run = bool(dry_run)
         self._lock = threading.Lock()
 
         # Configuration — must be set BEFORE _load_history() which references them
@@ -199,6 +203,8 @@ class RecommendationHistory:
         and `_force` is False, the call is deferred: the dirty flag is set
         and the actual flush waits until the outermost context exits.
         """
+        if self.dry_run:
+            return
         if self._batch_depth > 0 and not _force:
             self._batch_dirty = True
             return
@@ -233,6 +239,8 @@ class RecommendationHistory:
         have elapsed.  Returns the number of rows updated.
         Thread-safe: acquires self._lock during DataFrame mutation.
         """
+        if self.dry_run:
+            return 0
         with self._lock:
             return self._update_outcomes_locked()
 
@@ -984,6 +992,19 @@ class RecommendationHistory:
         # [Rule 1] CORE / TACTICAL sleeve persistence (right-edge, additive).
         if sleeve is not None:
             new_rec_row['sleeve'] = str(sleeve).upper()
+        if self.dry_run:
+            try:
+                _p = float(price) if price else 0.0
+                _s = float(score) if score else 0.0
+                logging.info(
+                    f"[dry-run] skip history write: {symbol} - {action} "
+                    f"@ {_p:.2f} (score: {_s:.1f})"
+                )
+            except (ValueError, TypeError):
+                logging.info(
+                    f"[dry-run] skip history write: {symbol} - {action} @ {price} (score: {score})"
+                )
+            return
         with self._lock:
             same_day_idx = pd.Index([])
             if not self.history_df.empty:

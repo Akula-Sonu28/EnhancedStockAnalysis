@@ -461,6 +461,31 @@ class Suite8_DQ_NATALUM(unittest.TestCase):
             self.assertEqual(len(same_day), 1,
                              'idempotency broken — same action recorded multiple times same day')
 
+    def test_dry_run_skips_history_write(self):
+        """dry_run=True must not create or mutate recommendation_history.csv."""
+        import os, tempfile
+        from recommendation_history import RecommendationHistory
+
+        with tempfile.TemporaryDirectory() as td:
+            csv_path = os.path.join(td, 'rh.csv')
+            rh = RecommendationHistory(history_file=csv_path, dry_run=True)
+            fund = {'pe_ratio': 15, 'roe': 18, 'debt_to_equity': 0.5}
+            rh.record_recommendation(symbol='TESTSTOCK', action='SELL', score=60.0,
+                                     price=100.0, fundamentals=fund, reason='preview',
+                                     rank=1, sector='Test')
+            self.assertFalse(os.path.exists(csv_path),
+                             'dry-run must not create history file')
+            self.assertTrue(rh.history_df.empty,
+                            'dry-run must not mutate in-memory history')
+
+    def test_analyzer_dry_run_flag_present(self):
+        """CLI must expose --dry-run for preview runs without history churn."""
+        src_path = REPO_ROOT / 'analyze_top200_stocks_enhanced.py'
+        src = src_path.read_text(encoding='utf-8')
+        self.assertIn("'--dry-run'", src, '--dry-run flag missing from analyzer CLI')
+        self.assertIn('dry_run=bool(args.dry_run)', src,
+                      'main() must pass dry_run into EnhancedTop200StockAnalyzer')
+
 
 class Suite9_P0_StopTier_DQLate(unittest.TestCase):
     """Phase 0 fixes — STOP_TIER plumbing + late-injected DQ guard (BANKBARODA / MARICO)."""
@@ -2130,10 +2155,32 @@ class Suite16_ContractGapsClosure(unittest.TestCase):
         src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
         self.assertIn("[cache-refresh]", src,
                       'Cache-refresh log line must be present')
-        self.assertIn("_missing_critical", src,
-                      'Cache-hit branch must invalidate when critical fields missing')
-        self.assertIn("cached.get('enhanced_price_change_20d') is None", src,
-                      'Cache-refresh trigger must check enhanced_price_change_20d')
+        self.assertIn("_cache_portfolio_fields_need_backfill", src,
+                      'Cache-hit branch must check portfolio field completeness')
+        self.assertIn("portfolio_price_fields_valid", src,
+                      'Cache rows must stamp portfolio field validity')
+        self.assertIn("[cache-backfill]", src,
+                      'Warm cache must patch portfolio fields without full recompute')
+
+    def test_cache_backfill_skips_zero_stub_recompute(self):
+        """Legacy cache rows with 20D=0.0 stub should backfill, not full rescore."""
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        row = {
+            'symbol': 'TEST',
+            'final_blended_score': 70.0,
+            'enhanced_price_change_20d': 0.0,
+            '52_week_high': 100.0,
+            'volatility': 25.0,
+        }
+        self.assertTrue(
+            EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
+            'Missing validity flag must request backfill even when numeric fields exist',
+        )
+        row['portfolio_price_fields_valid'] = True
+        self.assertFalse(
+            EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
+            'Valid flag must suppress repeat backfill on warm cache',
+        )
 
     def test_walkforward_age_telemetry(self):
         """Q17: IC Telemetry must surface walk-forward age + freshness so a
@@ -2205,6 +2252,46 @@ class Suite16_ContractGapsClosure(unittest.TestCase):
                       'Bundle-invalid branch must restore cached fallback')
         self.assertIn("'stale_cache_used'", src,
                       'Fallback path must annotate stale_cache_used quality warning')
+
+    def test_dry_run_bypasses_cache_for_holdings(self):
+        """Dry-run previews must recompute held symbols and skip cache cleanup."""
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn("_dry_run_bypass_cache", src,
+                      'Dry-run holdings cache bypass helper must exist')
+        self.assertIn("bypassing cache (current holding)", src,
+                      'Held symbols must log cache bypass in dry-run')
+        self.assertIn("skipping cache cleanup", src,
+                      'Dry-run must not purge cache after preview runs')
+
+    def test_mtf_agreement_scaled_by_timeframe_coverage(self):
+        """Partial MTF (rate-limited weekly/monthly) must not report 100% agreement."""
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        analyzer = EnhancedTop200StockAnalyzer(dry_run=True)
+        trend = [{'timeframe': 'daily', 'signal': 'BULLISH', 'strength': 60, 'weight': 0.5}]
+        momentum = [{'timeframe': 'daily', 'signal': 'BULLISH', 'strength': 60, 'weight': 0.5}]
+        volume = [{'timeframe': 'daily', 'signal': 'NEUTRAL', 'weight': 0.5}]
+        full = analyzer._analyze_cross_timeframe_signals(
+            trend, momentum, volume, timeframe_coverage=1.0)
+        partial = analyzer._analyze_cross_timeframe_signals(
+            trend, momentum, volume, timeframe_coverage=0.5,
+            missing_timeframes=['weekly', 'monthly'])
+        self.assertGreater(full['timeframe_agreement'], partial['timeframe_agreement'])
+        self.assertAlmostEqual(
+            partial['timeframe_agreement'],
+            full['timeframe_agreement'] * 0.5,
+            places=1,
+        )
+        self.assertEqual(partial['signal_quality'], 'LOW')
+
+    def test_mtf_yfinance_throttle_and_retry(self):
+        """MTF weekly/monthly fetches must throttle and retry on rate limits."""
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn("_fetch_mtf_yfinance_history", src)
+        self.assertIn("_wait_mtf_yfinance_slot", src)
+        self.assertIn("MTF_YFINANCE_DELAY_SEC", src)
+        self.assertIn("[mtf-partial]", src)
+        self.assertIn("mtf_analysis_status", src)
+        self.assertIn("'partial'", src)
 
     def test_stale_cache_count_surfaced_in_summary(self):
         """Q41: investor must see how many stocks used stale-cache fallback."""
@@ -2884,11 +2971,123 @@ def main():
                 Suite11_v3Calibration, Suite12_HistoricalCalibration,
                 Suite13_RegimeConditional, Suite14_Performance,
                 Suite15_WalkForward, Suite16_ContractGapsClosure,
-                Suite17_V2WeightFix):
+                Suite17_V2WeightFix,                 Suite18_HighConvictionFilter,
+                Suite21_UniverseFilterActions,
+                Suite23_PromotionStatusFreshness,
+                Suite25_BacktestReportWire):
         suite.addTests(loader.loadTestsFromTestCase(cls))
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     sys.exit(0 if result.wasSuccessful() else 1)
+
+
+class Suite25_BacktestReportWire(unittest.TestCase):
+    """AUDIT-019 / F8: Excel BT sheets prefer backtest/results pipeline."""
+
+    def test_load_backtest_sheets_prefers_results_dir(self):
+        import os
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        sheets, source = EnhancedTop200StockAnalyzer._load_backtest_sheets_for_excel()
+        results_dir = REPO_ROOT / 'backtest' / 'results'
+        if results_dir.is_dir():
+            self.assertTrue(
+                any(p.is_dir() and (p / 'summary.json').is_file() for p in results_dir.iterdir()),
+                'backtest/results should contain at least one run with summary.json',
+            )
+        if sheets:
+            names = [n for n, _ in sheets]
+            self.assertIn('BT Summary', names)
+            self.assertTrue(source)
+
+    def test_excel_writer_uses_load_backtest_helper(self):
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        anchor = src.index('# Backtest Results — prefer backtest/results')
+        block = src[anchor:anchor + 500]
+        self.assertIn('_load_backtest_sheets_for_excel()', block)
+
+
+class Suite21_UniverseFilterActions(unittest.TestCase):
+    """AUDIT-008: universe filter on action surfaces, not just CSV load."""
+
+    def setUp(self):
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        self.cls = EnhancedTop200StockAnalyzer
+
+    def test_gate_blocks_buy_for_excluded_etf(self):
+        act, reason = self.cls._gate_action_for_universe(
+            'NIFTYBEES', {}, 'NEW POSITION')
+        self.assertIn('NOT TRADEABLE', act)
+        self.assertTrue(reason)
+
+    def test_gate_allows_hold_for_excluded(self):
+        act, _ = self.cls._gate_action_for_universe('NIFTYBEES', {}, 'HOLD')
+        self.assertEqual(act, 'HOLD')
+
+    def test_allocation_and_history_universe_filter_wired(self):
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn('_apply_universe_filter_to_allocation_df', src)
+        self.assertIn('_gate_action_for_universe', src)
+        idx_alloc = src.index('_apply_universe_filter_to_allocation_df(')
+        idx_hist = src.index('_action_to_record, _uf_rec_reason = EnhancedTop200StockAnalyzer._gate_action_for_universe')
+        self.assertLess(idx_alloc, src.index('self.portfolio_allocation = {', idx_alloc))
+        self.assertGreater(idx_hist, idx_alloc)
+
+
+class Suite23_PromotionStatusFreshness(unittest.TestCase):
+    """AUDIT-004/005: promotion status + config contract documentation."""
+
+    def test_config_contract_documents_intentional_overrides(self):
+        path = REPO_ROOT / 'docs' / 'config-contract.md'
+        self.assertTrue(path.exists(), 'docs/config-contract.md must exist')
+        text = path.read_text()
+        for key in ('HARD_STOP_PCT', 'ROTATION_FRICTION_POINTS', 'REGIME_FLIP_COOLDOWN_DAYS'):
+            self.assertIn(key, text, f'config-contract must document {key} override')
+
+    def test_v2_promotion_status_reflects_live_shadow_mode(self):
+        from config import get_config
+        cfg = get_config()
+        status_path = REPO_ROOT / 'data' / 'v2_promotion_status.json'
+        self.assertTrue(status_path.exists(), 'v2_promotion_status.json must exist')
+        status = json.loads(status_path.read_text())
+        self.assertIn('updated', status)
+        self.assertIn('promotion_ready', status)
+        self.assertIn('v2', status)
+        if not cfg.V2_SHADOW_MODE:
+            self.assertFalse(status.get('promotion_ready'),
+                             'live v2 with failed gates must not show promotion_ready=True')
+
+    def test_reference_links_config_contract(self):
+        ref = (REPO_ROOT / '.cursor/skills/stock-analysis-system/reference.md').read_text()
+        self.assertIn('docs/config-contract.md', ref)
+
+
+class Suite18_HighConvictionFilter(unittest.TestCase):
+    """AUDIT-003: HIGH CONVICTION must exclude primary sell-side actions."""
+
+    def setUp(self):
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        self._is_sell = EnhancedTop200StockAnalyzer._primary_action_is_sell_side
+
+    def test_primary_sell_side_detects_exit_variants(self):
+        for action in (
+            'SELL', 'WEAK SELL', 'CONSIDER SELLING', 'REDUCE',
+            'REDUCE (SECTOR OVERWEIGHT)', 'SCALE_OUT_20', 'EXIT', 'SWAP',
+            'EMERGENCY EXIT', 'STOP LOSS',
+        ):
+            with self.subTest(action=action):
+                self.assertTrue(self._is_sell(action), f'{action!r} should be sell-side')
+
+    def test_primary_sell_side_allows_hold_and_buy(self):
+        for action in ('HOLD', 'BUY', 'STRONG BUY', 'NEW POSITION', 'INCREASE', 'WATCHLIST'):
+            with self.subTest(action=action):
+                self.assertFalse(self._is_sell(action), f'{action!r} should not be sell-side')
+
+    def test_high_conviction_loop_filters_before_append(self):
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        anchor = src.index('_consensus_buys = []')
+        block = src[anchor:anchor + 800]
+        self.assertIn('_primary_action_is_sell_side', block)
+        self.assertIn('continue', block)
 
 
 class Suite17_V2WeightFix(unittest.TestCase):

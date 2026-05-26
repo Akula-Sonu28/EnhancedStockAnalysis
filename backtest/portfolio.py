@@ -34,6 +34,7 @@ class Position:
     peak_score: float = 0.0         # for scale-out (Rule 5)
     last_score: float = 0.0
     last_mark_price: float = 0.0
+    last_exhaustion_score: float = 0.0   # hysteresis for momentum exhaustion
 
     @property
     def cost_basis(self) -> float:

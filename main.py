@@ -32,6 +32,12 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(project_root / ".env")
+except ImportError:
+    pass
+
 # Import the enhanced analyzer (keeping backward compatibility)
 try:
     from analyze_top200_stocks_enhanced import main as enhanced_main
@@ -58,6 +64,7 @@ def show_quick_help():
     print("• Single stock:   python main.py -s RELIANCE --risk-profile aggressive")
     print("• Interactive:    python main.py --interactive")
     print("• Tools:          python main.py --tools")
+    print("• Kite + analyze: python3 scripts/run_analysis.py --dry-run --fast")
     print()
 
 def show_tools_menu():

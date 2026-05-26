@@ -103,6 +103,8 @@ Deep project knowledge. Read on demand when SKILL.md isn't enough.
 
 `config.py` defines the dataclass `AnalysisConfig` with defaults. At import time, `load_config_from_file('config.json')` overlays the JSON, then `_validate_config` runs; on validation failure it rolls back. `update_config(**kwargs)` is the only thread-safe runtime mutator (uses `_CONFIG_LOCK`, validates, rolls back).
 
+**Production overrides:** see [`docs/config-contract.md`](../../docs/config-contract.md) for intentional differences between `config.py` defaults and live `config.json` (e.g. `HARD_STOP_PCT=-0.08`, `ROTATION_FRICTION_POINTS=3.0`, `REGIME_FLIP_COOLDOWN_DAYS=5`).
+
 ### Validation rules (selected)
 
 - Threshold ordering: `STRONG_BUY_THRESHOLD > BUY_THRESHOLD > HOLD_THRESHOLD > SELL_THRESHOLD`.
@@ -116,15 +118,15 @@ Deep project knowledge. Read on demand when SKILL.md isn't enough.
 - **Recommendation thresholds**: `STRONG_BUY=70`, `BUY=60`, `HOLD=50`, `SELL=40`, `UNDERVALUED_THRESHOLD=65`.
 - **Hysteresis & smoothing**: `HYSTERESIS_BUFFER=3.0`, `HYSTERESIS_PROXIMITY_BOOST=1.5`, `SCORE_SMOOTHING_WEIGHT=0.55` (`_BEAR=0.50`, `_DOWN=0.75`, `_UP=0.45`), `SCORE_SMOOTHING_MAX_AGE_DAYS=3`. `UNIDIRECTIONAL_HYSTERESIS=False` (v3 Layer 3 toggle — when True, only upgrades are buffered, downgrades fall through immediately).
 - **Portfolio**: `DEFAULT_PORTFOLIO_AMOUNT=100000`, `TARGET_PORTFOLIO_SIZE=23`, `MAX_PORTFOLIO_POSITIONS=15`, `MIN_INVESTMENT_PER_STOCK=3000`, `MIN_ALLOCATION_PERCENTAGE=2.0`. (`MAX_SINGLE_STOCK_WEIGHT=20.0`, `MAX_ALLOCATION_PCT=0.05` are DEPRECATED — allocator uses per-cap-tier limits.)
-- **Sector/concentration**: `SECTOR_CAP=10`, `CATEGORY_SECTOR_CAP=5`, `SECTOR_REDUCE_MIN_SCORE=45.0`, `CORE_CONCENTRATION_THRESHOLD=0.40`, `SECTOR_CAP_ENFORCE_HOLDINGS=True`, `SECTOR_CAP_SCORE_OVERRIDE=75.0`.
+- **Sector/concentration**: `SECTOR_CAP=10`, `CATEGORY_SECTOR_CAP=5`, `SECTOR_REDUCE_MIN_SCORE=45.0`, `CORE_CONCENTRATION_THRESHOLD=0.40`, `SECTOR_CAP_ENFORCE_HOLDINGS=True`, `SECTOR_CAP_SCORE_OVERRIDE=75.0`. **ROI-first policy:** sector-cap REDUCE on existing holdings skips names with `overall_score ≥ 50` (weakest sub-50 names marked first).
 - **Exits**: `EXIT_TOP_PCT=0.30`, `EXIT_BOTTOM_PCT=0.20`, `REBALANCE_PROFIT_THRESHOLD=0.05`, `PROFIT_BOOKING_THRESHOLD=0.20`, `EMERGENCY_EXIT_LOSS=-0.30`, `EMERGENCY_EXIT_SCORE=45.0`.
 - **Tiered emergency exit (sliding scale)**: `EMERGENCY_TIER_1_LOSS=-0.25`, `EMERGENCY_TIER_2_LOSS=-0.20`, `EMERGENCY_TIER_2_SCORE=50.0`, `EMERGENCY_TIER_3_LOSS=-0.15`, `EMERGENCY_TIER_3_SCORE=45.0`.
 - **ATR stop**: `STOP_LOSS_ATR_MULTIPLIER=2.0`, `STOP_LOSS_FALLBACK_PCT=0.08`.
-- **Hard stops (Phase 3b)**: `HARD_STOP_PCT=-0.07`, `HARD_STOP_OVERRIDE_SCORE=65`, `SOFT_STOP_PCT=-0.10`. Eval logic in `_evaluate_hard_stop` — now sleeve- and regime-aware (BEAR tightens via `_BEAR_*_TIGHTEN` class constants).
+- **Hard stops (Phase 3b)**: `HARD_STOP_PCT=-0.07` in code default; **live override `-0.08`** per `config.json`. `HARD_STOP_OVERRIDE_SCORE=65`, `SOFT_STOP_PCT=-0.10`. Eval logic in `_evaluate_hard_stop` — now sleeve- and regime-aware (BEAR tightens via `_BEAR_*_TIGHTEN` class constants).
 - **v3 Layer 3 (paper-trading opt-ins, default False)**: `HARD_STOP_PURE_PNL` (disables score-based override on stops), `UNIDIRECTIONAL_HYSTERESIS`, `PAPER_TRADING_MODE` (composite that forces both ON at runtime).
 - **Trailing stops (Contract Rule 6b)**: `TRAILING_STOP_PCT=0.15`, `TRAILING_STOP_BEAR_PCT=0.10`. Peak tracked per-symbol in `data/booking_history.json`.
 - **Scale-out (Contract Rule 5)**: `SCALE_OUT_PROFIT_THRESHOLD=0.15`, `SCALE_OUT_V2_DROP_PTS=10.0`, `SCALE_OUT_FRACTION=0.20`. Fires when position up ≥15% AND v2 dropped ≥10pts from peak; liquidates 20%.
-- **Rotation (Phase 3c)**: `ROTATION_FRICTION_POINTS=5.0`. Logic in `_should_rotate`.
+- **Rotation (Phase 3c)**: `ROTATION_FRICTION_POINTS=5.0` code default; **live override `3.0`**. Logic in `_should_rotate`.
 - **Regime exposure**: `BEAR_EXPOSURE=0.50`, `SIDEWAYS_EXPOSURE=0.85`, `BULL_EXPOSURE=1.00`.
 - **Universe (Phase 0)**: `EXCLUDE_ETFS=True`, `MIN_ADV_CRORES=10.0`, `MIN_AVG_DAILY_VOLUME=50000`, `ILLIQUID_SCORE_PENALTY=15.0`, `MAX_SAFE_VOLATILITY=80.0`.
 - **v2 promotion**: `V2_SHADOW_MODE=False` (LIVE), `V2_PROMOTION_DATE="2026-05-13"`, `V2_IC_BLEND_7D=0.80`.

@@ -17,7 +17,10 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
+
+from backtest.data.prices import PriceCache
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -36,6 +39,7 @@ class Decision:
     reason: str
     score: float
     hard_stop_tier: str = 'NONE'
+    exhaustion_score: float = 0.0
 
 
 class StrategyAdapter:
@@ -64,6 +68,57 @@ class StrategyAdapter:
         self.scale_out_frac = scale_out_fraction if scale_out_fraction is not None else cfg.SCALE_OUT_FRACTION
         self.sleeve = sleeve
         self._cfg = cfg
+        from early_breakout_detector import EarlyBreakoutDetector
+        self._exhaustion_detector = EarlyBreakoutDetector()
+
+    @staticmethod
+    def _rsi14(closes: pd.Series) -> float:
+        if closes is None or len(closes) < 15:
+            return 50.0
+        delta = closes.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = (-delta.clip(upper=0)).rolling(14).mean()
+        if loss.iloc[-1] == 0 or pd.isna(loss.iloc[-1]):
+            return 50.0
+        rs = gain.iloc[-1] / loss.iloc[-1]
+        val = 100.0 - (100.0 / (1.0 + rs))
+        return float(val) if pd.notna(val) else 50.0
+
+    def _exhaustion_decision(
+        self,
+        *,
+        symbol: str,
+        as_of: date,
+        price_cache: PriceCache,
+        entry_price: float,
+        previous_exhaustion_score: float,
+    ) -> Optional[Decision]:
+        ohlcv = price_cache.slice(symbol, as_of, 120)
+        if ohlcv is None or len(ohlcv) < 20:
+            return None
+        frame = ohlcv.rename(columns={'AdjClose': 'AdjClose'}) if 'AdjClose' in ohlcv.columns else ohlcv
+        if 'Close' not in frame.columns:
+            return None
+        rsi = self._rsi14(frame['Close'])
+        ex = self._exhaustion_detector.detect_momentum_exhaustion(
+            frame,
+            {'real_rsi': rsi},
+            entry_price=entry_price if entry_price > 0 else None,
+            previous_exhaustion_score=previous_exhaustion_score,
+        )
+        if not ex.get('exhaustion_detected') or float(ex.get('exhaustion_score', 0)) < 45:
+            return None
+        book_pct = float(ex.get('profit_booking_pct', 100) or 100)
+        qty_pct = min(1.0, max(0.25, book_pct / 100.0))
+        action = 'SELL' if qty_pct >= 1.0 else 'REDUCE'
+        return Decision(
+            symbol=symbol,
+            action=action,
+            qty_pct=qty_pct,
+            reason=f"MOMENTUM EXHAUSTION: {' | '.join(ex.get('exit_signals', []))}",
+            score=0.0,
+            exhaustion_score=float(ex.get('exhaustion_score', 0)),
+        )
 
     # --- Entry signal: score-based -------------------------------------
 
@@ -84,7 +139,13 @@ class StrategyAdapter:
                             market_regime: str = '',
                             peak_score: float = 0.0,
                             peak_price: float = 0.0,
-                            current_price: float = 0.0) -> Decision:
+                            current_price: float = 0.0,
+                            symbol: str = '',
+                            as_of: Optional[date] = None,
+                            price_cache: Optional[PriceCache] = None,
+                            entry_price: float = 0.0,
+                            previous_exhaustion_score: float = 0.0,
+                            momentum_exhaustion_enabled: bool = True) -> Decision:
         """Apply (in order):
             1. Hard-stop tier (EMERGENCY / HARD_STOP / SOFT_STOP / NONE)
             2. Trailing stop (peak * (1 - pct), bear pct in bear regime, only if in profit)
@@ -129,6 +190,20 @@ class StrategyAdapter:
                                        f'AND score dropped {score_drop:.1f}pts '
                                        f'(peak {peak_score:.1f} -> {score:.1f})',
                                 score=score)
+
+        # 3b. Momentum exhaustion (live parity — can fire within days of entry)
+        if (momentum_exhaustion_enabled and symbol and as_of is not None
+                and price_cache is not None):
+            ex_dec = self._exhaustion_decision(
+                symbol=symbol,
+                as_of=as_of,
+                price_cache=price_cache,
+                entry_price=entry_price or current_price,
+                previous_exhaustion_score=previous_exhaustion_score,
+            )
+            if ex_dec is not None:
+                ex_dec.score = score
+                return ex_dec
 
         # 4. Score-based sell
         if score < self.sell_thr:

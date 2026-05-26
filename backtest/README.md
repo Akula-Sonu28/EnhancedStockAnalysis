@@ -38,6 +38,12 @@ python3 -m backtest.runner path1 --engine v2 --capital 100000 --top-n 10
 
 # Run tests
 python3 -m pytest backtest/tests/ -v
+
+# Cooldown policy grid (Path 1, compares off / prod_3d|5d|7d / profit-bypass variants)
+python3 scripts/backtest_cooldown_comparison.py --rebalance weekly --top-n 10
+
+# Single run with cooldown (default off for backward compatibility)
+python3 -m backtest.runner path1 --cooldown prod_5d --capital 100000 --top-n 10
 ```
 
 Results land in `backtest/results/<run_id>/`:
