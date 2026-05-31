@@ -1,0 +1,68 @@
+{
+  "generated": "2026-05-31T13:17:36",
+  "mode": "qmst_report_picking_backfill",
+  "report_dates_with_vs_mt": 42,
+  "fq_enriched_rows": 13186,
+  "watchlist_rows_total": 2638,
+  "rows_with_return_30d": 4469,
+  "ic_decision_dates": 22,
+  "ic_date_range": {
+    "start": "2026-03-17",
+    "end": "2026-04-29"
+  },
+  "picking_rank_metrics": {
+    "score_col": "picking_rank",
+    "pooled_ic": 0.38241751110947714,
+    "pooled_spread_pp": 9.536000601318722,
+    "pooled_n": 4469,
+    "q5_mean_pct": 10.064475823912689,
+    "q1_mean_pct": 0.5284752225939671,
+    "cross_sectional_mean_ic": 0.056724441075361384,
+    "cross_sectional_icir": 0.9101437585070881,
+    "cross_sectional_days": 22,
+    "pct_positive_ic_days": 81.81818181818183,
+    "by_regime": {
+      "BEAR": {
+        "pooled_ic": 0.1381238785046952,
+        "pooled_spread_pp": 3.944660941153283,
+        "pooled_n": 1421,
+        "cs_mean_ic": 0.05377387480512149,
+        "cs_days": 7
+      },
+      "UNKNOWN": {
+        "pooled_ic": 0.3897323478155106,
+        "pooled_spread_pp": 10.13658974091784,
+        "pooled_n": 3048,
+        "cs_mean_ic": 0.05810137200147334,
+        "cs_days": 15
+      }
+    }
+  },
+  "gates": {
+    "forward_picking_ic_30d": {
+      "value": 0.38241751110947714,
+      "threshold": 0.05,
+      "pass": true,
+      "n": 4469,
+      "source": "report_backfill_picking_rank"
+    },
+    "quintile_spread_pp": {
+      "value": 9.536000601318722,
+      "threshold": 3.0,
+      "pass": true
+    },
+    "cross_sectional_ic_days": {
+      "value": 22,
+      "threshold": 15,
+      "pass": true
+    },
+    "report_calendar_days_vs_mt": {
+      "value": 42,
+      "threshold": 42,
+      "pass": true,
+      "note": "3 mom-only dates (Mar 12/13/16) excluded \u2014 no hybrid_volume_strength in report."
+    }
+  },
+  "pick_layer_certified": true,
+  "note": "Pick layer validated on report VS+MT across all eligible calendar days. Full QMST-VALIDATED still requires walk-forward IC + backtest gates and 60 consecutive days of live picking_rank history for production proof."
+}

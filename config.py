@@ -82,6 +82,74 @@ class AnalysisConfig:
     EXIT_BOTTOM_PCT: float = 0.20
     REBALANCE_PROFIT_THRESHOLD: float = 0.05
     PROFIT_BOOKING_THRESHOLD: float = 0.20
+    # High-score profitable runners: cap exhaustion at partial book unless
+    # exhaustion_score reaches EXHAUSTION_FULL_EXIT_MIN_SCORE (RSI extreme + volume fade).
+    EXHAUSTION_QUALITY_SCORE_FLOOR: float = 58.0
+    EXHAUSTION_FULL_EXIT_MIN_SCORE: float = 80.0
+    # Losses worse than this bypass the graduated conviction gate (full SELL).
+    GRADUATED_EXIT_BYPASS_LOSS_PCT: float = -0.08
+
+    # VMQ (Validated Momentum-Quality): pattern-derived entry/validation (no IC gate).
+    VMQ_ENABLED: bool = True
+    VMQ_ENTRY_SCORE_MIN: float = 0.0  # 0 = oracle+turbo gates only (no v1 score floor)
+    VMQ_ENTRY_MOM_FLOOR: float = 45.0
+    VMQ_VALUE_TRAP_FUND_MIN: float = 75.0
+    VMQ_VALUE_TRAP_MOM_MAX: float = 55.0
+    VMQ_V1_V2_GAP_MAX: float = 15.0
+    VMQ_MAX_NEW_PER_WEEK: int = 3
+    VMQ_REQUIRE_V2_BUY: bool = False
+    VMQ_V2_BUY_THRESHOLD: float = 60.0
+    VMQ_REQUIRE_TURBO_PASS: bool = True
+    VMQ_TURBO_MIN: float = 65.0
+    VMQ_VALIDATION_FAIL_3D: float = -2.0
+    VMQ_VALIDATION_FAIL_5D: float = -1.0
+    VMQ_SWING_STOP_PCT: float = -5.0
+    VMQ_HARD_STOP_PCT: float = -8.0
+    VMQ_TRAIL_STOP_PCT: float = 0.08
+    # Day-3/5 early validation — OFF by default (production). Hard/swing/trail remain ON.
+    # Set VMQ_DAY3_ENABLED=true + VMQ_DAY3_ACTIVE_REGIMES for bear-only experiments.
+    VMQ_DAY3_ENABLED: bool = False
+    VMQ_DAY3_REGIME_GATED: bool = True
+    VMQ_DAY3_ACTIVE_REGIMES: str = 'bear,high_vol'
+    VMQ_DAY3_VIX_MIN: float = 25.0
+    # Skip day-3/5 when winner / trend intact (reduces whipsaw vs flat P&L>0 skip).
+    VMQ_DAY3_SMART_SKIP: bool = True
+    VMQ_DAY3_SKIP_PNL_MIN: float = 5.0
+    VMQ_DAY3_SKIP_MTF_MIN: float = 52.0
+    VMQ_DAY3_SKIP_IF_TURBO_PASS: bool = True
+    # Day-3/5 validation only for recent NEW POSITION entries (May-churn window).
+    VMQ_VALIDATION_MAX_DAYS: int = 21
+    VMQ_MAX_EXITS_PER_RUN: int = 5
+    # Bottom-20% rebalance: full SELL only below this profit; else CONSIDER.
+    REBALANCE_SELL_MAX_PROFIT_PCT: float = 0.03
+
+    # Entry driver: turbo_mtf = timing-first (v2 + MTF + 3d confirm); vmq_v1 = legacy score gate.
+    ENTRY_DRIVER: str = 'turbo_mtf'
+    TURBO_ENTRY_V2_MIN: float = 60.0
+    TURBO_ENTRY_MTF_MIN: float = 55.0
+    TURBO_ENTRY_MOM_MIN: float = 50.0
+    ENTRY_V1_SCORE_FLOOR: float = 55.0
+    ENTRY_CONFIRM_3D_MIN_RET: float = 0.0
+    ENTRY_CONFIRM_3D_STRONG_RET: float = 2.0
+    # Extended-entry guards (ATGL-style chase / rejection after spike).
+    TURBO_ENTRY_RSI_MAX: float = 75.0
+    TURBO_ENTRY_RSI_HARD_BLOCK: float = 75.0
+    TURBO_ENTRY_CHASE_5D_MAX: float = 15.0
+    TURBO_ENTRY_REJECTION_WICK_PCT: float = 8.0
+
+    # Path 2 — Balanced strategy (VMQ sells + soft rank trims + breakout lane).
+    PATH2_BALANCED_ENABLED: bool = True
+    PATH2_SOFT_SELL_PNL_MIN: float = -0.03
+    PATH2_SOFT_SELL_PNL_MAX: float = 0.03
+    PATH2_CONSIDER_TRIM_PCT: float = 0.25
+    BREAKOUT_RADAR_ENABLED: bool = True
+    BREAKOUT_FAST_TRACK_ENABLED: bool = True
+    BREAKOUT_MAX_NEW_PER_WEEK: int = 1
+    BREAKOUT_FAST_TRACK_SIZE_MULT: float = 0.5
+    BREAKOUT_IGNITE_VOL_RATIO: float = 2.5
+    BREAKOUT_IGNITE_1D_MIN: float = 2.5
+    BREAKOUT_COIL_DIST_20D_MAX: float = 4.0
+
     EMERGENCY_EXIT_LOSS: float = -0.30
     EMERGENCY_EXIT_SCORE: float = 45.0
 
@@ -205,9 +273,9 @@ class AnalysisConfig:
             'label': 'TURBO MTF [PRIMARY]',
             'rebalance': 'weekly',
             'weights': {
-                'momentum_technical': 0.25, 'volume_strength': 0.05,
-                'multi_timeframe': 0.35, 'fundamental_quality': 0.05,
-                'risk_adjustment': -0.18, 'growth': 0.06, 'value': 0.06,
+                'momentum_technical': 0.10, 'volume_strength': 0.25,
+                'multi_timeframe': 0.40, 'fundamental_quality': 0.05,
+                'risk_adjustment': 0.0, 'growth': 0.0, 'value': 0.0,
                 'ml_signal': 0.0,
             },
         },
@@ -228,6 +296,55 @@ class AnalysisConfig:
     V2_SHADOW_MODE: bool = True
     V2_PROMOTION_DATE: str = ""
     V2_IC_BLEND_7D: float = 0.80
+    # Exclude forced-exit rows from IC calibration (improves rank-surface picking IC).
+    V2_CALIBRATE_RANK_SURFACE_ONLY: bool = True
+    # When 7d and 30d component IC disagree in sign, trust 30d for stock-picking horizon.
+    V2_IC_DISAGREE_USE_30D: bool = True
+
+    # Stock-picking rank for NEW candidates / funding pool.
+    PICKING_RANK_DRIVER: str = 'flow_quality'  # flow_quality | turbo_mtf | auto | v2_synth | blended
+
+    # Oracle recovery (pick / time / exit separation).
+    ORACLE_PICK_METRIC: str = 'fq_score'  # fq_score | volume_only | fq_adapt
+    ORACLE_WATCHLIST_PCT: float = 0.20
+    ORACLE_ROLLING_SWITCH_ENABLED: bool = True
+    ORACLE_IC_SWITCH_WINDOW_DAYS: int = 21
+    # fq+turbo NEW allowed while V2_SHADOW_MODE keeps v2 rank off actions.
+    ORACLE_ENTRY_LIVE: bool = True
+    ORACLE_PAUSE_NEW_ON_HOLD_SHADOW: bool = True
+    # Holdings exit rank + sector trim use picking_rank (fq/turbo), not v1 overall_score.
+    ORACLE_STACK_ALIGN: bool = True
+    ORACLE_PAUSE_NEW_IN_BEAR: bool = True
+    ORACLE_DISABLE_RANK_SELL_ON_CORE: bool = True
+    # When stack aligned, disable bottom-20% rank-SELL on all sleeves (VMQ exits only).
+    ORACLE_DISABLE_RANK_SELL_ALL: bool = True
+
+    # QMST master switch — layer labels, history fields, report badge.
+    QMST_ENABLED: bool = True
+    QMST_STATUS_BADGE: str = 'QMST-BETA'  # QMST-BETA | QMST-VALIDATED | QMST-DEMOTE
+    # Pick quality floors on oracle watchlist — OFF until backtest certifies (scripts/backtest_qmst_pick_gates.py).
+    QMST_PICK_GATES_ENABLED: bool = False
+    QMST_PICK_FQ_MIN: float = 48.0
+    QMST_PICK_RK_MIN: float = 42.0
+    QMST_PICK_VL_MIN: float = 45.0
+    QMST_PICK_VL_GATE: bool = False
+    # Optional volume-strength floor on NEW/INCREASE turbo gate (0 = off).
+    TURBO_ENTRY_VS_MIN: float = 0.0
+    # Shadow NSE bhavcopy delivery/turnover columns (fq_score_nse); does not drive pick rank.
+    ORACLE_USE_NSE_FLOW_SHADOW: bool = True
+    ORACLE_DIST_20D_HIGH_FILTER: bool = True
+    ORACLE_DIST_20D_HIGH_MIN_PCT: float = -12.0
+    ORACLE_MAX_NEW_PER_FORTNIGHT: int = 3
+
+    # Upstox — market data only (no holdings/orders). Token in .env only.
+    UPSTOX_DATA_ENABLED: bool = False
+    FQ_LAMBDA_DEFAULT: float = 0.5
+    FQ_LAMBDA_LOW: float = 0.3
+    FQ_LAMBDA_MID: float = 0.5
+    FQ_LAMBDA_HIGH: float = 0.8
+    FQ_MOM_MID_THRESHOLD: float = 50.0
+    FQ_MOM_HIGH_THRESHOLD: float = 65.0
+    CALIBRATION_MODE: str = 'diagnostic'  # diagnostic | production
 
     # Cache Retention
     CACHE_MAX_AGE_DAYS: int = 7
@@ -339,6 +456,23 @@ _VALIDATION_RULES: dict = {
     'ILLIQUID_SCORE_PENALTY': (float, 0, 50),
     'MIN_AVG_DAILY_VOLUME': (int, 10_000, 10_000_000),
     'PROFIT_BOOKING_THRESHOLD': (float, 0.0, 1.0),
+    'EXHAUSTION_QUALITY_SCORE_FLOOR': (float, 0.0, 100.0),
+    'EXHAUSTION_FULL_EXIT_MIN_SCORE': (float, 0.0, 100.0),
+    'GRADUATED_EXIT_BYPASS_LOSS_PCT': (float, -1.0, 0.0),
+    'VMQ_ENTRY_SCORE_MIN': (float, 0.0, 100.0),
+    'VMQ_ENTRY_MOM_FLOOR': (float, 0.0, 100.0),
+    'VMQ_MAX_NEW_PER_WEEK': (int, 1, 20),
+    'VMQ_VALIDATION_FAIL_3D': (float, -20.0, 10.0),
+    'VMQ_VALIDATION_FAIL_5D': (float, -20.0, 10.0),
+    'VMQ_DAY3_VIX_MIN': (float, 10.0, 80.0),
+    'VMQ_DAY3_SKIP_PNL_MIN': (float, 0.0, 50.0),
+    'VMQ_DAY3_SKIP_MTF_MIN': (float, 0.0, 100.0),
+    'QMST_PICK_FQ_MIN': (float, 0.0, 100.0),
+    'QMST_PICK_RK_MIN': (float, 0.0, 100.0),
+    'QMST_PICK_VL_MIN': (float, 0.0, 100.0),
+    'VMQ_SWING_STOP_PCT': (float, -30.0, 0.0),
+    'VMQ_HARD_STOP_PCT': (float, -30.0, 0.0),
+    'VMQ_TRAIL_STOP_PCT': (float, 0.01, 0.30),
     'REBALANCE_PROFIT_THRESHOLD': (float, 0.0, 1.0),
     'SELL_THRESHOLD': (float, 0, 100),
     'EMERGENCY_EXIT_LOSS': (float, -1.0, 0.0),
@@ -349,6 +483,7 @@ _VALIDATION_RULES: dict = {
     'SOFT_STOP_PCT': (float, -1.0, 0.0),
     'ROTATION_FRICTION_POINTS': (float, 0.0, 50.0),
     'V2_IC_BLEND_7D': (float, 0.0, 1.0),
+    'TURBO_ENTRY_VS_MIN': (float, 0.0, 100.0),
 }
 
 def _validate_config(cfg: 'AnalysisConfig') -> None:

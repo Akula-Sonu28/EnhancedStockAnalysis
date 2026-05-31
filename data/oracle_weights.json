@@ -1,0 +1,26 @@
+{
+  "updated": "2026-05-30",
+  "alpha_pick": {
+    "metric": "flow_quality",
+    "lambda_default": 0.5,
+    "lambda_low": 0.3,
+    "lambda_mid": 0.5,
+    "lambda_high": 0.8,
+    "watchlist_pct": 0.2
+  },
+  "tau_entry": {
+    "profile": "turbo_mtf",
+    "weights": {
+      "multi_timeframe": 0.4,
+      "volume_strength": 0.25,
+      "momentum_technical": 0.1,
+      "fundamental_quality": 0.05,
+      "risk_adjustment": 0.0,
+      "growth": 0.0,
+      "value": 0.0,
+      "ml_signal": 0.0
+    }
+  },
+  "shadow_oracles": ["volume_only", "fq_adapt"],
+  "notes": "Single source for oracle recovery P0. Regime overrides require n>=200 per regime."
+}

@@ -32,6 +32,12 @@ python3 -m backtest.runner path1 --capital 100000 --top-n 10 --rebalance weekly
 # Path 2: medium-fidelity 6-month re-scoring backtest
 python3 -m backtest.runner path2 --capital 100000 --top-n 10 --months 6 --rebalance weekly
 
+# QMST stack: fq pick (top 20%) + turbo entry + VMQ exits (path1 window)
+python3 -m backtest.runner qmst --capital 100000 --top-n 10 --rebalance weekly
+
+# QMST trailing 3 months (OHLCV rescore) with day-3/5 VMQ validation
+python3 -m backtest.runner qmst --months 3 --capital 100000 --top-n 10 --rebalance weekly
+
 # Head-to-head v1 vs v2 (Path 1 only — Path 2 v1 needs PIT fundamentals)
 python3 -m backtest.runner path1 --engine v1 --capital 100000 --top-n 10
 python3 -m backtest.runner path1 --engine v2 --capital 100000 --top-n 10

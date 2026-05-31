@@ -152,22 +152,8 @@ def _calibrate_on(train: pd.DataFrame) -> dict:
 
 
 def _synthesise_v2_score(test_df: pd.DataFrame, weights: dict) -> pd.Series:
-    """Apply weights to per-row hybrid_* components using the deviation-from-
-    neutral formula: v2 = 50 + sum (component_i - 50) * weight_i. Rows missing
-    all components return NaN."""
-    deviation = pd.Series(0.0, index=test_df.index)
-    has_any = pd.Series(False, index=test_df.index)
-    for comp_col, weight_key in WEIGHT_KEY_FROM_COMPONENT.items():
-        if comp_col not in test_df.columns:
-            continue
-        w = float(weights.get(weight_key, 0.0))
-        if w == 0.0:
-            continue
-        comp = pd.to_numeric(test_df[comp_col], errors='coerce')
-        has_any = has_any | comp.notna()
-        deviation = deviation.add(((comp - 50.0) * w).fillna(0.0), fill_value=0.0)
-    score_v2 = (50.0 + deviation).clip(lower=0.0, upper=100.0)
-    return score_v2.where(has_any, other=float('nan'))
+    from src.picking_metrics import synthesise_v2_score
+    return synthesise_v2_score(test_df, weights)
 
 
 def _evaluate_split_fixed(test: pd.DataFrame, weights: dict, label: str,

@@ -1,0 +1,4 @@
+symbol,sector,entry_date,exit_date,holding_days,qty,entry_price,exit_price,gross_pl,entry_costs,exit_costs,tax_type,tax,net_pl,net_return_pct,entry_score,peak_score,exit_score,peak_price,exit_reason,slippage_bps
+IRB,Industrials,2026-03-31,2026-04-03,3,443,22.2222,21.6683,-245.38,11.69,9.96,STCG,0.0,-267.02,-2.7124,22.35,31.5,17.7,22.2222,VMQ SWING STOP: loss -5.9% <= -5%,10.0
+LICI,Financial Services,2026-04-16,2026-05-01,15,24,426.2258,398.5511,-664.19,12.14,9.92,STCG,0.0,-686.26,-6.7087,-11.0,1.8,-15.55,842.2,VMQ SWING STOP: loss -6.4% <= -5%,10.0
+WAAREEENER,Technology,2026-04-16,2026-05-01,15,3,3446.6432,3115.6812,-992.89,12.28,9.7,STCG,0.0,-1014.86,-9.8149,-11.25,-11.25,-31.2,3495.1,VMQ HARD STOP: loss -9.5% <= -8%,10.0

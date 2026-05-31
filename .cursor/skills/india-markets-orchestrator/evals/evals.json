@@ -1,0 +1,36 @@
+{
+  "skill_name": "india-markets-orchestrator",
+  "repo": "/Users/akulakavyashree/TestNetstock/Stock_Analysis",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use india-markets-orchestrator — full desk view on RELIANCE from the latest pipeline run. Explain if pipeline action matches fundamentals.",
+      "expected_output": "Reads latest Enhanced_Stock_Report xlsx and/or cache; invokes fundamental/technical/macro/portfolio desks; cites v2 score and action; synthesis table; disclaimer. No invented prices.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Why did the system give SELL on a name in the last report? Walk through portfolio and technical desks.",
+      "expected_output": "Reads recommendation_history + report row; references early_breakout_detector or rotation/hard-stop if applicable; distinguishes pipeline reason from desk opinion.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Weekly aggressive rebalance plan for ₹5L — dry-run first.",
+      "expected_output": "Routes to turbo-mtf-weekly-trader + portfolio desk; suggests run_analysis.py --dry-run --fast; reads Portfolio Allocation sheet; no live history write without user confirm.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "What's the current regime and which sectors does the pipeline overweight?",
+      "expected_output": "Reads data/last_known_regime.json + Sector Analysis sheet; macro desk memo; cites calibrated_weights_v2 per regime if relevant.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Bank Nifty weekly straddle before RBI",
+      "expected_output": "Routes to derivatives desk (research-only); notes pipeline has no F&O; optional macro desk for RBI; clear disclaimer.",
+      "files": []
+    }
+  ]
+}

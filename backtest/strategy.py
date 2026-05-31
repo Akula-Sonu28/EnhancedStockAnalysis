@@ -144,6 +144,7 @@ class StrategyAdapter:
                             as_of: Optional[date] = None,
                             price_cache: Optional[PriceCache] = None,
                             entry_price: float = 0.0,
+                            entry_date=None,
                             previous_exhaustion_score: float = 0.0,
                             momentum_exhaustion_enabled: bool = True) -> Decision:
         """Apply (in order):

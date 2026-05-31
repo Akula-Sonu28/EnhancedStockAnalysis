@@ -3,6 +3,450 @@
 This file tracks every code change with date, rationale, and affected files
 per the operating contract's Definition of Done.
 
+## 2026-05-31 — run_analysis.py live default for --kite-auto
+
+**Context:** `python3 scripts/run_analysis.py --kite-auto` silently defaulted to `--dry-run --fast`, so recommendation_history never updated on weekly Kite workflow.
+
+**Fix:** `--kite-auto` (or `ANALYSIS_LIVE_DEFAULT=true`) now runs live with `DEFAULT_PORTFOLIO_AMOUNT` + moderate risk. Preview remains explicit: `--dry-run --fast`.
+
+**Files:** `scripts/run_analysis.py`, `tests/test_run_analysis.py`
+
+## 2026-05-31 — Sharpe gate recalibration + pick-gate backtest harness
+
+**Context:** User approved next steps: recalibrate validation Sharpe for no-day-3 production profile; backtest FQ≥48/RK≥42 pick gates before live enforcement.
+
+**Delivered:**
+- Production backtest profile in `qmst_validation_gate.py`: Sharpe floor **−0.10** when reading `production_default` no-day-3 metrics (excess return remains primary)
+- Badge now **QMST-VALIDATED** when report pick IC + walk-forward + production backtest pass
+- `src/qmst_pick_gates.py` + config keys (`QMST_PICK_GATES_ENABLED=false` default)
+- Wired into live `evaluate_entry_gate` + backtest `QMSTStrategyAdapter` + `--pick-gates` CLI
+- `scripts/backtest_qmst_pick_gates.py` → `data/qmst_pick_gates_backtest.json`
+
+**Pick-gate A/B results (no day-3):**
+| Window | Baseline excess | Gated excess | Trades B/G | Verdict |
+|--------|-----------------|--------------|------------|---------|
+| 3m | +19.4 pp | +10.4 pp | 9/8 | KEEP OFF |
+| 6m | +16.3 pp | +11.4 pp | 19/20 | KEEP OFF |
+| 12m | +8.2 pp | **+13.8 pp** | 28/20 | ENABLE (12m only) |
+
+**Decision:** Pick gates stay **OFF** in config until user confirms 12m-only enable or multi-window consensus. Promoter pledge=0 not backtestable (no column).
+
+**Files:** `src/qmst_pick_gates.py`, `config.py`, `src/vmq_strategy.py`, `backtest/qmst_strategy.py`, `backtest/runner.py`, `scripts/qmst_validation_gate.py`, `scripts/backtest_qmst_pick_gates.py`, `tests/test_qmst_pick_gates.py`, `data/qmst_pick_gates_backtest.json`, `docs/strategy-qmst.md`
+
+## 2026-05-31 — VMQ day-3/5 OFF as production default
+
+**Context:** 12m backtest ladder showed no-day-3 (+4.9%, +8.2 pp vs Nifty, 28 trades, ₹0 STCG) beats all day-3 variants. User approved wiring this as the live + backtest default.
+
+**Delivered:**
+- `VMQ_DAY3_ENABLED=false` master switch in `config.py`; `day3_validation_active()` returns False when off
+- Live pipeline (`apply_vmq_to_allocation_df`) and backtest adapter default to config (no day-3/5)
+- `backtest/runner.py`: `--day3` force-enable, `--no-day3` force-disable; summary includes `vmq_day3_enabled`
+- `scripts/verify_regime.py` + `scripts/qmst_validation_gate.py` read production default from `data/qmst_backtest_comparison.json`
+- Tests updated with `_day3_enabled_cfg()` helper for experiment-path coverage
+
+**Files:** `config.py`, `src/vmq_strategy.py`, `backtest/runner.py`, `backtest/qmst_strategy.py`, `scripts/verify_regime.py`, `scripts/qmst_validation_gate.py`, `docs/strategy-qmst.md`, `data/qmst_backtest_comparison.json`, `tests/test_vmq_strategy.py`, `tests/test_verify_regime.py`, `backtest/tests/test_qmst_backtest.py`
+
+**Open:** Pick gates (FQ≥48, RK≥42) — 12m backtest +5.7 pp vs baseline but 3m/6m hurt; still OFF pending user confirm. Promoter pledge needs data column.
+
+## 2026-05-31 — VMQ day-3/5 smart skip (profit + turbo + MTF)
+
+**Context:** Next exit-layer tweak after regime gate: skip day-3/5 when P&L > 5%, turbo PASS, or MTF ≥ 52.
+
+**Delivered:** `should_skip_day3_validation()`, config keys `VMQ_DAY3_SMART_SKIP`, `VMQ_DAY3_SKIP_PNL_MIN`, `VMQ_DAY3_SKIP_MTF_MIN`, `VMQ_DAY3_SKIP_IF_TURBO_PASS`; wired live + backtest engine row lookup.
+
+**12m backtest (regime-gated + smart skip):** −4.7% total, −1.45 pp vs Nifty, day-3/5 = 16/5 (prior regime-only: −2.8%, +0.4 pp, 17/8). Smart skip alone did not reach no-day-3 (+4.9%) — next lever is core/satellite split or SIDEWAYS day-3 off.
+
+## 2026-05-31 — VMQ day-3 off in SIDEWAYS (BEAR + VIX only)
+
+**Context:** 12m smart-skip still −4.7% with SIDEWAYS day-3 on. Experiment: `VMQ_DAY3_ACTIVE_REGIMES=bear,high_vol` (drop sideways).
+
+**12m result (smart skip + bear-only day-3):** **+3.93%** total, **+7.18 pp** vs Nifty, day-3/5 = **3/0**, 67 trades. Near no-day-3 (+4.9%) while keeping 3 bear-phase early exits.
+
+**Files:** `config.py`, `docs/strategy-qmst.md`, `tests/test_vmq_strategy.py`, `data/qmst_backtest_comparison.json`
+
+**Tests:** 24 pass
+
+**Files:** `config.py`, `src/vmq_strategy.py`, `backtest/engine.py`, `backtest/qmst_strategy.py`, `docs/strategy-qmst.md`, `tests/test_vmq_strategy.py`, `data/qmst_backtest_comparison.json`
+
+**Tests:** 25 pass (vmq + qmst backtest smoke)
+
+## 2026-05-31 — VMQ day-3/5 regime gate (Option A)
+
+**Context:** 12m QMST backtest showed day-3/5 churn (−9.2% vs +4.9% without). Council-approved Option A: skip early validation in BULL; keep in bear/sideways/high-VIX.
+
+**Findings:**
+- F-NEW-1 (high): Empty `regime` in Path2 snapshots made gate default to active — fixed via `_regime_at_date` in `path2_rescore.py` (cache suffix `_rg1`).
+- F-NEW-2 (medium): `VMQ_VALIDATION_FAIL_5D` tightened from `0.0` → `-1.0` to reduce flat-day-5 whipsaw.
+
+**Delivered:**
+- `day3_validation_active()` + config: `VMQ_DAY3_REGIME_GATED`, `VMQ_DAY3_ACTIVE_REGIMES`, `VMQ_DAY3_VIX_MIN`
+- Live: `apply_vmq_to_allocation_df(..., market_regime, vix_level)` from analyzer
+- Backtest: regime per snapshot + `enable_day3_validation` on adapter
+
+**12m backtest ladder (₹1L, weekly):**
+
+| Mode | Return | vs Nifty | Day-3 / Day-5 |
+|------|--------|----------|---------------|
+| Always day-3 | −9.2% | −5.9 pp | 29 / 23 |
+| **Regime-gated** | **−2.8%** | **+0.4 pp** | 17 / 8 |
+| No day-3 | +4.9% | +8.2 pp | 0 / 0 |
+
+**Files:** `config.py`, `src/vmq_strategy.py`, `analyze_top200_stocks_enhanced.py`, `backtest/qmst_strategy.py`, `backtest/data/path2_rescore.py`, `backtest/runner.py`, `docs/strategy-qmst.md`, `tests/test_vmq_strategy.py`, `data/qmst_backtest_comparison.json`
+
+**Tests:** `pytest tests/test_vmq_strategy.py tests/test_qmst_layer_priority.py backtest/tests/test_qmst_backtest.py` (28 pass)
+
+**Open:** Forward 60d IC for QMST-VALIDATED badge unchanged.
+
+## 2026-05-31 — Regime verification script
+
+**Context:** User requested live regime audit vs Nifty/VIX for accuracy checks.
+
+**Delivered:** `scripts/verify_regime.py` — live detector, manual signal recompute, VMQ day-3 gate status, historical spot checks; optional JSON to `data/regime_verification.json`.
+
+**Tests:** `tests/test_verify_regime.py` (3 pass)
+
+## 2026-05-30 — QMST full implementation (Phases 0–3)
+
+**Context:** Council-approved [QMST-MASTER-PLAN.md](./QMST-MASTER-PLAN.md). User command: `implement fully`.
+
+**Delivered:**
+- **P0:** `docs/strategy-qmst.md`, `AGENTS.md` pointer, `QMST_*` + `TURBO_ENTRY_VS_MIN` config keys
+- **P1:** `format_holdings_reason` / `format_rank_metric_clause` — holdings REASON uses `Pick rank:` when oracle aligned
+- **P2:** Turbo gate on **INCREASE** (invest > 0) → HOLD + invest=0; `TURBO_ENTRY_VS_MIN` floor in turbo gate
+- **P3:** `picking_rank` in `record_recommendation`; history `score` = `resolve_validation_score()`; `scripts/qmst_validation_gate.py`; Dashboard + Portfolio Allocation QMST badge/footer; Complete Data preserves oracle columns
+
+**Files:** `src/picking_metrics.py`, `src/vmq_strategy.py`, `src/turbo_entry.py`, `recommendation_history.py`, `analyze_top200_stocks_enhanced.py`, `config.py`, `scripts/qmst_validation_gate.py`, `scripts/evaluate_stock_picking.py`, `tests/test_qmst_layer_priority.py`, `tests/test_picking_metrics.py`, `docs/strategy-qmst.md`, `AGENTS.md`
+
+**Tests:** `python3 tests/test_qmst_layer_priority.py`, `test_picking_metrics.py`, `test_v2_regression.py`, oracle/turbo/vmq suites
+
+**Open:** 60-day forward IC gates for **QMST-VALIDATED** badge (runtime, not code)
+
+## 2026-05-31 — QMST portfolio backtest (path1 window)
+
+**Context:** User requested end-to-end QMST backtest on `historical_outcomes.csv`.
+
+**Delivered:** `python3 -m backtest.runner qmst` — fq pick (top 20% watchlist) + turbo entry + VMQ exits. Files: `backtest/data/qmst_loader.py`, `backtest/qmst_strategy.py`, engine hooks, `backtest/tests/test_qmst_backtest.py`.
+
+**Path1 window (Mar 17 – May 7 2026, ₹1L, top-10, weekly):** QMST +14.4% vs v2 +8.7% vs v1 +0.3%; excess vs Nifty +11.9pp (QMST) vs +6.2pp (v2). See `data/qmst_backtest_comparison.json`.
+
+**Caveats:** ~7 weeks only; most QMST P&L in open marks; day-3/5 VMQ deferred (no synthetic price history in sim).
+
+## 2026-05-30 — Council: sell-wave root cause + enable NEW buys
+
+**Context:** User council review — 14+ SELLs on 19 holdings looked like a mass exit.
+Requested enabling NEW entries (lift walk-forward pause).
+
+**Findings (council):**
+- **P0 bug:** `current_price=NaN` is truthy in Python, so `price or LTP` never fell back to broker LTP → all 19 holdings flagged `NO_PRICE`, `profit_pct=NaN`, rank scores collapsed to ~25.
+- **P1 bug:** Rank-loop HOLD/`ORACLE_NO_RANK_SELL` was overwritten by preserved stale SELL actions (Q92 preserve path).
+- **Legitimate exits:** VMQ day-3/5 fail (~5/run), HARD STOP on real losers (NATCOPHARM -12.6%, GESHIP -14.9%, AIIL -9%).
+- **Buys blocked:** `ORACLE_PAUSE_NEW_ON_HOLD_SHADOW=true` + walk-forward `ESCALATE_TIER_C`.
+
+**Fixes:**
+- `_holding_live_price()` — NaN-safe LTP fallback for holdings + hard-stop P&L
+- Oracle rank HOLD overrides stale rank-only SELL when `hard_stop_tier=NONE`
+- `ORACLE_PAUSE_NEW_ON_HOLD_SHADOW=false` in `config.json` (user confirmed enable buy)
+
+**Post-fix smoke:** NO_PRICE 0; SELL 11→VMQ+hard-stop driven; NEW/SWAP/BREAKOUT NEW appear.
+
+**Files:** `analyze_top200_stocks_enhanced.py`, `config.json`
+
+## 2026-05-30 — Oracle stack 100% gap closure
+
+**Context:** Council identified remaining gaps after partial stack alignment (v1 labels,
+PATH2 lane, smoothing/validation, TACTICAL rank-SELL, NSE flow inputs).
+
+**Changes:**
+- `v1_audit_recommendation` preserved; `final_recommendation` = oracle stack labels
+- Score smoothing skipped when `ORACLE_STACK_ALIGN`
+- `resolve_validation_score()` for history validation (oracle rank)
+- `ORACLE_DISABLE_RANK_SELL_ALL` — bottom-20% rank-SELL off all sleeves (VMQ only)
+- PATH2 fast-track requires oracle watchlist + turbo pass
+- `src/nse_flow_data.py` — shadow `fq_score_nse`, delivery/turnover columns
+
+**Files:** `config.py`, `config.json`, `src/picking_metrics.py`, `src/nse_flow_data.py`,
+`src/path2_balanced.py`, `analyze_top200_stocks_enhanced.py`, tests
+
+**Open:** `fq_score_nse` shadow-only until IC proof; NEW still paused on `ESCALATE_TIER_C`
+
+## 2026-05-30 — Oracle stack 100% action-plan alignment
+
+**Context:** Council confirmed NEW entries used fq+turbo but holdings exit rank,
+sector trim, and VMQ still gated on inverted v1 score. User approved full alignment.
+
+**Changes:**
+- `ORACLE_STACK_ALIGN=true` — holdings 30/50/20 rank + sector reduce use `picking_rank` (fq/turbo)
+- `ORACLE_PAUSE_NEW_ON_HOLD_SHADOW=true` — pause NEW when walk-forward is `ESCALATE_TIER_C`
+- `VMQ_ENTRY_SCORE_MIN=0` — drop v1 score floor; turbo/oracle gates only
+- `enrich_results_df_oracle_stack()` early in allocation; `picking_rank` on allocation rows
+
+**Files:** `config.py`, `config.json`, `src/picking_metrics.py`, `src/vmq_strategy.py`,
+`analyze_top200_stocks_enhanced.py`, tests (`test_picking_metrics`, `test_vmq_strategy`, `test_flow_quality_oracle`)
+
+**Tests:** `python3 tests/test_picking_metrics.py`, `python3 tests/test_vmq_strategy.py`, `python3 tests/test_flow_quality_oracle.py`
+
+## 2026-05-30 — Upstox market data only (no holdings/orders)
+
+**Context:** User Upstox token for OHLCV/LTP only — not portfolio sync.
+
+**Implementation:**
+- `src/upstox_data.py` — historical candles, LTP, OHLC snapshot; instrument master cache
+- `technical_analyzer.get_ohlcv` — Upstox first when `UPSTOX_DATA_ENABLED=true`, else yfinance
+- `.env.example`: `UPSTOX_ACCESS_TOKEN`, `UPSTOX_DATA_ENABLED`
+- `scripts/test_upstox_data.py` smoke test (token in `.env` only)
+
+**Tests:** `python3 tests/test_upstox_data.py`
+
+**Fix:** Historical candles use Upstox **v3** API (`/v3/historical-candle/...`); LTP/OHLC stay on v2. Enabled in `.env` + `config.json` (`UPSTOX_DATA_ENABLED=true`). Smoke: RELIANCE 65 rows, LTP OK.
+
+## 2026-05-30 — Oracle recovery P0 (Council peer-approved stack)
+
+**Context:** Multi-round council concluded v1/v2 rank is inverted (30d IC ~ −0.48),
+rank-SELL harmful (+7% forward after SELL), turbo_score aliased broken score_v2,
+and `V2_SHADOW_MODE=false` while promotion gates failed.
+
+**Implementation:**
+- `src/flow_quality_oracle.py` — fq pick, watchlist top-20%, rolling fq/volume switch, pause NEW
+- `data/oracle_weights.json` — turbo tau_entry weights (MTF 0.40, vol 0.25, mom 0.10)
+- `src/turbo_entry.py` — always recompute turbo; log `score_v2_ref`
+- Entry pool: oracle watchlist replaces `final_recommendation.contains('BUY')`
+- CORE holdings: disable bottom-20% rank-SELL (`ORACLE_DISABLE_RANK_SELL_ON_CORE`)
+- `config.json`: `V2_SHADOW_MODE=true`, VMQ turbo gate, `CALIBRATION_MODE=diagnostic`
+- History: `fq_score`, `turbo_score_recomputed`, `active_oracle`, `exit_rule`
+- `scripts/oracle_telemetry.py`, `docs/oracle-recovery-plan.md`
+- `scripts/calibrate_v2_weights.py` — skip write when diagnostic mode
+
+**Tests:** `python3 tests/test_flow_quality_oracle.py`, `python3 tests/test_picking_metrics.py`
+
+## 2026-05-30 — Stock picking metrics layer (Council)
+
+**Context:** Picking IC was polluted by SELL/EXIT rows; `src/picking_metrics.py` was
+referenced but missing (calibration rank-surface filter failed silently). Forward
+history has no overlap yet between `hybrid_*` (from 2026-05-07) and mature `return_30d`
+(March–April rows).
+
+**Implementation:**
+- `src/picking_metrics.py` — rank-surface filter, v2 synthesis, IC/quintile, `picking_rank`
+- `scripts/evaluate_stock_picking.py` — rating report + outcomes CSV (historical OOS panel)
+- `PICKING_RANK_DRIVER` config; analyzer sorts NEW/funding pools by `picking_rank`
+- Re-calibrated v2 weights from `historical_outcomes` (IC-signed components)
+- `tests/test_picking_metrics.py`
+
+**Tests:** `python3 tests/test_picking_metrics.py`, `python3 scripts/evaluate_stock_picking.py`
+
+## 2026-05-29 — VMQ strategy: entry gates + validation exits (no IC gate)
+
+**Context:** Post-audit deep dive showed May batch churn (45 NEW/week), value-trap
+entries (GPIL, GESHIP), and slow bleeds. User approved full VMQ pipeline to fix
+wrong-stock / wrong-time entry and day-3/5 validation exits.
+
+**Findings / implementation:**
+- F-VMQ-ENTRY (HIGH): `src/vmq_strategy.py` blocks NEW POSITION when score < 70,
+  value trap (fund ≥ 75 & mom < 55), v1-v2 gap > 15, v2 < 60 (turbo proxy HOLD),
+  or weekly churn cap (3/week).
+- F-VMQ-VALIDATE (HIGH): Day-3 fail (< −2%), day-5 fail (< 0%), swing stop (−5%),
+  hard stop (−8%), 8% trail from peak, WEAK SELL fast exit on TACTICAL.
+- F-VMQ-BYPASS (MEDIUM): VMQ exits bypass graduated gate and recent-buy cooldown.
+
+**Files touched:** `src/vmq_strategy.py` (new), `config.py`, `analyze_top200_stocks_enhanced.py`,
+`tests/test_vmq_strategy.py` (new)
+
+**Tests:** `python3 tests/test_vmq_strategy.py`, `python3 tests/test_v2_regression.py`
+
+## 2026-05-30 — Path 2 Balanced strategy (user-selected)
+
+**Context:** User chose Path 2: VMQ loss cuts + soften rank SELLs + Breakout Radar +
+one half-size fast-track NEW/week for AIAENG-style coil/ignition names.
+
+**Implementation:**
+- `src/breakout_radar.py` — tiers A-COIL, A+-READY, B-IGNITE, C-MOM-POP; Excel sheet
+- `src/path2_balanced.py` — soften rank SELLs in ±3% P&L band; fast-track BREAKOUT NEW
+- Config: `PATH2_BALANCED_ENABLED`, `BREAKOUT_*` knobs
+- Action plan: PATH 2 section + PRIORITY 4 Breakout Radar + BREAKOUT NEW in PRIORITY 5
+- NaN-bar fix: `_compute_portfolio_price_fields` uses last valid close; adds `dist_20d_high_pct`
+
+**Files:** `src/breakout_radar.py`, `src/path2_balanced.py`, `config.py`,
+`analyze_top200_stocks_enhanced.py`, `tests/test_path2_balanced.py`
+
+**Tests:** 6 path2 + 9 turbo + 236 regression pass.
+
+
+**Context:** ATGL NEW POSITION used +21.8% "confirm" from 20d fallback while
+1d was −4.4% (post-spike rejection). `enhanced_price_change_5d` was None on
+cache hits because fields landed in `enhanced_tech_*` aliases.
+
+**Findings / fixes:**
+- F-CONFIRM-20D (HIGH): `get_confirm_return_pct` uses 1d/5d only; negative 1d
+  overrides positive 5d; never falls back to 20d.
+- F-ALIAS-5D (HIGH): `sync_price_change_aliases` + cache backfill now populate
+  1d/5d/10d + `rejection_wick_pct` from OHLCV on warm cache hits.
+- F-CHASE-GUARD (HIGH): RSI>75 hard block, chase (5d>15% at RSI>75), rejection
+  wick >8% → CONFIRM_WAIT / WATCHLIST in `turbo_entry.py`.
+- F-RSI-75 (MEDIUM): NEW POSITION RSI gate lowered 80→75 via `TURBO_ENTRY_RSI_HARD_BLOCK`.
+
+**Files touched:** `src/turbo_entry.py`, `config.py`, `analyze_top200_stocks_enhanced.py`,
+`tests/test_turbo_entry.py`, `tests/test_v2_regression.py`
+
+**Tests:** 9 turbo + 236 regression pass.
+
+
+**Context:** User approved making turbo MTF + 3-day price confirm the primary
+entry driver instead of value-heavy v1 rank (root cause of wrong-time entries).
+
+**Implementation:** `src/turbo_entry.py` — turbo/v2 score, MTF≥55, mom≥50,
+3d confirm via `price_change_5d`, CONFIRM_WAIT vs WATCHLIST; funding pool
+sorted by `turbo_score`; `ENTRY_DRIVER=turbo_mtf` in config.
+
+**Files touched:** `src/turbo_entry.py`, `config.py`, `src/vmq_strategy.py`,
+`analyze_top200_stocks_enhanced.py`, `tests/test_turbo_entry.py`
+
+## 2026-05-30 — Stop mass portfolio liquidation (VMQ scope + rebalance)
+
+**Context:** Action plan recommended SELL on 15/19 holdings (~₹748k). Root causes:
+VMQ day-3/5 fired on old CORE names without entry dates; ENRIN (+5.6%) sold on
+retroactive day-3; bottom-20% rule SELLed any rank laggard with profit <5%.
+
+**Fixes:**
+- VMQ day-3/5 only for NEW POSITION within 21d; skip if recovered (pnl>0).
+- CORE: hard stop only (no swing/day-3/5); max 5 VMQ exits/run (rest CONSIDER).
+- Bottom-20% rebalance → CONSIDER SELLING unless loss >5% or score<50 & losing.
+
+**Files touched:** `src/vmq_strategy.py`, `config.py`, `analyze_top200_stocks_enhanced.py`
+
+## 2026-05-30 — VMQ action-plan + summary fixes
+
+**Context:** Dry-run terminal showed action plan crash (`self` undefined) and
+summary still reporting 7 new positions while Excel had 7 WATCHLIST (VMQ blocked).
+
+**Fixes:**
+- Action plan uses `analyzer._vmq_stats`; WATCHLIST priority section added.
+- Portfolio summary `new_positions` refreshed after VMQ pass (funded NEW only).
+- VMQ always logs; `vmq_status`/`vmq_reason` exported to Excel; Excel cooldown bypasses VMQ exits.
+
+**Files touched:** `analyze_top200_stocks_enhanced.py`
+
+## 2026-05-29 — Exit logic balance: protect quality runners, fast-track losers
+
+**Context:** User reported contradictory action plan — EXIT 75-80% on strong
+runners (ZYDUSLIFE, SOLARINDS, TRITURBINE) while weak losers (GESHIP −12%)
+only got CONSIDER SELLING 25%.
+
+**Findings:**
+- F-EXIT-BALANCE (MEDIUM): `_soften_exhaustion_for_quality_holder` caps full
+  exhaustion exits to BOOK 50-60% when score ≥ 58 and position profitable,
+  unless exhaustion_score ≥ 80.
+- F-GRAD-BYPASS (MEDIUM): Losses ≤ −8% bypass graduated conviction gate
+  (`GRADUATED_EXIT_BYPASS_LOSS_PCT`).
+- F-DUAL-EXH (LOW): Dual-strategy consensus shows `SPLIT (exhaustion override)`
+  when primary is sell-side but both alt profiles say BUY.
+
+**Files touched:** `config.py`, `analyze_top200_stocks_enhanced.py`,
+`tests/test_v2_regression.py` (Suite3b + Suite18 sentinels)
+
+**Tests:** `python3 tests/test_v2_regression.py` — 234 passed.
+
+## 2026-05-29 — Remove intraday day-trade / mover subsystem
+
+**Context:** User requested full removal of the intraday trading setup (code, data, dependencies).
+
+**Removed:** `src/intraday/` (planner, movers, PDF/composite tracks, Kite/AV premarket),
+12 scripts (`intraday_plan`, `predict_tomorrow_movers`, backtests, AV/Kite premarket fetchers),
+10 test modules, intraday data snapshots/reports, `INTRADAY_*` / `ALPHAVANTAGE_*` config keys,
+`alpha-vantage` from `requirements.txt`, `.cursor/skills/intraday-top-movers/`.
+
+**Preserved:** Weekly NSE scoring (`analyze_top200_stocks_enhanced.py`, v2 engine), portfolio
+allocator, Kite holdings sync (`kite_login.py`, `run_analysis.py --kite-auto`), `backtest/` layer.
+
+**Tests:** `python3 tests/test_v2_regression.py` — 228 passed.
+
+## 2026-05-27 — Precision uplift: wide shortlist + gap blend + sector cap
+
+**Context:** User still unhappy with ~18% prec@10; requested deeper accuracy improvements.
+
+**Findings:**
+- `mover_precision.py`: multi-signal CS meta + sector diversification (backtest ~16.7% EOD alone).
+- **Best pipeline:** `dual_momentum` shortlist **60–80** → `blend_gap_quality` top-10 → **19.1%** prec@10
+  (+1.6pp vs 17.5% baseline), ~1.9 hits/day on 57 sessions.
+- Production defaults: `INTRADAY_MOVER_SHORTLIST_K=60`, morning `blend_gap_quality`, sector cap 2.
+- Evening watchlist exports 60 names; morning `intraday_plan` filters to shortlist then gaps.
+
+**Files touched:** `mover_precision.py`, `mover_backtest.py`, `tomorrow_movers.py`, `config.py`,
+`predict_tomorrow_movers.py`, `intraday_plan.py`, `scripts/tune_precision_movers.py`
+
+**Tests:** `pytest tests/test_mover_strategies.py tests/test_tomorrow_movers.py`
+
+## 2026-05-26 — Market strategy ladder (gap volume, Minervini, blends)
+
+**Context:** User asked to implement market-backed strategies one-by-one, test accuracy,
+and blend when precision improves.
+
+**Findings:**
+- Added `mover_bar_features` 60d/90d momentum + Minervini trend-template points (0–8).
+- New strategies: `long_momentum`, `minervini_rs`, `gap_volume_quality`, `blend_dual_minervini`,
+  `blend_gap_quality`, `pipeline_eod_blend`; `mover_filters.py` for trend/breadth gates.
+- 57-session ladder (80 names, top-10): **blend_gap_quality** best gap oracle **19.8%** (+2.3pp vs
+  dual_momentum); **pipeline dual_momentum→gap_priority** still best live path **18.1%** lift +0.15%.
+- Minervini EOD filter **hurt** precision (16.1%); keep for optional gate, not default EOD.
+- `scripts/eval_market_strategies.py` + `reports/market_strategy_ladder.md`.
+
+**Files touched:** `src/intraday/{mover_bar_features,mover_strategies,mover_filters,mover_backtest}.py`,
+`scripts/eval_market_strategies.py`, `tests/test_mover_strategies.py`
+
+**Tests:** `pytest tests/test_mover_strategies.py tests/test_mover_bar_features.py`; ladder script
+
+## 2026-05-27 — Intraday top-mover predictor + validation
+
+**Context:** User wanted the system to predict top intraday gainers and test if it works.
+
+**Findings:**
+- `mover_predictor.py` scores gap + 1d momentum + volume + squeeze + MTF; `--top-movers N` on
+  `intraday_plan.py`; `validate_intraday_movers.py` walk-back on 15m.
+- Initial validation (80 liquid names, 15 sessions): precision@20 **33%**, lift **+0.19%/day**,
+  verdict **HOLD** (lift below 0.3% gate). Composite tie-break by 1d% added.
+- Not production-ready for live sizing — research lane until lift stabilizes over more days.
+
+**Files touched:** `src/intraday/{mover_predictor,mover_validate}.py`,
+`scripts/{intraday_plan,validate_intraday_movers}.py`, `config.py`, `planner.py`,
+`tests/test_intraday_movers.py`
+
+**Tests:** pytest intraday suites; `validate_intraday_movers.py --symbols 80`
+
+## 2026-05-26 — PDF full intraday strategy set (15m-native)
+
+**Context:** Close gaps vs `Trading_Model_Documented.pdf` — all five strategies with
+4×25pt components, 15m indicators, FVG/SMC, BB squeeze percentile, MACD fresh cross,
+tiered aggregator (3/5–5/5).
+
+**Findings:**
+- New `indicators_15m.py` (EMA20/50/200, RSI, MACD, BB width rank, ATR on 15m).
+- Rewrote `pdf_strategies.py` to score from `BarContext`; PDF ideas require 15m when
+  `INTRADAY_PDF_REQUIRE_15M=true`.
+- `pdf_voter.py` tiers: `MODERATE_3/5`, `STRONG_4/5`, `UNANIMOUS_5/5`.
+- Still not in scope: NSE 15m walk-forward backtest (delivery backtest layer separate).
+
+**Files touched:** `src/intraday/{indicators_15m,pdf_strategies,pdf_voter,planner,bars}.py`,
+`config.py`, `scripts/intraday_plan.py`, `tests/test_intraday_pdf_lanes.py`,
+`tests/test_intraday_plan.py`
+
+**Tests:** `pytest tests/test_intraday_plan.py tests/test_intraday_pdf_lanes.py` (16 passed)
+
+## 2026-05-26 — Intraday dual-track (COMPOSITE + PDF 5-lane vote)
+
+**Context:** User asked to run both the existing composite intraday scorer and
+PDF-style multi-strategy voting (EMA pullback, RSI reversion, BB squeeze, MACD,
+FVG) with 15m ATR 1:2 RR alongside the midday session filter.
+
+**Findings:**
+- Added PDF lanes (`pdf_strategies.py`, `pdf_voter.py`), ATR risk helper, 15m
+  OHLCV prefetch (top N by preliminary vote count), dual Excel sheets, journal
+  `track` column. Composite track unchanged in spirit; PDF uses `INTRADAY_PDF_*`
+  config knobs (default 3/5 votes).
+
+**Files touched:** `src/intraday/{composite,pdf_strategies,pdf_voter,risk,planner,bars,refresh,journal}.py`,
+`scripts/intraday_plan.py`, `config.py`, `tests/test_intraday_plan.py`
+
+**Tests:** `python3 -m pytest tests/test_intraday_plan.py -v` (12 passed)
+
 ## 2026-05-24 — Analyzer `--dry-run` (same-day history churn fix)
 
 **Context:** Off-hours re-runs mutated `recommendation_history.csv` (same-day
@@ -138,6 +582,18 @@ could reach allocation, history, and Excel for excluded/illiquid symbols.
 | AUDIT-019 | MEDIUM | **FIXED** | Batch 5 — BT sheets wired to backtest/results |
 | AUDIT-022 | MEDIUM | **DEFERRED** | HTML → Tape & Ledger migration — confirm before visual restyle |
 | AUDIT-029 | LOW | **FIXED** | AGENTS.md test count updated to 222 |
+
+
+## 2026-05-28 — Prune `.agents/skills` bloat
+
+**Context:** Curate skills.sh installs to Stock_Analysis workflow only.
+
+**Changes:** Removed 22 demo/duplicate/unused skills from `.agents/skills/`; updated
+`skills-lock.json`. Kept 19 (12 core workflow + 7 optional: pdf, docx, webapp-testing,
+security, ci-cd, skill-creator, performance-optimization). Domain skills remain in
+`.cursor/skills/`.
+
+**Note:** `npx skills remove` reported success but left copied dirs; deleted manually.
 
 
 ## 2026-05-24 — Post-analysis ANALYSE workflow

@@ -91,7 +91,18 @@ def _load_v2_weights() -> dict:
 
 
 def _cache_key(start: date, end: date, cadence: str, universe_size: int) -> Path:
-    return CACHE_DIR / f'snapshots_{start.isoformat()}_{end.isoformat()}_{cadence}_n{universe_size}.pkl'
+    return CACHE_DIR / f'snapshots_{start.isoformat()}_{end.isoformat()}_{cadence}_n{universe_size}_rg1.pkl'
+
+
+def _regime_at_date(nifty_df: pd.DataFrame, d: date) -> str:
+    """Historical regime label for backtest (BULL/BEAR/SIDEWAYS)."""
+    if nifty_df is None or nifty_df.empty:
+        return 'SIDEWAYS'
+    sub = nifty_df[nifty_df.index <= pd.Timestamp(d)]
+    if sub.empty or len(sub) < 50:
+        return 'SIDEWAYS'
+    from backtest_engine import BacktestEngine
+    return BacktestEngine._detect_regime_from_data(sub)
 
 
 class Path2Rescorer:
@@ -129,7 +140,9 @@ class Path2Rescorer:
         }
 
     def _build_snapshot(self, d: date,
-                        nifty_close: pd.Series) -> Optional[pd.DataFrame]:
+                        nifty_df: pd.DataFrame) -> Optional[pd.DataFrame]:
+        nifty_close = nifty_df['Close'].astype(float) if not nifty_df.empty else pd.Series(dtype=float)
+        regime = _regime_at_date(nifty_df, d)
         rows = []
         for sym in self.universe:
             df = self.prices.get(sym, d - timedelta(days=400), d + timedelta(days=2))
@@ -143,7 +156,7 @@ class Path2Rescorer:
                 'date': pd.Timestamp(d),
                 'symbol': sym,
                 'current_price': sd['current_price'],
-                'regime': '',
+                'regime': regime,
                 **comps,
             })
         if not rows:
@@ -180,12 +193,11 @@ class Path2Rescorer:
         nifty_df = self.prices.get(self.nifty_symbol,
                                     start - timedelta(days=400),
                                     end + timedelta(days=2))
-        nifty_close = nifty_df['Close'].astype(float) if not nifty_df.empty else pd.Series(dtype=float)
 
         snapshot_frames = []
         t0 = time.time()
         for i, d in enumerate(rebal):
-            snap_df = self._build_snapshot(d, nifty_close)
+            snap_df = self._build_snapshot(d, nifty_df)
             if snap_df is None:
                 continue
             snapshot_frames.append(snap_df)

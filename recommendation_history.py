@@ -869,7 +869,12 @@ class RecommendationHistory:
                             components: Optional[Dict] = None,
                             score_v2: Optional[float] = None,
                             regime: Optional[str] = None,
-                            sleeve: Optional[str] = None):
+                            sleeve: Optional[str] = None,
+                            fq_score: Optional[float] = None,
+                            turbo_score_recomputed: Optional[float] = None,
+                            picking_rank: Optional[float] = None,
+                            active_oracle: Optional[str] = None,
+                            exit_rule: Optional[str] = None):
         """
         Record a new recommendation in history
         
@@ -992,6 +997,20 @@ class RecommendationHistory:
         # [Rule 1] CORE / TACTICAL sleeve persistence (right-edge, additive).
         if sleeve is not None:
             new_rec_row['sleeve'] = str(sleeve).upper()
+        for _ok, _ov in (
+            ('fq_score', fq_score),
+            ('turbo_score_recomputed', turbo_score_recomputed),
+            ('picking_rank', picking_rank),
+            ('active_oracle', active_oracle),
+            ('exit_rule', exit_rule),
+        ):
+            if _ov is not None:
+                if _ok == 'active_oracle':
+                    new_rec_row[_ok] = str(_ov)
+                elif _ok == 'exit_rule':
+                    new_rec_row[_ok] = str(_ov)[:120]
+                else:
+                    new_rec_row[_ok] = _clean(_ov, None)
         if self.dry_run:
             try:
                 _p = float(price) if price else 0.0

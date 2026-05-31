@@ -1,0 +1,25 @@
+{
+  "updated": "2026-05-30T04:39:29.854975",
+  "v2_shadow_mode": true,
+  "calibration_mode": "diagnostic",
+  "walkforward_verdict": "HOLD_SHADOW",
+  "active_oracle": "fq_score",
+  "metrics": {
+    "fq_30d": {
+      "ic": null,
+      "p": null,
+      "n": 428,
+      "spread_pp": NaN,
+      "q5_mean_pct": NaN,
+      "q1_mean_pct": NaN
+    },
+    "volume_30d": {
+      "ic": null,
+      "p": null,
+      "n": 428,
+      "spread_pp": NaN,
+      "q5_mean_pct": NaN,
+      "q1_mean_pct": NaN
+    }
+  }
+}

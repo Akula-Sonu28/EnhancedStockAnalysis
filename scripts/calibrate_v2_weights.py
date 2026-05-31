@@ -56,6 +56,19 @@ def main() -> int:
 
     logging.basicConfig(level=logging.INFO, format='[v2 calibrate] %(message)s')
 
+    try:
+        from config import get_config
+        _cfg = get_config()
+        if str(getattr(_cfg, 'CALIBRATION_MODE', 'production')).lower() == 'diagnostic':
+            print(
+                'SKIPPED: CALIBRATION_MODE=diagnostic — IC report only, '
+                'not overwriting calibrated_weights_v2.json. '
+                'Run scripts/oracle_telemetry.py for live oracle metrics.'
+            )
+            return 0
+    except Exception:
+        pass
+
     src_path = HISTORY_PATH if args.source == 'recommendation_history' else HISTORICAL_OUTCOMES_PATH
     if not src_path.exists():
         print(f'ERROR: source file missing: {src_path}')

@@ -63,6 +63,10 @@ class EngineConfig:
     #                               as the floor is met. Used to stress-test ranking.
     selection_mode: str = 'rank'
     min_entry_score: float = 45.0    # floor in rank mode (HOLD-ish)
+    apply_min_entry_score: bool = True
+    rank_column: str = 'score_engine'
+    watchlist_column: Optional[str] = None   # e.g. 'on_oracle_watchlist'
+    require_turbo_pass: bool = False
     cooldown_policy: CooldownPolicy = field(
         default_factory=CooldownPolicy.disabled,
     )
@@ -167,16 +171,21 @@ class BacktestEngine:
         d: date,
         portfolio: Portfolio,
         snap: Optional[DateSnapshot],
-    ) -> tuple[dict[str, float], dict[str, float], str]:
+    ) -> tuple[dict[str, float], dict[str, float], str, dict[str, dict]]:
         mark_prices: dict[str, float] = {}
         score_today: dict[str, float] = {}
+        rows_today: dict[str, dict] = {}
         regime_today = ''
         if snap is not None:
             for _, row in snap.df.iterrows():
                 sym = str(row['symbol'])
+                rows_today[sym] = row.to_dict()
                 if pd.notna(row.get('current_price')):
                     mark_prices[sym] = float(row['current_price'])
-                if pd.notna(row.get('score_engine')):
+                sc_col = self.cfg.rank_column if self.cfg.rank_column in snap.df.columns else 'score_engine'
+                if pd.notna(row.get(sc_col)):
+                    score_today[sym] = float(row[sc_col])
+                elif pd.notna(row.get('score_engine')):
                     score_today[sym] = float(row['score_engine'])
                 if pd.notna(row.get('regime')) and not regime_today:
                     regime_today = str(row['regime'])
@@ -188,7 +197,7 @@ class BacktestEngine:
         for sym, pos in portfolio.positions.items():
             sc = score_today.get(sym)
             pos.mark(mark_prices.get(sym, pos.last_mark_price), sc)
-        return mark_prices, score_today, regime_today
+        return mark_prices, score_today, regime_today, rows_today
 
     def _execute_exits(
         self,
@@ -198,6 +207,7 @@ class BacktestEngine:
         mark_prices: dict[str, float],
         score_today: dict[str, float],
         regime_today: str,
+        rows_today: Optional[dict[str, dict]] = None,
     ) -> int:
         """Run exit/reduce checks; return count of sell attempts (incl. blocked)."""
         attempts = 0
@@ -206,6 +216,9 @@ class BacktestEngine:
             price = mark_prices.get(sym, pos.last_mark_price or pos.avg_cost)
             profit_pct = pos.unrealized_pl_pct(price)
             sc = score_today.get(sym, pos.last_score)
+            row_today = (rows_today or {}).get(sym, {})
+            turbo_score = row_today.get('turbo_score')
+            mtf_score = row_today.get('hybrid_multi_timeframe')
             dec = self.strategy.check_open_position(
                 score=sc,
                 profit_pct=profit_pct,
@@ -219,8 +232,11 @@ class BacktestEngine:
                 as_of=d,
                 price_cache=self.prices,
                 entry_price=pos.avg_cost,
+                entry_date=pos.entry_date,
                 previous_exhaustion_score=pos.last_exhaustion_score,
                 momentum_exhaustion_enabled=self.cfg.momentum_exhaustion_enabled,
+                turbo_score=float(turbo_score) if turbo_score is not None and pd.notna(turbo_score) else None,
+                mtf_score=float(mtf_score) if mtf_score is not None and pd.notna(mtf_score) else None,
             )
             if dec.exhaustion_score > 0:
                 pos.last_exhaustion_score = dec.exhaustion_score
@@ -293,7 +309,7 @@ class BacktestEngine:
         for d in all_days:
             snap = snap_map.get(d)
             is_rebal = d in rebal_dates
-            mark_prices, score_today, regime_today = self._marks_for_day(
+            mark_prices, score_today, regime_today, rows_today = self._marks_for_day(
                 d, portfolio, snap,
             )
             if regime_today:
@@ -302,14 +318,17 @@ class BacktestEngine:
                 regime_today = last_regime
 
             exit_attempts = self._execute_exits(
-                portfolio, executor, d, mark_prices, score_today, regime_today,
+                portfolio, executor, d, mark_prices, score_today, regime_today, rows_today,
             )
 
             # --- ENTRY on rebalance dates (snapshot required) -------------
             new_buys: list[tuple[str, str, float, float]] = []
             if snap is not None and is_rebal:
                 candidates = snap.df.copy()
-                candidates = candidates.sort_values('score_engine', ascending=False)
+                rank_col = self.cfg.rank_column
+                if rank_col not in candidates.columns:
+                    rank_col = 'score_engine'
+                candidates = candidates.sort_values(rank_col, ascending=False)
                 held = set(portfolio.positions.keys())
                 slots = self.cfg.target_positions - portfolio.open_position_count()
 
@@ -335,12 +354,21 @@ class BacktestEngine:
                     sym = str(c['symbol'])
                     if sym in held:
                         continue
-                    sc = float(c['score_engine'])
+                    sc = float(c[rank_col])
+                    wl_col = self.cfg.watchlist_column
+                    if wl_col and wl_col in c.index and not bool(c.get(wl_col)):
+                        continue
+                    if self.cfg.require_turbo_pass:
+                        if 'turbo_pass' in c.index and not bool(c.get('turbo_pass')):
+                            continue
+                        elif hasattr(self.strategy, 'entry_allowed'):
+                            if not self.strategy.entry_allowed(c.to_dict()):
+                                continue
                     if self.cfg.selection_mode == 'threshold':
                         if self.strategy.entry_signal(sc) not in ('BUY', 'STRONG_BUY'):
                             continue
                     else:  # 'rank'
-                        if sc < self.cfg.min_entry_score:
+                        if self.cfg.apply_min_entry_score and sc < self.cfg.min_entry_score:
                             continue
                     if pd.isna(c.get('current_price')) or c['current_price'] <= 0:
                         continue
@@ -363,7 +391,11 @@ class BacktestEngine:
                             symbol=sym, side='BUY', qty=qty,
                             decision_date=d,
                             fill_date=self._estimate_fill_date(sym, d),
-                            reason=f'entry: score={sc:.1f} ({self.strategy.entry_signal(sc)})',
+                            reason=(
+                                f'QMST entry: pick_rank={sc:.1f}, turbo_pass'
+                                if self.engine_label == 'qmst'
+                                else f'entry: score={sc:.1f} ({self.strategy.entry_signal(sc)})'
+                            ),
                         )
                         portfolio.apply_buy_fill(fill, sector=sector, entry_score=sc)
                         new_buys.append((sym, sector, sc, qty * fill.fill_price))

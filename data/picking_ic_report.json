@@ -1,0 +1,145 @@
+{
+  "generated_at": "2026-05-30T04:11:10.694548",
+  "source": "/Users/akulakavyashree/TestNetstock/Stock_Analysis/data/recommendation_history.csv",
+  "rows_total": 1300,
+  "score_v2_coverage_pct": 32.6,
+  "gates": {
+    "ic_30d_floor": 0.05,
+    "spread_floor_pp": 3.0,
+    "v2_rank_surface_pass": false
+  },
+  "segments": {
+    "all": {
+      "label": "all",
+      "n_rows": 1300,
+      "score": {
+        "pooled_ic_30d": {
+          "rho": -0.4358,
+          "p": 0.0,
+          "n": 779
+        },
+        "cross_sectional_ic_30d": {
+          "mean_rho": -0.0918,
+          "median_rho": -0.1577,
+          "n_days": 15,
+          "n_rows": 779
+        },
+        "quintile_30d": {
+          "q1": 8.265,
+          "q5": -3.663,
+          "spread": -11.928,
+          "n": 779
+        }
+      },
+      "score_v2": {
+        "pooled_ic_30d": {
+          "rho": null,
+          "p": null,
+          "n": 0
+        },
+        "cross_sectional_ic_30d": {
+          "mean_rho": null,
+          "median_rho": null,
+          "n_days": 0,
+          "n_rows": 0
+        },
+        "quintile_30d": {
+          "q1": null,
+          "q5": null,
+          "spread": null,
+          "n": 0
+        }
+      },
+      "buy_hit_rate_30d": 76.9,
+      "buy_n_30d": 147
+    },
+    "rank_surface": {
+      "label": "rank_surface",
+      "n_rows": 778,
+      "score": {
+        "pooled_ic_30d": {
+          "rho": -0.3466,
+          "p": 0.0,
+          "n": 426
+        },
+        "cross_sectional_ic_30d": {
+          "mean_rho": 0.1094,
+          "median_rho": 0.1895,
+          "n_days": 8,
+          "n_rows": 426
+        },
+        "quintile_30d": {
+          "q1": 3.319,
+          "q5": -3.447,
+          "spread": -6.766,
+          "n": 426
+        }
+      },
+      "score_v2": {
+        "pooled_ic_30d": {
+          "rho": null,
+          "p": null,
+          "n": 0
+        },
+        "cross_sectional_ic_30d": {
+          "mean_rho": null,
+          "median_rho": null,
+          "n_days": 0,
+          "n_rows": 0
+        },
+        "quintile_30d": {
+          "q1": null,
+          "q5": null,
+          "spread": null,
+          "n": 0
+        }
+      },
+      "buy_hit_rate_30d": 76.9,
+      "buy_n_30d": 147
+    },
+    "buy_surface": {
+      "label": "buy_surface",
+      "n_rows": 266,
+      "score": {
+        "pooled_ic_30d": {
+          "rho": -0.1712,
+          "p": 0.038099,
+          "n": 147
+        },
+        "cross_sectional_ic_30d": {
+          "mean_rho": 0.1418,
+          "median_rho": 0.1418,
+          "n_days": 2,
+          "n_rows": 147
+        },
+        "quintile_30d": {
+          "q1": 2.27,
+          "q5": -2.447,
+          "spread": -4.716,
+          "n": 147
+        }
+      },
+      "score_v2": {
+        "pooled_ic_30d": {
+          "rho": null,
+          "p": null,
+          "n": 0
+        },
+        "cross_sectional_ic_30d": {
+          "mean_rho": null,
+          "median_rho": null,
+          "n_days": 0,
+          "n_rows": 0
+        },
+        "quintile_30d": {
+          "q1": null,
+          "q5": null,
+          "spread": null,
+          "n": 0
+        }
+      },
+      "buy_hit_rate_30d": 76.9,
+      "buy_n_30d": 147
+    }
+  }
+}

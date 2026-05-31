@@ -87,6 +87,7 @@ Produce a report with these sections:
 | HONASA / ₹0 exit notionals | Cross-check `Holding/*.csv` qty vs merged portfolio |
 | Label drift | CONSIDER SELLING vs WEAK SELL in history vs terminal |
 | Execute trades | User decision — never auto-trade |
+| QMST layer contract | When `QMST_ENABLED` + `ORACLE_STACK_ALIGN`: holdings REASON must show `Pick rank:` (not `Score:`); Complete Data must include `fq_score`, `picking_rank`, `turbo_score`; run `python3 scripts/qmst_validation_gate.py` for badge status |
 
 ## Pass / warn / fail policy
 

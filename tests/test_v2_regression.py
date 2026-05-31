@@ -111,6 +111,42 @@ class Suite3_ExhaustionThresholds(unittest.TestCase):
         self.assertEqual(res['exhaustion_score'], 0)
 
 
+class Suite3b_ExhaustionQualityGuard(unittest.TestCase):
+    """Quality-runner guard: high-score profitable names cap at partial book."""
+
+    def setUp(self):
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        self.soften = EnhancedTop200StockAnalyzer._soften_exhaustion_for_quality_holder
+
+    def test_high_score_profitable_caps_full_exit(self):
+        rec, note = self.soften(
+            '🟠 EXIT 75-80% - Strong exhaustion', 70.0, 61.8, 0.066,
+        )
+        self.assertIn('BOOK 50-60', rec)
+        self.assertIn('protected', note.lower())
+
+    def test_heavy_exhaustion_still_exits(self):
+        rec, note = self.soften(
+            '🔴 EXIT NOW - Heavy exhaustion', 85.0, 61.8, 0.066,
+        )
+        self.assertIn('EXIT NOW', rec)
+        self.assertEqual(note, '')
+
+    def test_loser_not_protected(self):
+        rec, note = self.soften(
+            '🟠 EXIT 75-80% - Strong exhaustion', 70.0, 61.8, -0.05,
+        )
+        self.assertIn('EXIT 75-80', rec)
+        self.assertEqual(note, '')
+
+    def test_low_score_not_protected(self):
+        rec, note = self.soften(
+            '🟠 EXIT 75-80% - Strong exhaustion', 70.0, 49.0, 0.10,
+        )
+        self.assertIn('EXIT 75-80', rec)
+        self.assertEqual(note, '')
+
+
 class Suite4_HardStop(unittest.TestCase):
     """Phase 3b / Suite 4: hard stop tier evaluation."""
 
@@ -393,11 +429,13 @@ class Suite8_DQ_NATALUM(unittest.TestCase):
                          'RSI>80 INCREASE guard still gated by profit>5% — NMDC-class slip-through')
 
     def test_rsi80_guard_new_position_present(self):
-        """Source must include the NEW POSITION RSI>80 hard gate."""
+        """Source must include the NEW POSITION RSI hard gate (config-driven)."""
         src_path = REPO_ROOT / 'analyze_top200_stocks_enhanced.py'
         src = src_path.read_text(encoding='utf-8')
-        self.assertIn('_rsi_new_blocked = (rsi > 80)', src,
-                      'NEW POSITION RSI>80 gate missing — NESTLEIND-class slip-through possible')
+        self.assertIn('TURBO_ENTRY_RSI_HARD_BLOCK', src,
+                      'NEW POSITION RSI hard gate must be config-driven')
+        self.assertIn('_rsi_new_blocked', src,
+                      'NEW POSITION RSI gate missing — extended-entry slip-through possible')
 
     # ---- Fix #3: V2 apples-to-apples columns plumbed through ----
     def test_alloc_has_v1_raw_column(self):
@@ -2177,6 +2215,8 @@ class Suite16_ContractGapsClosure(unittest.TestCase):
             'Missing validity flag must request backfill even when numeric fields exist',
         )
         row['portfolio_price_fields_valid'] = True
+        row['enhanced_price_change_5d'] = 3.2
+        row['enhanced_price_change_1d'] = 0.5
         self.assertFalse(
             EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
             'Valid flag must suppress repeat backfill on warm cache',
@@ -2964,7 +3004,7 @@ def main():
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     for cls in (Suite1_ContractPreservation, Suite2_UniverseFilter,
-                Suite3_ExhaustionThresholds, Suite4_HardStop,
+                Suite3_ExhaustionThresholds, Suite3b_ExhaustionQualityGuard, Suite4_HardStop,
                 Suite5_V2Isolation, Suite6_RotationFriction,
                 Suite7_CacheCompatibility, Suite8_DQ_NATALUM,
                 Suite9_P0_StopTier_DQLate, Suite10_Phase05_v3Layer3,
@@ -3088,6 +3128,33 @@ class Suite18_HighConvictionFilter(unittest.TestCase):
         block = src[anchor:anchor + 800]
         self.assertIn('_primary_action_is_sell_side', block)
         self.assertIn('continue', block)
+
+    def test_dual_strategy_marks_exhaustion_override_split(self):
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn("SPLIT (exhaustion override)", src)
+        self.assertIn('_pri_sell and _all_buy', src)
+
+    def test_graduated_exit_bypasses_deep_loss(self):
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn('GRADUATED_EXIT_BYPASS_LOSS_PCT', src)
+        idx = src.find('_pp_bypass_f is not None and _pp_bypass_f <= _bypass_loss_thr')
+        self.assertGreater(idx, 0, 'Graduated gate must bypass on deep loss')
+
+    def test_vmq_strategy_wired(self):
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn('apply_vmq_to_allocation_df', src)
+        self.assertIn("'VMQ'", src)
+        cfg = (REPO_ROOT / 'config.py').read_text()
+        self.assertIn('VMQ_ENABLED', cfg)
+        self.assertTrue((REPO_ROOT / 'src' / 'vmq_strategy.py').exists())
+
+    def test_turbo_entry_driver_wired(self):
+        cfg = (REPO_ROOT / 'config.py').read_text()
+        self.assertIn('ENTRY_DRIVER', cfg)
+        self.assertIn('TURBO_ENTRY_V2_MIN', cfg)
+        src = (REPO_ROOT / 'analyze_top200_stocks_enhanced.py').read_text()
+        self.assertIn('turbo_entry', src)
+        self.assertTrue((REPO_ROOT / 'src' / 'turbo_entry.py').exists())
 
 
 class Suite17_V2WeightFix(unittest.TestCase):

@@ -113,39 +113,9 @@ def _load_weights_meta() -> tuple:
 
 
 def _synthesise_v2_score(df: pd.DataFrame, weights: dict) -> pd.Series:
-    """Apply v2 weights to per-row hybrid_* components to build a synthetic
-    score_v2 column. Uses deviation-from-neutral form so signed weights work:
-        v2 = 50 + sum_i (component_i - 50) * weight_i
-    Rows missing all components return NaN.
-    """
-    component_to_col = {
-        'fundamental_quality': 'hybrid_fundamental_quality',
-        'momentum_technical':  'hybrid_momentum_technical',
-        'volume_strength':     'hybrid_volume_strength',
-        'multi_timeframe':     'hybrid_multi_timeframe',
-        'ml_signal':           'hybrid_ml_signal',
-        'risk_adjustment':     'hybrid_risk_adjustment',
-    }
-    available = [c for c in component_to_col.values() if c in df.columns]
-    if not available:
-        return pd.Series([float('nan')] * len(df), index=df.index)
-    deviation = pd.Series(0.0, index=df.index)
-    has_any = pd.Series(False, index=df.index)
-    for weight_key, col in component_to_col.items():
-        if col not in df.columns:
-            continue
-        w = float(weights.get(weight_key, 0.0))
-        if w == 0.0:
-            continue
-        comp = pd.to_numeric(df[col], errors='coerce')
-        contrib = (comp - 50.0) * w
-        # Track which rows had at least one non-null component contribution
-        has_any = has_any | comp.notna()
-        deviation = deviation.add(contrib.fillna(0.0), fill_value=0.0)
-    score_v2 = 50.0 + deviation
-    score_v2 = score_v2.clip(lower=0.0, upper=100.0)
-    score_v2 = score_v2.where(has_any, other=float('nan'))
-    return score_v2
+    """Build score_v2 from hybrid_fundamental_quality, hybrid_momentum_technical, etc."""
+    from src.picking_metrics import synthesise_v2_score
+    return synthesise_v2_score(df, weights)
 
 
 def main() -> int:
@@ -196,23 +166,30 @@ def main() -> int:
     v1_ic = _ic(recent, score_col='score', ret_col='return_30d')
     v1_sell_rate, v1_sell_n = _sell_hit_rate(recent)
 
-    # In historical mode, synthesise score_v2 by applying the loaded v2 weights
-    # to each row's hybrid_* components - this lets us measure v2 IC against
-    # past outcomes today, instead of waiting for v2 to run live.
-    if args.mode == 'historical' and weights_dict:
+    # Synthesise score_v2 from hybrid_* + calibrated weights when live column
+    # is sparse (improves forward-mode picking IC measurement).
+    if weights_dict:
         synth = _synthesise_v2_score(recent, weights_dict)
         if synth.notna().any():
             recent = recent.copy()
-            recent['score_v2'] = synth
-            print(f'  synthesised score_v2 for {synth.notna().sum()} rows '
+            if 'score_v2' not in recent.columns:
+                recent['score_v2'] = synth
+            else:
+                missing = recent['score_v2'].isna()
+                recent.loc[missing, 'score_v2'] = synth.loc[missing]
+            print(f'  synthesised/filled score_v2 for {synth.notna().sum()} rows '
                   f'using calibrated weights')
 
-    # v2 metrics: requires a `score_v2` column populated when the v2 engine ran
-    # in shadow alongside v1. Falls back to None when v2 data is unavailable.
     has_v2_in_history = 'score_v2' in recent.columns and recent['score_v2'].notna().any()
     if has_v2_in_history:
-        v2_q = _quintile_avg_return(recent, score_col='score_v2', ret_col='return_30d')
-        v2_ic = _ic(recent, score_col='score_v2', ret_col='return_30d')
+        from config import get_config
+        from src.picking_metrics import filter_rank_surface
+        v2_eval = recent
+        if bool(getattr(get_config(), 'V2_CALIBRATE_RANK_SURFACE_ONLY', True)):
+            v2_eval = filter_rank_surface(recent)
+            print(f'  v2 IC/quintile on rank-surface rows: {len(v2_eval)} (of {len(recent)})')
+        v2_q = _quintile_avg_return(v2_eval, score_col='score_v2', ret_col='return_30d')
+        v2_ic = _ic(v2_eval, score_col='score_v2', ret_col='return_30d')
         if args.mode == 'historical':
             # No `action` column in historical_outcomes.csv. Use a synthetic
             # SELL proxy: bottom-quintile of synthesised score_v2 are the

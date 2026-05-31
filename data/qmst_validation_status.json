@@ -1,0 +1,54 @@
+{
+  "generated": "2026-05-31T15:00:02",
+  "badge": "QMST-VALIDATED",
+  "qmst_enabled": true,
+  "gates": {
+    "forward_picking_ic_30d": {
+      "value": 0.38241751110947714,
+      "threshold": 0.05,
+      "pass": true,
+      "n": 4469,
+      "source": "report_backfill_42d"
+    },
+    "quintile_spread_pp": {
+      "value": 9.536000601318722,
+      "threshold": 3.0,
+      "pass": true,
+      "source": "report_backfill_42d"
+    },
+    "walkforward_oos_ic": {
+      "value": 0.0717,
+      "threshold": 0.05,
+      "pass": true
+    },
+    "backtest_excess_return": {
+      "value": 0.0817,
+      "threshold": 0.0,
+      "pass": true,
+      "optional": false,
+      "source": "production_default_12m_no_day3",
+      "profile": "production"
+    },
+    "backtest_sharpe": {
+      "value": -0.04,
+      "threshold": -0.1,
+      "pass": true,
+      "optional": false,
+      "source": "production_default_12m_no_day3",
+      "profile": "production"
+    },
+    "report_pick_layer": {
+      "value": true,
+      "threshold": true,
+      "pass": true,
+      "optional": false,
+      "ic_days": 22,
+      "report_dates": 42
+    }
+  },
+  "all_required_pass": true,
+  "report_pick_layer_certified": true,
+  "forward_ic_source": "report_backfill_42d",
+  "backtest_source": "production_default_12m_no_day3",
+  "note": "Run `python3 scripts/evaluate_fq_from_reports.py --qmst-validation` for 42-day report pick IC. Full QMST-VALIDATED requires all gates + 60 consecutive days of live picking_rank history for production proof."
+}

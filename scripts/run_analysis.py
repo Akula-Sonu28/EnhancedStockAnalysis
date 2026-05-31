@@ -2,21 +2,22 @@
 """One command: Kite session + holdings/orders refresh + analysis.
 
 Examples:
-    # Preview (recommended first)
+    # Preview (no history writes)
     python3 scripts/run_analysis.py --dry-run --fast
 
-    # Live weekly run
+    # Live weekly run (Kite sync + history commit)
+    python3 scripts/run_analysis.py --kite-auto
+
+    # Live with explicit flags
     python3 scripts/run_analysis.py --portfolio-amount 100000 --risk-profile aggressive
 
     # Skip Zerodha sync (use existing Holding/*.csv)
     python3 scripts/run_analysis.py --skip-kite --dry-run --fast
 
-    # Only refresh Kite files, no analysis
-    python3 scripts/run_analysis.py --kite-only
-
 Env (.env):
-    KITE_AUTO_LOGIN=true   — open browser if token expired (--auto login)
-    KITE_USE_HOLDINGS=true — skip CSV refresh; analyzer pulls API directly
+    KITE_AUTO_LOGIN=true      — open browser if token expired (--kite-auto)
+    KITE_USE_HOLDINGS=true    — skip CSV refresh; analyzer pulls API directly
+    ANALYSIS_LIVE_DEFAULT=true — bare `run_analysis.py` writes history (no --dry-run)
 """
 from __future__ import annotations
 
@@ -63,6 +64,23 @@ def _sync_kite(*, auto_browser: bool) -> None:
     print(f"[KITE] Orders:   {len(odf)} -> {op}")
 
 
+def _default_analyzer_argv(*, kite_auto: bool) -> list[str]:
+    """Live weekly defaults when using --kite-auto; preview otherwise."""
+    from config import get_config
+
+    cfg = get_config()
+    amount = int(getattr(cfg, 'DEFAULT_PORTFOLIO_AMOUNT', 100000))
+    live_default = kite_auto or os.environ.get('ANALYSIS_LIVE_DEFAULT', '').lower() in (
+        '1', 'true', 'yes',
+    )
+    if live_default:
+        return [
+            '--portfolio-amount', str(amount),
+            '--risk-profile', 'moderate',
+        ]
+    return ['--dry-run', '--fast']
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Sync Zerodha portfolio then run analyze_top200_stocks_enhanced.py",
@@ -95,10 +113,23 @@ def main() -> int:
     print("\n" + "=" * 60)
     print("STEP 2/2 — Stock analysis")
     print("=" * 60)
-    cmd = [sys.executable, str(_ROOT / "analyze_top200_stocks_enhanced.py"), *analyzer_argv]
+
     if not analyzer_argv:
-        cmd.extend(["--dry-run", "--fast"])
-        print("[INFO] No analyzer flags passed; defaulting to --dry-run --fast")
+        analyzer_argv = _default_analyzer_argv(kite_auto=args.kite_auto)
+        if '--dry-run' in analyzer_argv:
+            print("[INFO] Preview mode (--dry-run --fast). "
+                  "Use --kite-auto for live weekly run with history writes.")
+        else:
+            amt = next(
+                (analyzer_argv[i + 1] for i, a in enumerate(analyzer_argv)
+                 if a == '--portfolio-amount' and i + 1 < len(analyzer_argv)),
+                '?',
+            )
+            print(f"[INFO] Live run — portfolio ₹{amt}, history will be written.")
+    elif '--dry-run' not in analyzer_argv:
+        print("[INFO] Live run — recommendation_history.csv will be updated.")
+
+    cmd = [sys.executable, str(_ROOT / "analyze_top200_stocks_enhanced.py"), *analyzer_argv]
     print("Running:", " ".join(cmd), "\n")
     return subprocess.call(cmd, cwd=str(_ROOT))
 

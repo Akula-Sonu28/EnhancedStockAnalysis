@@ -27,6 +27,8 @@ if str(REPO_ROOT) not in sys.path:
 from backtest.cooldown import resolve_policy
 from backtest.engine import BacktestEngine, EngineConfig
 from backtest.data.path1_loader import Path1Loader
+from backtest.data.qmst_loader import QmstLoader, enrich_snapshots
+from backtest.qmst_strategy import QMSTStrategyAdapter
 from backtest.data.prices import PriceCache
 from backtest.reports.writers import write_result, RESULTS_DIR
 
@@ -153,6 +155,101 @@ def _months_before(d: date, months: int) -> date:
     return date(y, m, day)
 
 
+def run_qmst(args) -> int:
+    """QMST stack backtest: fq pick (top 20%) + turbo entry + VMQ exits."""
+    from config import get_config
+    _qcfg = get_config()
+    if getattr(args, 'day3', False):
+        include_day3 = True
+    elif getattr(args, 'no_day3', False):
+        include_day3 = False
+    else:
+        include_day3 = bool(getattr(_qcfg, 'VMQ_DAY3_ENABLED', False))
+    if getattr(args, 'pick_gates', False):
+        pick_gates = True
+    else:
+        pick_gates = bool(getattr(_qcfg, 'QMST_PICK_GATES_ENABLED', False))
+    months = getattr(args, 'months', None)
+
+    if months:
+        end = args.end or date.today()
+        start = args.start or _months_before(end, months)
+        from backtest.data.path2_rescore import Path2Rescorer
+        print(f'QMST rescore: trailing {months}m OHLCV window {start} -> {end}')
+        rescorer = Path2Rescorer()
+        raw = rescorer.build_snapshots(start, end, cadence=args.rebalance)
+        snapshots = enrich_snapshots(raw, min_universe=args.min_universe)
+        dense_start, dense_end = start, end
+    else:
+        loader = QmstLoader()
+        dense_start, dense_end = loader.dense_window()
+        if dense_start is None:
+            print('ERROR: no dense hybrid window in historical_outcomes.csv')
+            return 2
+        start = max(dense_start, args.start) if args.start else dense_start
+        end = min(dense_end, args.end) if args.end else dense_end
+        snapshots = list(loader.iter_snapshots(
+            start=start, end=end, min_universe=args.min_universe,
+        ))
+
+    if not snapshots:
+        print(f'ERROR: no QMST snapshots in [{start} -> {end}]')
+        return 2
+
+    mode_label = f'{months}m rescore' if months else 'path1 dense'
+    if include_day3:
+        if getattr(_qcfg, 'VMQ_DAY3_REGIME_GATED', True):
+            print('QMST: fq pick + turbo entry + VMQ exits + day-3/5 (regime-gated)')
+        else:
+            print('QMST: fq pick + turbo entry + VMQ exits + day-3/5 validation')
+    else:
+        print('QMST: fq pick + turbo entry + VMQ exits (day-3/5 OFF — production default)')
+    if pick_gates:
+        fq_min = getattr(_qcfg, 'QMST_PICK_FQ_MIN', 48.0)
+        rk_min = getattr(_qcfg, 'QMST_PICK_RK_MIN', 42.0)
+        print(f'      pick gates ON: FQ>={fq_min:.0f}, RK>={rk_min:.0f}')
+    print(f'      mode={mode_label}, running {start} -> {end}, '
+          f'{len(snapshots)} decision dates')
+
+    cfg = _engine_config_from_args(args)
+    cfg.rank_column = 'fq_score'
+    cfg.watchlist_column = 'on_oracle_watchlist'
+    cfg.require_turbo_pass = True
+    cfg.apply_min_entry_score = False
+    cfg.allow_rotation = False
+
+    strategy = QMSTStrategyAdapter(include_day3=include_day3, pick_gates_enabled=pick_gates)
+    engine = BacktestEngine(engine_label='qmst', cfg=cfg, strategy=strategy)
+    result = engine.run(snapshots)
+
+    result.summary['qmst_entries_passed'] = strategy.entries_passed
+    result.summary['qmst_entries_blocked'] = strategy.entries_blocked
+    result.summary['qmst_pick_gates_blocked'] = strategy.pick_gates_blocked
+    result.summary['pick_gates_enabled'] = pick_gates
+    result.summary['vmq_day3_exits'] = strategy.vmq_day3_exits
+    result.summary['vmq_day5_exits'] = strategy.vmq_day5_exits
+    result.summary['include_day3'] = include_day3
+    result.summary['vmq_day3_enabled'] = bool(getattr(_qcfg, 'VMQ_DAY3_ENABLED', False))
+    if include_day3:
+        result.summary['vmq_day3_regime_gated'] = bool(
+            getattr(_qcfg, 'VMQ_DAY3_REGIME_GATED', True)
+        )
+    else:
+        result.summary['vmq_day3_regime_gated'] = False
+    result.summary['months'] = months
+    result.summary['strategy'] = 'QMST (fq pick + turbo + VMQ)'
+
+    out_dir = write_result(result, mode='qmst', extra_meta={'cli_args': vars(args)})
+    _print_summary('QMST', result)
+    print(f'\n  Turbo entries passed (gate checks): {strategy.entries_passed}')
+    print(f'  Turbo entries blocked:              {strategy.entries_blocked}')
+    if include_day3:
+        print(f'  VMQ day-3 exits:                    {strategy.vmq_day3_exits}')
+        print(f'  VMQ day-5 exits:                    {strategy.vmq_day5_exits}')
+    print(f'\n  Artifacts: {out_dir}')
+    return 0
+
+
 def run_compare(args) -> int:
     """Run both engines (v1 & v2) under identical conditions and emit a summary."""
     outputs = {}
@@ -254,6 +351,28 @@ def main(argv: list[str] | None = None) -> int:
     pc = sub.add_parser('compare', help='Run v1 and v2 head-to-head (path1)')
     _add_common(pc)
 
+    pq = sub.add_parser(
+        'qmst',
+        help='QMST stack: fq pick (watchlist) + turbo entry + VMQ exits (path1 window)',
+    )
+    pq.add_argument(
+        '--months', type=int, default=None,
+        help='Trailing months via Path2 OHLCV rescore (omit for path1 dense window)',
+    )
+    pq.add_argument(
+        '--no-day3', action='store_true',
+        help='Force-disable VMQ day-3/day-5 validation exits in simulation',
+    )
+    pq.add_argument(
+        '--day3', action='store_true',
+        help='Force-enable VMQ day-3/day-5 (overrides VMQ_DAY3_ENABLED=false)',
+    )
+    pq.add_argument(
+        '--pick-gates', action='store_true',
+        help='Enable FQ/RK pick floors (overrides QMST_PICK_GATES_ENABLED=false)',
+    )
+    _add_common(pq)
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='[backtest] %(message)s')
 
@@ -263,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_path2(args)
     if args.cmd == 'compare':
         return run_compare(args)
+    if args.cmd == 'qmst':
+        return run_qmst(args)
     return 1
 
 

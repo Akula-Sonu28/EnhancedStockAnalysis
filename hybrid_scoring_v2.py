@@ -84,6 +84,25 @@ class HybridOptimizedScoringEngineV2(HybridOptimizedScoringEngine):
             logging.info('[v2 calibrate] empty history_df')
             return None
 
+        try:
+            from config import get_config
+            cfg = get_config()
+            rank_surface_only = bool(getattr(cfg, 'V2_CALIBRATE_RANK_SURFACE_ONLY', True))
+            disagree_use_30d = bool(getattr(cfg, 'V2_IC_DISAGREE_USE_30D', True))
+        except Exception:
+            rank_surface_only = True
+            disagree_use_30d = True
+
+        if rank_surface_only and 'action' in history_df.columns:
+            from src.picking_metrics import filter_rank_surface
+            before = len(history_df)
+            history_df = filter_rank_surface(history_df)
+            logging.info(f'[v2 calibrate] rank-surface filter: {before} -> {len(history_df)} rows')
+
+        if history_df is None or len(history_df) == 0:
+            logging.info('[v2 calibrate] no rows after rank-surface filter')
+            return None
+
         ret_7d = pd.to_numeric(history_df.get('return_7d'), errors='coerce') if 'return_7d' in history_df.columns else None
         ret_30d = pd.to_numeric(history_df.get('return_30d'), errors='coerce') if 'return_30d' in history_df.columns else None
 
@@ -151,7 +170,11 @@ class HybridOptimizedScoringEngineV2(HybridOptimizedScoringEngine):
                     ic_30d = float(corr) if not np.isnan(corr) else 0.0
             ics_7d[weight_key] = round(ic_7d, 4)
             ics_30d[weight_key] = round(ic_30d, 4)
-            ics_blended[weight_key] = round(blend_7d * ic_7d + (1.0 - blend_7d) * ic_30d, 4)
+            if disagree_use_30d and ic_7d * ic_30d < 0 and n_30d >= 20:
+                blended = ic_30d
+            else:
+                blended = blend_7d * ic_7d + (1.0 - blend_7d) * ic_30d
+            ics_blended[weight_key] = round(blended, 4)
 
         kept = {k: v for k, v in ics_blended.items() if abs(v) >= cls.MIN_ABS_IC}
         if not kept:
@@ -178,6 +201,10 @@ class HybridOptimizedScoringEngineV2(HybridOptimizedScoringEngine):
             if not capped:
                 break
 
+        for k in list(weights.keys()):
+            lo, hi = cls.WEIGHT_BOUNDS.get(k, (-cls.MAX_ABS_SINGLE_WEIGHT,
+                                                 cls.MAX_ABS_SINGLE_WEIGHT))
+            weights[k] = max(lo, min(hi, weights[k]))
         weights = {k: round(v, 4) for k, v in weights.items()}
         for k in component_map.keys():
             weights.setdefault(k, 0.0)

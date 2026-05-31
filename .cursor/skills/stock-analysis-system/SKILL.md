@@ -18,6 +18,8 @@ A multi-module NSE equity analysis pipeline that scores stocks (fundamentals + t
 
 For the full module map, scoring math, schema details, and v2 lifecycle, read [reference.md](reference.md).
 
+**Multi-desk research layer:** For investment narrative on pipeline output (fundamental/technical/macro/portfolio framing), use `india-markets-orchestrator` and its team skills under `.cursor/skills/india-markets-*`. Use **this skill** for code/config/contracts; use **five-agent-council** for system changes.
+
 ## Repo Topology (Top-Level)
 
 ```

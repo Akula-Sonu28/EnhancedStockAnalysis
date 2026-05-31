@@ -322,6 +322,22 @@ def get_ohlcv(symbol, period="1y"):
     Get historical OHLCV data for a stock
     Returns: DataFrame with OHLCV data
     """
+    if _upstox_data_enabled():
+        try:
+            from src.upstox_data import fetch_historical_ohlcv
+
+            df = fetch_historical_ohlcv(symbol, period=period)
+            if df is not None and not df.empty:
+                return df
+            logging.warning(
+                "Upstox OHLCV empty for %s — falling back to yfinance", symbol
+            )
+        except Exception as exc:
+            logging.warning(
+                "Upstox OHLCV failed for %s (%s) — falling back to yfinance",
+                symbol,
+                exc,
+            )
     try:
         stock = yf.Ticker(f"{symbol}.NS")
         df = stock.history(period=period)
@@ -331,3 +347,23 @@ def get_ohlcv(symbol, period="1y"):
     except Exception as e:
         logging.error(f"Error fetching historical data for {symbol}: {str(e)}")
     return None
+
+
+def _upstox_data_enabled() -> bool:
+    try:
+        from pathlib import Path
+        repo = Path(__file__).resolve().parents[1]
+        env_path = repo / ".env"
+        if env_path.exists():
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(env_path)
+            except ImportError:
+                pass
+        from config import get_config
+        if bool(getattr(get_config(), "UPSTOX_DATA_ENABLED", False)):
+            return True
+        from src.upstox_data import upstox_data_enabled
+        return upstox_data_enabled()
+    except Exception:
+        return False

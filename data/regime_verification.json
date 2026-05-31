@@ -1,0 +1,113 @@
+{
+  "mode": "live",
+  "generated": "2026-05-31T02:07:11",
+  "period_days": 180,
+  "regime": {
+    "regime": "SIDEWAYS",
+    "regime_strength": "CHOPPY",
+    "regime_score": -0.3536850712499848,
+    "regime_confidence": 0.3536850712499848,
+    "index_agreement": 1.0,
+    "regime_stability": "STABLE",
+    "trend_signal": -1.0,
+    "momentum_signal": -0.25474028499993934,
+    "volatility_signal": 0.5,
+    "breadth_signal": -0.19999999999999996,
+    "vix_level": 16.190000534057617,
+    "market_sentiment": "NEUTRAL",
+    "trading_recommendation": "WAIT_AND_WATCH",
+    "risk_level": "MODERATE",
+    "current_nifty": 23547.75,
+    "nifty_change_1m": -1.8743612018999984,
+    "nifty_change_3m": -7.64338987641864,
+    "analysis_timestamp": "2026-05-31 02:07:10"
+  },
+  "audit": {
+    "status": "OK",
+    "nifty_close": 23547.75,
+    "above_ma20": false,
+    "above_ma50": false,
+    "above_ma100": false,
+    "nifty_change_1m_pct": -2.6053002688352533,
+    "nifty_change_3m_pct": -8.420837708552098,
+    "trend_signal": -1.0,
+    "momentum_signal": -0.25474028499993934,
+    "volatility_signal": 0.5,
+    "breadth_signal": -0.19999999999999996,
+    "weights": {
+      "trend": 0.35,
+      "momentum": 0.25,
+      "volatility": 0.2,
+      "breadth": 0.2
+    },
+    "raw_regime_score": -0.3536850712499848,
+    "vix_adjusted_score": -0.3536850712499848,
+    "simple_label": "SIDEWAYS",
+    "vix_level": 16.190000534057617
+  },
+  "vmq_day3": {
+    "vmq_day3_regime_gated": true,
+    "day3_validation_active": true,
+    "active_regimes": "bear,sideways,high_vol",
+    "vix_min_for_high_vol": 25.0,
+    "interpretation": "Early day-3/day-5 exits ON"
+  },
+  "spot_checks": [
+    {
+      "date": "2024-09-27",
+      "nifty_close": 26178.94921875,
+      "nifty_change_3m_pct": 8.43759541345548,
+      "signals": {
+        "trend": 1.0,
+        "momentum": 0.5787264991343883,
+        "volatility": 0.5,
+        "breadth": 1.0
+      },
+      "nifty_only_score": 0.794681624783597,
+      "nifty_only_label": "BULL",
+      "backtest_label": "BULL"
+    },
+    {
+      "date": "2025-01-15",
+      "nifty_close": 23213.19921875,
+      "nifty_change_3m_pct": -7.040488510795129,
+      "signals": {
+        "trend": -0.5,
+        "momentum": -0.31009544077730894,
+        "volatility": -0.5,
+        "breadth": -0.9
+      },
+      "nifty_only_score": -0.5325238601943273,
+      "nifty_only_label": "BEAR",
+      "backtest_label": "BEAR"
+    },
+    {
+      "date": "2025-03-15",
+      "nifty_close": 22397.19921875,
+      "nifty_change_3m_pct": -9.206371677155856,
+      "signals": {
+        "trend": -1.0,
+        "momentum": -0.3123669808246186,
+        "volatility": 1.0,
+        "breadth": -1.0
+      },
+      "nifty_only_score": -0.4280917452061546,
+      "nifty_only_label": "SIDEWAYS",
+      "backtest_label": "SIDEWAYS"
+    },
+    {
+      "date": "2026-05-29",
+      "nifty_close": 23547.75,
+      "nifty_change_3m_pct": -8.420837708552098,
+      "signals": {
+        "trend": -1.0,
+        "momentum": -0.25474028499993934,
+        "volatility": -0.5,
+        "breadth": -0.19999999999999996
+      },
+      "nifty_only_score": -0.5536850712499849,
+      "nifty_only_label": "BEAR",
+      "backtest_label": "BEAR"
+    }
+  ]
+}

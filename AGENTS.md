@@ -27,6 +27,12 @@ recommendation lifecycle, hard-stop tier table, regression suite
 map, and v2 promotion state machine. Read it before any change to
 scoring, allocation, exits, history schema, or report contracts.
 
+**Operational strategy:** [docs/strategy-qmst.md](docs/strategy-qmst.md)
+(QMST — pick/entry/exit layer doctrine). Pick rank = `fq_score`;
+entry = turbo; exit = VMQ. SCORE is audit-only when
+`ORACLE_STACK_ALIGN=true`. Master backlog:
+[docs/QMST-MASTER-PLAN.md](docs/QMST-MASTER-PLAN.md).
+
 `.cursor/skills/frontend-design/SKILL.md` governs HTML/UI work:
 distinctive production-grade interfaces (no generic AI aesthetics).
 Before restyling `Portfolio_Allocation_Dashboard.html` or
@@ -38,6 +44,11 @@ Presentation only — data contracts remain in `stock-analysis-system`.
 `analyze_top200_stocks_enhanced.py` run, the user may type **`ANALYSE`**
 to run `scripts/post_analysis_audit.py` and get a PASS/WARN/FAIL report
 (Excel contracts, log, history, IC telemetry, dual-strategy hints).
+
+`.cursor/skills/five-agent-council/SKILL.md` — five-expert council
+(Architect, Quant, Risk, Contract Auditor, Devil's Advocate) for
+multi-round debate and peer acknowledgment before system changes. Trigger
+with **`COUNCIL`**, **`DEBATE`**, or **`PEER REVIEW`**.
 
 ## Behavioural rules
 
