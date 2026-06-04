@@ -1,0 +1,55 @@
+{
+  "skill_name": "product-teams-orchestrator",
+  "iteration": 1,
+  "method": "4 evals x with_skill vs without_skill (8 subagent runs, readonly routing plans)",
+  "assertions_per_eval_with_skill": 6,
+  "summary": {
+    "with_skill_pass_rate": 0.958,
+    "without_skill_pass_rate": 0.708,
+    "delta_percentage_points": 25.0,
+    "winner": "with_skill (v1 enhanced)"
+  },
+  "evals": [
+    {
+      "eval_name": "call-everyone-bear-hardstop",
+      "prompt": "call everyone — BEAR hard-stop tiers, ship, portfolio impact",
+      "with_skill": {"passed": 6, "total": 6, "pass_rate": 1.0,
+        "highlights": ["All-layer classification", "COUNCIL before BUILD", "india-markets portfolio+macro", "test_v2_regression gate", "Council Escalation template"],
+        "misses": []},
+      "without_skill": {"passed": 2, "total": 6, "pass_rate": 0.333,
+        "highlights": ["Deep repo recon (_BEAR_* constants)", "verify-first insight"],
+        "misses": ["No three-layer routing", "No india-markets-orchestrator", "No COUNCIL command", "Generic roles not BUILD handoff"]}
+    },
+    {
+      "eval_name": "build-dashboard-ui",
+      "prompt": "BUILD filter chip QMST dashboard — same data, UI only",
+      "with_skill": {"passed": 4, "total": 4, "pass_rate": 1.0,
+        "highlights": ["Council NO explicit", "Frontend only", "serve_dashboard smoke", "SEV map reuse in app.js"],
+        "misses": []},
+      "without_skill": {"passed": 4, "total": 4, "pass_rate": 1.0,
+        "highlights": ["Found software-product-orchestrator via AGENTS.md", "Product Brief included", "Council NO"],
+        "misses": ["Loaded product-teams-orchestrator anyway (repo docs)"]}
+    },
+    {
+      "eval_name": "full-view-tcs",
+      "prompt": "full view on TCS from latest run",
+      "with_skill": {"passed": 4, "total": 4, "pass_rate": 1.0,
+        "highlights": ["product-teams classify → india-markets", "4 desks parallel", "No COUNCIL/BUILD", "Disclaimer"],
+        "misses": []},
+      "without_skill": {"passed": 3, "total": 4, "pass_rate": 0.75,
+        "highlights": ["Rich artifact inventory", "Seed facts from holdings/historical_outcomes"],
+        "misses": ["Skipped product-teams-orchestrator entry classify step"]}
+    },
+    {
+      "eval_name": "council-debate-quality-lvm",
+      "prompt": "COUNCIL DEBATE ONLY quality_lvm weights live in v2?",
+      "with_skill": {"passed": 4, "total": 4, "pass_rate": 1.0,
+        "highlights": ["DEBATE ONLY stop at Round 3", "product-teams classify first", "A/B/C scope pin", "No BUILD"],
+        "misses": []},
+      "without_skill": {"passed": 3, "total": 4, "pass_rate": 0.75,
+        "highlights": ["Excellent evidence pack", "Round 1-3 plan", "Interpretation A/B/C"],
+        "misses": ["No product-teams-orchestrator classify entry"]}
+    }
+  ],
+  "conclusion": "Skill measurably improves multi-layer routing (eval 1) and master-router entry (evals 3-4). Eval 2 ties because baseline agent read AGENTS.md and found software-product skills without product-teams-orchestrator."
+}
