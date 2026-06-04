@@ -80,6 +80,28 @@ def annualized_volatility_20d(close: pd.Series) -> float:
     return float(rets.std() * np.sqrt(252) * 100)  # percent
 
 
+def annualized_volatility_12m(close: pd.Series, lookback: int = 252) -> float:
+    """12-month daily-return std, annualized (percent). Used for LVM backtests."""
+    if len(close) < 60:
+        return 999.0
+    rets = close.pct_change().dropna()
+    window = rets.iloc[-lookback:] if len(rets) >= lookback else rets
+    if window.empty or len(window) < 20:
+        return 999.0
+    return float(window.std() * np.sqrt(252) * 100)
+
+
+def return_12m_pct(close: pd.Series, lookback: int = 252) -> float:
+    """Total return over ~12 months (percent)."""
+    if len(close) < 22:
+        return -999.0
+    idx = -lookback if len(close) >= lookback else 0
+    base = float(close.iloc[idx])
+    if base <= 0:
+        return -999.0
+    return float((close.iloc[-1] / base - 1.0) * 100.0)
+
+
 def beta_vs(nifty: pd.Series, stock_close: pd.Series, window: int = 60) -> float:
     if len(stock_close) < window or len(nifty) < window:
         return 1.0
@@ -190,7 +212,8 @@ def mtf_features(close: pd.Series) -> dict:
 
 def build_stock_data(symbol: str, ohlcv: pd.DataFrame,
                      nifty_close: Optional[pd.Series],
-                     on_date: date) -> Optional[dict]:
+                     on_date: date,
+                     use_pit_fundamentals: bool = False) -> Optional[dict]:
     """Build the dict v1 engine functions expect, evaluated AS OF `on_date`.
 
     Args:
@@ -199,6 +222,8 @@ def build_stock_data(symbol: str, ohlcv: pd.DataFrame,
         nifty_close: optional Nifty close series for beta computation
                      (same date range as ohlcv).
         on_date: the decision date; we ignore any rows AFTER this date.
+        use_pit_fundamentals: if True, replace neutral fundamental defaults
+            with point-in-time data from Screener.in cache.
 
     Returns:
         dict or None if insufficient data.
@@ -251,7 +276,7 @@ def build_stock_data(symbol: str, ohlcv: pd.DataFrame,
         'ml_expected_return': 0,
         'ml_signal': 'HOLD',
 
-        # fundamental/growth/value: zero weight in v2, set to neutral.
+        # fundamental/growth/value: neutral defaults (overridden below if PIT enabled)
         'pe_ratio': 20.0,
         'roe': 15.0,
         'debt_to_equity': 50.0,
@@ -263,4 +288,15 @@ def build_stock_data(symbol: str, ohlcv: pd.DataFrame,
     }
 
     sd.update(mtf_features(close))
+
+    if use_pit_fundamentals:
+        from .fundamentals_pit import get_fundamental_lookup
+        pit = get_fundamental_lookup().lookup(symbol, on_date, price=current_price)
+        sd['pe_ratio'] = pit.get('pe_ratio', sd['pe_ratio'])
+        sd['pb_ratio'] = pit.get('pb_ratio', sd['pb_ratio'])
+        sd['roe'] = pit.get('roe', sd['roe'])
+        sd['debt_to_equity'] = pit.get('debt_to_equity', sd['debt_to_equity'])
+        sd['earnings_growth'] = pit.get('earnings_growth', sd['earnings_growth'])
+        sd['revenue_growth'] = pit.get('revenue_growth', sd['revenue_growth'])
+
     return sd

@@ -62,3 +62,24 @@ Exhaustion tiers (from `early_breakout_detector`): RSI 72/76/82 → scale-out / 
 - Fundamentals → `india-markets-fundamental`
 - Regime → `india-markets-macro`
 - Stops / rotation → `india-markets-portfolio`
+
+## Five-Agent Council
+
+**Research-only desk.** Escalate code/config changes — do not patch from a technical memo.
+
+| Escalate when | Council agents most involved |
+|---------------|------------------------------|
+| turbo_entry / MTF gate logic | QUANT, RISK, ARCH |
+| early_breakout_detector exhaustion thresholds | QUANT, RISK |
+| Upstox vs yfinance OHLCV path or indicator calc | ARCH, QUANT |
+
+```markdown
+## Council Escalation (from Technical desk)
+**Goal:** [e.g. "Tighten RSI exhaustion before EXIT NOW tag"]
+**India context:** NSE OHLCV source | investor-facing: YES
+**Evidence:** [Trading Levels sheet, turbo tags, module output]
+**Proposed change:** [file/function]
+**Council trigger:** COUNCIL <goal>
+```
+
+Bridge: `.cursor/skills/five-agent-council/references/product-teams-bridge.md`

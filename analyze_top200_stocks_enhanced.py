@@ -1532,10 +1532,56 @@ class EnhancedTop200StockAnalyzer:
         }
 
     @staticmethod
+    def _compute_lvm_momentum_fields(hist) -> dict:
+        """Derive LVM-critical momentum + SMA from 1Y OHLCV (cache backfill path)."""
+        if hist is None or getattr(hist, 'empty', True):
+            return {}
+        closes = hist['Close'].dropna()
+        if closes.empty:
+            return {}
+
+        def _safe_pct(offset: int):
+            if len(closes) <= offset:
+                return None
+            base = closes.iloc[-1 - offset]
+            last = closes.iloc[-1]
+            if base is None or last is None or pd.isna(base) or pd.isna(last) or base == 0:
+                return None
+            return float((last / base - 1.0) * 100)
+
+        out = {}
+        for key, off in (
+            ('price_change_1m', 22),
+            ('price_change_3m', 66),
+            ('price_change_6m', 132),
+        ):
+            v = _safe_pct(off)
+            if v is not None:
+                out[key] = v
+        if len(closes) > 1:
+            d0 = closes.iloc[0]
+            if d0 is not None and not pd.isna(d0) and d0 != 0:
+                out['price_change_1y'] = float((closes.iloc[-1] - d0) / d0 * 100)
+        if len(closes) >= 50:
+            sma50 = closes.rolling(window=50).mean().iloc[-1]
+            if pd.notna(sma50):
+                out['legacy_sma_50'] = float(sma50)
+        return out
+
+    _LVM_REQUIRED_CACHE_KEYS = (
+        'price_change_1y', 'price_change_6m', 'price_change_3m',
+        'price_change_1m', 'legacy_sma_50',
+    )
+
+    @staticmethod
     def _cache_portfolio_fields_need_backfill(cached: dict) -> bool:
         """True when cache lacks valid short-window confirm / portfolio price fields."""
         if cached.get('portfolio_price_fields_valid') is not True:
             return True
+        for key in EnhancedTop200StockAnalyzer._LVM_REQUIRED_CACHE_KEYS:
+            val = cached.get(key)
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return True
         try:
             from src.turbo_entry import sync_price_change_aliases, get_confirm_return_pct
             synced = sync_price_change_aliases(cached)
@@ -1567,6 +1613,12 @@ class EnhancedTop200StockAnalyzer:
                 current_price = float(hist['Close'].iloc[-1])
             patched = dict(cached)
             patched.update(self._compute_portfolio_price_fields(hist, current_price))
+            for key, val in self._compute_lvm_momentum_fields(hist).items():
+                existing = patched.get(key)
+                if existing is None or (
+                    isinstance(existing, float) and np.isnan(existing)
+                ):
+                    patched[key] = val
             if patched.get('portfolio_price_fields_valid'):
                 self.save_to_cache(symbol, patched)
                 logging.info(
@@ -6913,7 +6965,8 @@ class EnhancedTop200StockAnalyzer:
         _hist_oracle = getattr(self.recommendation_history, 'history_df', None)
         results_df = enrich_results_df_oracle_stack(results_df, _config, _hist_oracle)
         if oracle_stack_align_enabled(_config):
-            print(f"      🎯 Oracle stack align: holdings/sector rank → picking_rank (fq/turbo)")
+            _pm = str(getattr(_config, 'ORACLE_PICK_METRIC', 'fq_score'))
+            print(f"      🎯 Oracle stack align: holdings/sector rank → picking_rank ({_pm})")
         
         try:
             # Load current holdings
@@ -7729,11 +7782,17 @@ class EnhancedTop200StockAnalyzer:
                         lambda r: passes_chase_extension_filter(r.to_dict(), _config),
                         axis=1,
                     )
+                    _turbo_ok = (results_df['turbo_score'] >= _turbo_pool_min)
+                    from src.lowvol_momentum import active_lvm_eligible_col, is_lvm_strategy
+                    _lvm_ecol = active_lvm_eligible_col(_config) if is_lvm_strategy(_config) else ''
+                    if (bool(getattr(_config, 'LVM_BYPASS_TURBO_GATE', True))
+                            and _lvm_ecol and _lvm_ecol in results_df.columns):
+                        _turbo_ok = _turbo_ok | results_df[_lvm_ecol].fillna(False).astype(bool)
                     new_candidates = results_df[
                         _watch &
                         _ext_ok &
                         (~results_df['symbol'].str.upper().isin(holding_symbols)) &
-                        (results_df['turbo_score'] >= _turbo_pool_min) &
+                        _turbo_ok &
                         (results_df['current_price'].fillna(0) > 0)
                     ].copy()
                 else:
@@ -9181,9 +9240,30 @@ class EnhancedTop200StockAnalyzer:
                 logging.debug(f"pre-allocation cooldown pass skipped: {_fd_err}")
 
             # STEP 3.4: 🎯 SALE PROCEEDS + PROFIT BOOKING + NEW CAPITAL ALLOCATION
-            if 'keep_stock' in allocation_df.columns and target_amount > 0:
+            # Defaults — must exist even when portfolio_amount=0 (LVM rebalance from rotation only).
+            _vix_regime = str(getattr(self, 'current_market_regime', 'SIDEWAYS') or 'SIDEWAYS').upper()
+            _regime_exposure = 1.0
+            _original_target = float(target_amount or 0)
+            _cash_reserve = 0.0
+            sell_proceeds = 0.0
+            book_profit_proceeds = 0.0
+            total_available = float(target_amount or 0)
+            total_allocated = 0.0
+            buy_count = 0
+            increase_count = 0
+            remaining_budget = total_available
+            sector_allocation: dict = {}
+            regime_adjustment = {
+                'market_regime': _vix_regime,
+                'recommended_exposure': _regime_exposure,
+                'original_capital': _original_target,
+                'adjusted_capital': target_amount,
+                'cash_reserve': _cash_reserve,
+                'regime_strategy': 'VIX-based regime from MarketRegimeDetector',
+            }
+
+            if 'keep_stock' in allocation_df.columns:
                 # Phase 1a+1b: Apply cash reserve BEFORE allocation using VIX-based regime
-                _vix_regime = str(getattr(self, 'current_market_regime', 'SIDEWAYS') or 'SIDEWAYS').upper()
                 _is_vix_bear = _vix_regime in ('BEAR', 'BEARISH')
                 _is_vix_bull = _vix_regime in ('BULL', 'BULLISH')
                 if _is_vix_bear:
@@ -9192,18 +9272,50 @@ class EnhancedTop200StockAnalyzer:
                     _regime_exposure = getattr(_config, 'SIDEWAYS_EXPOSURE', 0.85)
                 else:
                     _regime_exposure = getattr(_config, 'BULL_EXPOSURE', 1.0)
-                _original_target = target_amount
-                _cash_reserve = target_amount * (1.0 - _regime_exposure)
-                target_amount = target_amount * _regime_exposure
-                if _regime_exposure < 1.0:
-                    print(f"\n   🌐 REGIME CASH RESERVE ({_vix_regime}): deploying {_regime_exposure*100:.0f}%, reserving ₹{_cash_reserve:,.0f}")
+                if float(target_amount or 0) > 0:
+                    _original_target = float(target_amount)
+                    _cash_reserve = _original_target * (1.0 - _regime_exposure)
+                    target_amount = _original_target * _regime_exposure
+                    if _regime_exposure < 1.0:
+                        print(f"\n   🌐 REGIME CASH RESERVE ({_vix_regime}): deploying {_regime_exposure*100:.0f}%, reserving ₹{_cash_reserve:,.0f}")
+                total_available = float(target_amount or 0)
 
                 _min_invest = getattr(_config, 'MIN_INVESTMENT_PER_STOCK', 3000)
 
+                # LowVol→Mom: rotate non-LVM holdings before proceeds / funding
+                from src.lowvol_momentum import is_lvm_strategy
+                _lvm_active = is_lvm_strategy(_config)
+                _lvm_screen_syms = set()
+                _lvm_fund_syms = set()
+                if _lvm_active:
+                    try:
+                        from src.lowvol_momentum import (
+                            apply_lvm_rotation_to_allocation,
+                            lvm_eligible_symbols,
+                            lvm_fund_symbols,
+                        )
+                        _lvm_screen_syms = lvm_eligible_symbols(results_df, _config)
+                        _lvm_fund_syms = lvm_fund_symbols(results_df, _config)
+                        if _lvm_screen_syms:
+                            allocation_df, _lvm_rot_n = apply_lvm_rotation_to_allocation(
+                                allocation_df, _lvm_screen_syms, _config,
+                            )
+                            if _lvm_rot_n:
+                                print(f"\n   🔄 LVM ROTATION: {_lvm_rot_n} holdings → SELL (LVM ROTATION)")
+                                sell_recommendations_df = allocation_df[
+                                    allocation_df['keep_stock'] == False
+                                ].copy() if 'keep_stock' in allocation_df.columns else pd.DataFrame()
+                    except Exception as _lvm_pre_err:
+                        logging.debug(f"LVM pre-allocation rotation skipped: {_lvm_pre_err}")
+
                 # Calculate sale proceeds from stocks marked for SELL (100% of position)
+                _sell_act = allocation_df['action_recommendation'].astype(str).str.upper()
                 sell_proceeds = allocation_df[
-                    (allocation_df['action_recommendation'] == 'SELL') & 
-                    (allocation_df['is_current_holding'] == True)
+                    (
+                        _sell_act.eq('SELL')
+                        | _sell_act.str.contains('LVM ROTATION', na=False)
+                    )
+                    & (allocation_df['is_current_holding'] == True)
                 ]['current_value'].sum()
                 
                 # Calculate profit booking proceeds from stocks marked for BOOK_PROFIT
@@ -9242,896 +9354,939 @@ class EnhancedTop200StockAnalyzer:
                 print(f"      [DATA] Total available: Rs{total_available:,.0f}")
                 print(f"      [TAX] Est. tax reserve: Rs{_est_sell_tax + _est_book_tax:,.0f} (STCG assumption*)")
                 
-                # [RANK] UNIFIED RANKING-BASED ALLOCATION (No 80/20 split)
-                # Combine ALL opportunities (existing INCREASE + new BUY) into ONE ranked list
-                print(f"\n   [RANK] UNIFIED RANKING-BASED CAPITAL ALLOCATION:")
-                
-                keep_stocks = allocation_df[allocation_df['keep_stock'] == True].copy()
-                current_portfolio_value = allocation_df['current_value'].sum()
-                total_target_portfolio = current_portfolio_value + total_available
-                
-                # === BUILD UNIFIED OPPORTUNITY LIST ===
-                all_opportunities = []
-                
-                # 1. EXISTING HOLDINGS - Calculate max additional investment
-                print(f"\n   📊 Analyzing existing holdings for additional investment...")
-                for idx, row in keep_stocks.iterrows():
-                    if row['current_value'] > 0:  # Already holding this stock
-                        # CRITICAL: Exclude SELL stocks from allocation
-                        action = str(row.get('action_recommendation', '')).upper()
-                        if action == 'SELL':
-                            continue  # Skip SELL stocks - they should get ₹0 allocation
-                        
-                        rank = row.get('holdings_rank', 999)
-                        exit_reason = str(row.get('exit_reason', ''))
-                        
-                        # 🚀 UPDATED: Include ALL holdings for analysis (even mediocre ones for potential SWAP)
-                        # We used to filter by rank, but now we let the Unified Allocation logic decide.
-                        # [RT-08 FIX] Only allow INCREASE opportunity if not at meaningful loss (unless ML=STRONG_BUY)
-                        _profit_for_increase = _nv(row.get('current_profit_pct'), 0)
-                        _ml_for_increase = str(row.get('ml_signal', ''))
-                        is_top_performer = (_profit_for_increase >= -0.02) or (_ml_for_increase == 'STRONG_BUY')
-                        
-                        if is_top_performer:
-                            current_value = row['current_value']
-                            market_cap = row.get('market_cap', 0)
-                            
-                            # Get market cap category and max allocation percentage
-                            cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
-                            max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                            
-                            # 🔧 FIX: Allow top performers (score >= 80 or rank <= 6) to exceed normal cap
-                            # This ensures best stocks get fresh capital even if already well-allocated
-                            score = _nv(row.get('overall_score', row.get('final_blended_score', row.get('risk_adjusted_score', 0))), 0)
-                            is_top_scorer = score >= 80 or rank <= 6
-                            
-                            if is_top_scorer:
-                                # Allow up to 150% of normal cap for elite stocks
-                                extended_cap = max_allocation_per_stock * 1.5
-                                max_additional = max(0, extended_cap - current_value)
-                            else:
-                                max_additional = max(0, max_allocation_per_stock - current_value)
-                            
-                            # allow all holdings to be added (for SWAP analysis), even if fully allocated
-                            if True: 
-                                # [FIX-SCORE] allocation_df does not carry final_blended_score (only in results_df).
-                                # Use overall_score (the capped 100-pt score written to allocation_df) as the
-                                # primary sort key so high-conviction holdings like J&KBANK (score=100) rank
-                                # above weaker stocks and are funded first.
-                                _opp_score = _nv(row.get('overall_score'), _nv(row.get('final_blended_score'), _nv(row.get('risk_adjusted_score'), 0)))
-                                all_opportunities.append({
-                                    'type': 'INCREASE',
-                                    'index': idx,
-                                    'symbol': row['symbol'],
-                                    # ✅ UPDATED: Use overall_score from allocation_df (correctly reflects ranking)
-                                    'score': _opp_score,
-                                    'rank': rank,
-                                    'current_value': current_value,
-                                    'max_investment': max_additional,
-                                    'current_price': row['current_price'],
-                                    'sector': row.get('sector', 'Unknown'),
-                                    'market_cap_category': cap_category,
-                                    'stock_class': row.get('stock_classification', 'CORE_VALUE'),
-                                    'is_existing_holding': True
-                                })
-                
-                print(f"      ✅ Found {len(all_opportunities)} existing holdings eligible for INCREASE")
-                
-                # 2. NEW BUY OPPORTUNITIES
-                print(f"\n   🔍 Searching for NEW buy opportunities...")
-                
-                # Get current holdings symbols
-                actual_holdings_symbols = set()
-                if current_holdings is not None and not current_holdings.empty:
-                    _ah_col = next((c for c in ['Instrument', 'Symbol', 'Stock', 'Ticker', 'symbol', 'instrument'] if c in current_holdings.columns), 'Instrument')
-                    actual_holdings_symbols = set(current_holdings[_ah_col].str.upper())
-                
-                # 🔧 FIX: Load full analysis report to get ALL opportunities (not just current holdings)
-                all_analyzed_df = results_df.copy()
-                
-                # 🔧 DISABLED: Implicit merging of previous reports causes confusion (e.g. phantom AUBANK)
-                # If users want full allocation, they should run full analysis.
-                # import glob
-                # reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
-                # ... (disabled logic)
-                        
-                if len(all_analyzed_df) == len(results_df):
-                    # print(f"      ⚠️  Could not load additional stocks from reports")
-                    print(f"      📊 Using current analysis only: {len(all_analyzed_df)} stocks")
-                
-                # 🚀 CRITICAL FIX: Check allocation_df for pre-breakout/high-momentum stocks (already has action_recommendation)
-                # These stocks have pre-breakout flags set during holdings analysis but may not be current holdings
-                prebreakout_stocks_in_allocation = allocation_df[
-                    (allocation_df['keep_stock'] == True) &
-                    (~allocation_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
-                    (
-                        allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('🚀', na=False) |
-                        allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('PRE-BREAKOUT', na=False) |
-                        allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('HIGH MOMENTUM', na=False) |
-                        allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('🟢 ENTER', na=False)
-                    )
-                ].copy()
-                
-                print(f"      🚀 Found {len(prebreakout_stocks_in_allocation)} pre-breakout/high-ROI stocks from allocation")
-                
-                # 🚀 ENHANCED: Include pre-breakout and high-momentum stocks in allocation
-                # These stocks have high ROI potential but were previously excluded.
-                # [v2 Promotion] When v2 is live, gate on `overall_score` directly
-                # rather than `risk_adjusted_score`. v2's signed-weight model
-                # already incorporates risk preference (risk_adjustment carries a
-                # negative weight in the BEAR-calibrated file), so multiplying
-                # overall_score by (1 - vol_penalty) double-counts risk and
-                # blocks legitimate v2 BUY picks. Falls back to v1's risk-
-                # adjusted gate when shadow-mode is still active.
-                try:
-                    from config import get_config as _gc_v2_gate
-                    _v2_shadow_gate = bool(getattr(_gc_v2_gate(), 'V2_SHADOW_MODE', True))
-                except Exception:
-                    _v2_shadow_gate = True
-                if _v2_shadow_gate:
-                    _gate_score_col = 'risk_adjusted_score'
-                    _gate_thr = 55
-                else:
-                    _gate_score_col = 'overall_score'
-                    _gate_thr = 55
-                # [Investor-audit Q8] Add an explicit DQ exclusion. A stock
-                # tagged "BUY (CAUTION: NO FUNDAMENTAL DATA)" would otherwise
-                # slip past the `.contains('BUY')` filter even though the
-                # caution suffix is meant to demote it. We exclude any
-                # `fundamental_data_failed=True` row outright, plus rows
-                # whose `data_quality_score` is below 40 (steep deterioration
-                # signal we already enforce in _evaluate_thesis_break).
-                _dq_score_col = 'data_quality_score' if 'data_quality_score' in all_analyzed_df.columns else None
-                _dq_fail_col = 'fundamental_data_failed' if 'fundamental_data_failed' in all_analyzed_df.columns else None
-                _dq_ok_mask = pd.Series(True, index=all_analyzed_df.index)
-                if _dq_fail_col is not None:
-                    _dq_ok_mask &= ~all_analyzed_df[_dq_fail_col].fillna(False).astype(bool)
-                if _dq_score_col is not None:
-                    _dq_ok_mask &= pd.to_numeric(all_analyzed_df[_dq_score_col], errors='coerce').fillna(100) >= 40
-                _entry_driver_alloc = str(getattr(_config, 'ENTRY_DRIVER', 'turbo_mtf')).lower()
-                if _entry_driver_alloc in ('turbo_mtf', 'turbo'):
-                    from src.turbo_entry import enrich_dataframe_with_turbo, compute_turbo_score
-                    from src.picking_metrics import add_picking_rank_column
-                    all_analyzed_df = enrich_dataframe_with_turbo(all_analyzed_df, _config)
-                    all_analyzed_df = add_picking_rank_column(all_analyzed_df, _config)
-                    _turbo_pool = float(getattr(_config, 'TURBO_ENTRY_V2_MIN', 60)) - 5.0
-                    _fund_rank = 'picking_rank' if 'picking_rank' in all_analyzed_df.columns else 'turbo_score'
-                    new_opportunities_candidates = all_analyzed_df[
-                        (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
-                        (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
-                        (~all_analyzed_df['final_recommendation'].astype(str).str.contains('CAUTION', case=False, na=False)) &
-                        (all_analyzed_df['turbo_score'] >= _turbo_pool) &
-                        (all_analyzed_df['current_price'].fillna(0) > 0) &
-                        _dq_ok_mask
-                    ].copy().sort_values(_fund_rank, ascending=False)
-                    print(f"      🎯 TURBO MTF funding pool: {len(new_opportunities_candidates)} candidates (turbo>={_turbo_pool:.0f}, rank={_fund_rank})")
-                else:
-                    from src.picking_metrics import add_picking_rank_column
-                    all_analyzed_df = add_picking_rank_column(all_analyzed_df, _config)
-                    _fund_rank = 'picking_rank' if 'picking_rank' in all_analyzed_df.columns else _gate_score_col
-                    new_opportunities_candidates = all_analyzed_df[
-                        (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
-                        (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
-                        (~all_analyzed_df['final_recommendation'].astype(str).str.contains('CAUTION', case=False, na=False)) &
-                        (all_analyzed_df[_gate_score_col] >= _gate_thr) &
-                        (all_analyzed_df['current_price'].fillna(0) > 0) &
-                        _dq_ok_mask
-                    ].copy().sort_values(_fund_rank, ascending=False)
-                
-                _curr_regime_alloc = str(getattr(self, 'current_market_regime', '') or '').upper()
-                if _curr_regime_alloc in ('BEAR', 'BEARISH'):
-                    # [Investor-audit Q54] When v2 is the live engine, the
-                    # BEAR vol cap double-penalises volatility - v2 already
-                    # has a -0.34 weight on risk_adjustment in its BEAR
-                    # calibration, which means a high-volatility stock that
-                    # still scores BUY in v2 has explicitly survived the
-                    # risk-aware engine. Relax the cap from 40% (= 80*0.5)
-                    # to 60% (= 80*0.75) when v2 is live. This was the
-                    # exact issue blocking GROWW (vol=60%, V2=76, BUY)
-                    # despite v2 explicitly recommending it.
+                _lvm_funding_done = False
+                if _lvm_active and _lvm_fund_syms:
                     try:
-                        from config import get_config as _gc_v2_vol
-                        _v2_live_vol = not bool(getattr(_gc_v2_vol(), 'V2_SHADOW_MODE', True))
-                    except Exception:
-                        _v2_live_vol = False
-                    # 0.8125 * 80 = 65% in v2 mode. GROWW (the canonical
-                    # v2 BUY example) sits at 60.37% vol so we need >=60%
-                    # to let it through. 65% gives a small safety margin
-                    # over GROWW's level while still blocking truly
-                    # extreme-vol names (RVNL/IRCTC class 80%+ stocks).
-                    _vol_cap_mult = 0.8125 if _v2_live_vol else 0.5
-                    _bear_vol_cap = getattr(_config, 'MAX_SAFE_VOLATILITY', 80.0) * _vol_cap_mult
-                    _pre_count = len(new_opportunities_candidates)
-                    new_opportunities_candidates = new_opportunities_candidates[
-                        new_opportunities_candidates['volatility'].fillna(100) <= _bear_vol_cap  # HI-04: unknown vol = high risk
-                    ]
-                    _dropped = _pre_count - len(new_opportunities_candidates)
-                    if _dropped > 0:
-                        _label = "v2-relaxed" if _v2_live_vol else "v1-strict"
-                        print(f"      🛡️ BEAR filter ({_label}): Excluded {_dropped} high-volatility (>{_bear_vol_cap:.0f}%) candidates")
-                
-                print(f"      📊 Found {len(new_opportunities_candidates)} standard BUY candidates from analysis")
-                
-                # 🚀 PROCESS PRE-BREAKOUT STOCKS FROM ALLOCATION_DF FIRST (priority)
-                for _, prebreakout_stock in prebreakout_stocks_in_allocation.iterrows():
-                    symbol = str(prebreakout_stock.get('symbol', '')).upper()
-                    
-                    if symbol:
-                        market_cap = prebreakout_stock.get('market_cap', 0)
-                        cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
-                        max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                        
-                        # 🚀 ROI POTENTIAL SCORING: These are HIGH PRIORITY - already flagged with pre-breakout
-                        base_score = prebreakout_stock.get('overall_score', prebreakout_stock.get('risk_adjusted_score', 0))
-                        action_rec = str(prebreakout_stock.get('action_recommendation', ''))
-                        roi_boost = 0
-                        roi_label = ""
-                        
-                        # Check for high-ROI indicators from action_recommendation
-                        if '🚀' in action_rec or 'PRE-BREAKOUT' in action_rec:
-                            breakout_prob = prebreakout_stock.get('breakout_probability', 0)
-                            if breakout_prob >= 85:
-                                roi_boost = 8  # Very high ROI potential
-                                roi_label = "🔥 Very High ROI"
-                            elif breakout_prob >= 70:
-                                roi_boost = 5  # High ROI potential
-                                roi_label = "⚡ High ROI"
-                            else:
-                                roi_boost = 3  # Moderate ROI potential
-                                roi_label = "💫 Moderate ROI"
-                        elif '🟢 ENTER' in action_rec:
-                            roi_boost = 6  # Conflict-resolved ENTER signal
-                            roi_label = "✅ Conflict-Resolved ENTER"
-                        elif 'HIGH MOMENTUM' in action_rec:
-                            roi_boost = 4  # Momentum play
-                            roi_label = "📈 High Momentum"
-                        
-                        adjusted_score = base_score + roi_boost
-                        
-                        print(f"         🚀 Adding pre-breakout: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f}) {roi_label}")
-                        
-                        all_opportunities.append({
-                            'type': 'BUY',
-                            'symbol': symbol,
-                            'score': adjusted_score,  # Use ROI-adjusted score
-                            'base_score': base_score,
-                            'roi_boost': roi_boost,
-                            'roi_label': roi_label,
-                            'max_investment': max_allocation_per_stock,
-                            'current_price': prebreakout_stock.get('current_price', 100),
-                            'sector': prebreakout_stock.get('sector', 'Unknown'),
-                            'market_cap_category': cap_category,
-                            'max_allocation_pct': max_allocation_pct * 100,
-                            'is_existing_holding': False,
-                            'recommendation': 'BUY',
-                            'action_recommendation': action_rec,
-                            'company_name': prebreakout_stock.get('company_name', symbol),
-                            'market_cap': market_cap,
-                            'rank': 0,
-                            'breakout_probability': prebreakout_stock.get('breakout_probability', 0),
-                            # [DQ-NATALUM] RSI plumbed for the funding-loop RSI>80 gate.
-                            'real_rsi': prebreakout_stock.get('real_rsi'),
-                            'enhanced_rsi_14': prebreakout_stock.get('enhanced_rsi_14'),
-                        })
-                
-                # Add new opportunities to the unified list
-                for _, analyzed_stock in new_opportunities_candidates.iterrows():
-                    symbol = str(analyzed_stock.get('symbol', '')).upper()
-                    
-                    if symbol:
-                        market_cap = analyzed_stock.get('market_cap', 0)
-                        cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
-                        max_allocation_per_stock = total_target_portfolio * max_allocation_pct
-                        
-                        # 🚀 ROI POTENTIAL SCORING: Cumulative boosts for high-probability setups
-                        if _entry_driver_alloc in ('turbo_mtf', 'turbo'):
-                            base_score = compute_turbo_score(
-                                analyzed_stock.to_dict() if hasattr(analyzed_stock, 'to_dict') else dict(analyzed_stock),
+                        from src.lowvol_momentum import fund_lvm_picks_equal_weight, lvm_fund_n, lvm_top_n
+                        allocation_df, total_allocated, buy_count, increase_count, remaining_budget = (
+                            fund_lvm_picks_equal_weight(
+                                allocation_df,
+                                results_df,
+                                _lvm_fund_syms,
+                                total_available,
+                                _min_invest,
                                 _config,
                             )
-                        else:
-                            base_score = _nv(analyzed_stock.get('final_blended_score', analyzed_stock.get('risk_adjusted_score')), 0)
-                        
-                        momentum_score = analyzed_stock.get('momentum_score', 0)
-                        rsi = analyzed_stock.get('rsi', 50)
-                        volume_trend = analyzed_stock.get('volume_trend', 0)
-                        price_near_high = analyzed_stock.get('distance_from_52w_high_pct', 100)
-                        
-                        roi_boost = 0
-                        roi_labels = []
-                        
-                        # 🚀 MOMENTUM (cumulative with other factors)
-                        if momentum_score >= 75 and volume_trend > 20 and rsi < 70:
-                            roi_boost += 5
-                            roi_labels.append("🚀 High Momentum")
-                        elif momentum_score >= 70 and rsi < 70:
-                            roi_boost += 4
-                            roi_labels.append("📈 Good Momentum")
-                        elif momentum_score >= 60 and rsi < 75:
-                            roi_boost += 2
-                            roi_labels.append("📈 Moderate Momentum")
-                        
-                        # 🎯 PRE-BREAKOUT (additive on top of momentum)
-                        if price_near_high <= 5 and momentum_score >= 60 and 45 <= rsi <= 70:
-                            roi_boost += 4
-                            roi_labels.append("⚡ Pre-Breakout")
-                        
-                        # 📊 STRONG FUNDAMENTALS (additive)
-                        if base_score >= 75 and analyzed_stock.get('is_undervalued', False):
-                            roi_boost += 3
-                            roi_labels.append("💎 Strong Fundamentals")
-                        elif base_score >= 70 and analyzed_stock.get('undervaluation_score', 0) >= 70:
-                            roi_boost += 2
-                            roi_labels.append("💎 Undervalued")
-                        
-                        # 📊 HIGH ROE (strong return generator)
-                        _roe = _nv(analyzed_stock.get('roe', 0), 0)
-                        if _roe > 20:
-                            roi_boost += 2
-                            roi_labels.append(f"📊 High ROE ({_roe:.0f}%)")
-                        
-                        roi_label = " + ".join(roi_labels) if roi_labels else ""
-                        adjusted_score = base_score + roi_boost
-                        
-                        if roi_boost > 0:
-                            print(f"         {roi_label}: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f})")
-                        
-                        action_rec = str(analyzed_stock.get('action_recommendation', analyzed_stock.get('final_recommendation', 'BUY')))
-                        
-                        all_opportunities.append({
-                            'type': 'BUY',
-                            'symbol': symbol,
-                            'score': adjusted_score,
-                            'base_score': base_score,
-                            'roi_boost': roi_boost,
-                            'roi_label': roi_label,
-                            'max_investment': max_allocation_per_stock,
-                            'current_price': analyzed_stock.get('current_price', 100),
-                            'sector': analyzed_stock.get('sector', 'Unknown'),
-                            'market_cap_category': cap_category,
-                            'max_allocation_pct': max_allocation_pct * 100,
-                            'is_existing_holding': False,
-                            'recommendation': analyzed_stock.get('final_recommendation', ''),
-                            'action_recommendation': action_rec,
-                            'company_name': analyzed_stock.get('company_name', symbol),
-                            'market_cap': market_cap,
-                            'rank': 0,
-                            'breakout_probability': analyzed_stock.get('breakout_probability', 0),
-                            # [DQ-NATALUM] RSI plumbed for the funding-loop RSI>80 gate.
-                            'real_rsi': analyzed_stock.get('real_rsi'),
-                            'enhanced_rsi_14': analyzed_stock.get('enhanced_rsi_14'),
-                            'turbo_score': base_score if _entry_driver_alloc in ('turbo_mtf', 'turbo') else analyzed_stock.get('turbo_score'),
-                            'entry_confirm_ret': analyzed_stock.get('entry_confirm_ret', analyzed_stock.get('price_change_5d', 0)),
-                            'hybrid_momentum_technical': analyzed_stock.get('hybrid_momentum_technical'),
-                            'hybrid_multi_timeframe': analyzed_stock.get('hybrid_multi_timeframe'),
-                            'hybrid_fundamental_quality': analyzed_stock.get('hybrid_fundamental_quality'),
-                            'hybrid_overall_score_v2': analyzed_stock.get('hybrid_overall_score_v2'),
-                        })
-                
-                # Deduplicate all_opportunities by symbol (keep highest score)
-                _seen_syms = {}
-                for opp in all_opportunities:
-                    sym = opp['symbol']
-                    if sym not in _seen_syms or opp['score'] > _seen_syms[sym]['score']:
-                        _seen_syms[sym] = opp
-                _dedup_count = len(all_opportunities) - len(_seen_syms)
-                all_opportunities = list(_seen_syms.values())
-                if _dedup_count > 0:
-                    print(f"      ⚠️  Removed {_dedup_count} duplicate opportunity entries")
-                print(f"      ✅ Total opportunities: {len(all_opportunities)} (INCREASE + BUY)")
-                
-                # === SORT BY SCORE (HIGHEST FIRST) ===
-                if _entry_driver_alloc in ('turbo_mtf', 'turbo'):
-                    all_opportunities.sort(
-                        key=lambda x: (x.get('turbo_score', x['score']), x.get('entry_confirm_ret', 0)),
-                        reverse=True,
-                    )
-                else:
-                    all_opportunities.sort(key=lambda x: x['score'], reverse=True)
-                
-                # 🔄 SMART ROTATION LOGIC (Expert Portfolio Management)
-                print(f"\n   🔄 Analyzing Portfolio Rotation Opportunities...")
-                
-                # 1. Identify "Weak" Holdings (Score < 50) - CUT
-                weak_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and op['score'] < 50]
-                for wh in weak_holdings:
-                    print(f"      [CUT] CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
-                    wh['recommendation'] = "SELL (WEAK)"
-                    wh['action_comment'] = "Score < 50: Fundamental momentum lost"
-                
-                # 2. Identify "Mediocre" Holdings (Score 50-70) - SWAP CANDIDATES
-                mediocre_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and 50 <= op['score'] < 70]
-                
-                # 3. Identify "Superstar" Opportunities (Turbo/v2 threshold, Not Held)
-                _super_thr = (
-                    float(getattr(_config, 'TURBO_ENTRY_V2_MIN', 60))
-                    if _entry_driver_alloc in ('turbo_mtf', 'turbo')
-                    else 70.0
-                )
-                superstars = [
-                    op for op in all_opportunities
-                    if not op.get('is_existing_holding')
-                    and (op.get('turbo_score', op['score']) if _entry_driver_alloc in ('turbo_mtf', 'turbo') else op['score']) >= _super_thr
-                ]
-
-
-                
-                # 4. Find Valid Swaps (Gap > 15 points)
-                swaps_found = 0
-                
-                # Match worst mediocre with best superstar
-                if mediocre_holdings and superstars:
-                    mediocre_holdings.sort(key=lambda x: x['score']) # Lowest first
-                    superstars.sort(key=lambda x: x['score'], reverse=True) # Highest first
-                    
-
-                    
-                    for med in mediocre_holdings:
-                        if swaps_found >= 2: break
-                        
-                        # Find best available superstar
-                        for star in superstars:
-                            if star.get('is_matched'): continue
-                            
-                            score_gap = star['score'] - med['score']
-                            
-                            # Phase 3c: rotation-friction gate — SWAP only when holding is weak
-                            # AND the score advantage exceeds friction. Existing 20-point
-                            # gap remains as a sanity floor; rotation gate adds weakness check.
-                            _med_rsi = med.get('rsi', med.get('real_rsi', med.get('enhanced_rsi_14', 50)))
-                            _med_pnl = med.get('current_profit_pct', med.get('profit_pct', 0)) or 0
-                            _rot_eval = self._should_rotate(
-                                holding_score=med['score'],
-                                candidate_score=star['score'],
-                                holding_rsi=_med_rsi,
-                                holding_profit_pct=_med_pnl,
-                            )
-                            med['rotation_score_delta'] = _rot_eval['score_delta']
-
-                            if score_gap >= 20 and _rot_eval['should_rotate']:
-                                # FOUND SWAP!
-                                print(f"      🔄 SWAP FOUND: Sell {med['symbol']} ({med['score']:.1f}) -> Buy {star['symbol']} ({star['score']:.1f}) | Gap: +{score_gap:.1f} | {_rot_eval['reason']}")
-
-                                # Update Mediocre Holding Action
-                                med['recommendation'] = f"SWAP -> {star['symbol']}"
-                                med['action_comment'] = f"Upgrade to {star['symbol']} (Score +{score_gap:.1f})"
-                                med['priority_sell'] = True
-                                
-                                # Update Superstar Action
-                                star['recommendation'] = "BUY (SWAP)"
-                                star['action_comment'] = f"Funded by selling {med['symbol']}"
-                                star['is_matched'] = True
-                                star['swap_source_value'] = med.get('current_value', 0) # Store source value for capping
-                                star['rotation_score_delta'] = _rot_eval['score_delta']
-                                
-                                swaps_found += 1
-                                break
-                            elif score_gap >= 20:
-                                print(f"      ⏸️  SWAP BLOCKED: {med['symbol']} ({med['score']:.1f}) -> {star['symbol']} ({star['score']:.1f}) Gap +{score_gap:.1f} | {_rot_eval['reason']}")
-
-                
-                # === ALLOCATE FUNDS SEQUENTIALLY ===
-                print(f"\n   💰 Allocating ₹{total_available:,.0f} across ranked opportunities...")
-                
-                remaining_budget = total_available
-                # F-04 FIX: Pre-populate sector counts with existing KEEP/HOLD holdings
-                # so the SECTOR_CAP applies to total positions (existing + new), not just new.
-                sector_allocation = {}
-                if 'sector' in allocation_df.columns:
-                    _kept = allocation_df[
-                        (allocation_df['keep_stock'] == True) &
-                        (allocation_df['is_current_holding'] == True)
-                    ]
-                    for _s in _kept['sector'].dropna():
-                        sector_allocation[_s] = sector_allocation.get(_s, 0) + 1
-                    if sector_allocation:
-                        _top_sec = max(sector_allocation, key=sector_allocation.get)
-                        print(f"      ℹ️  Pre-loaded sector counts from {len(_kept)} existing holdings (largest: {_top_sec}={sector_allocation[_top_sec]})")
-                category_sector_counts = {}  # Track per-category sector caps
-                increase_count = 0
-                buy_count = 0
-                total_allocated = 0
-                
-                # 🔄 CRITICAL FIX: Process Priority Sells/Swaps FIRST & RECYCLE CAPITAL
-                # Then IMMEDIATELY fund SWAP targets before other opportunities consume the budget
-                print(f"\n   🔄 Applying Priority Swap Actions & Recycling Capital...")
-                
-                # Step 1: Recycle capital from SELL stocks
-                swap_targets = []
-                for opportunity in all_opportunities:
-                    if opportunity.get('priority_sell'):
-                        # [FIX] Use symbol-based lookup — index stored before SWAP/concat may be stale
-                        _sw1_sym = opportunity['symbol']
-                        _sw1_mask = allocation_df['symbol'] == _sw1_sym
-                        action_rec = opportunity['recommendation']
-                        reason = opportunity.get('action_comment', '')
-                        current_val = opportunity.get('current_value', 0)
-                        
-                        print(f"      ✅ Executing Swap: {opportunity['symbol']} | Recycling Rs{current_val:,.0f}")
-                        
-                        # Apply to Allocation DF (symbol-safe)
-                        if _sw1_mask.any():
-                            _sw1_idx = allocation_df.index[_sw1_mask][0]
-                            allocation_df.loc[_sw1_idx, 'action_recommendation'] = action_rec
-                            allocation_df.loc[_sw1_idx, 'action_type'] = action_rec
-                            allocation_df.loc[_sw1_idx, 'exit_reason'] = reason
-                            allocation_df.loc[_sw1_idx, 'investment_amount'] = 0
-                            allocation_df.loc[_sw1_idx, 'priority'] = 'HIGH'
-                        
-                        _swap_invested = opportunity.get('invested_amount', current_val)
-                        _swap_gain = max(0, current_val - _swap_invested)
-                        _swap_tax = _swap_gain * 0.20
-                        _swap_post_tax = current_val - _swap_tax
-                        remaining_budget += _swap_post_tax
-                        total_available += _swap_post_tax
-                        print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f} (post-tax on ₹{_swap_gain:,.0f} gain)")
-                        logging.debug(f"Capital recycled: {opportunity['symbol']} {current_val} -> budget {remaining_budget}")
-                
-                # Step 2: IMMEDIATELY fund SWAP targets (guaranteed allocation from recycled capital)
-                print(f"\n   🚀 Funding SWAP Targets (Priority Allocation)...")
-                for opportunity in all_opportunities:
-                    if opportunity.get('recommendation') == 'BUY (SWAP)' and not opportunity.get('is_existing_holding'):
-                        symbol = opportunity['symbol']
-                        swap_source_value = opportunity.get('swap_source_value', 0)
-                        
-                        _swap_sector = opportunity.get('sector', '')
-                        _swap_score = opportunity.get('score', 0)
-                        _swap_cap_override = _swap_score >= getattr(_config, 'SECTOR_CAP_SCORE_OVERRIDE', 75)
-                        if sector_allocation.get(_swap_sector, 0) >= _config.SECTOR_CAP and not _swap_cap_override:
-                            print(f"      ⚠️ SWAP TARGET {symbol} blocked: sector '{_swap_sector}' at cap ({_config.SECTOR_CAP})")
-                            continue
-
-                        # [DQ-NATALUM] RSI>80 hard gate also applies to SWAP targets — NESTLEIND-class
-                        # slip-through happened here because this path bypasses the new-candidate loop.
-                        try:
-                            _swap_rsi = float(opportunity.get('real_rsi',
-                                              opportunity.get('enhanced_rsi_14', 50)) or 50)
-                        except (TypeError, ValueError):
-                            _swap_rsi = 50.0
-                        if _swap_rsi > 80:
-                            print(f"      ⚠️ SWAP TARGET {symbol} blocked: RSI {_swap_rsi:.0f} extreme — wait for pullback")
-                            continue
-                        
-                        # 🎯 GUARANTEED ALLOCATION: Use recycled capital for SWAP target
-                        # Cap at 40% of total budget OR recycled amount, whichever is HIGHER for high-ROI swaps
-                        roi_score = opportunity.get('score', 0)
-                        max_swap_allocation = total_available * 0.40
-                        
-                        if roi_score >= 85:
-                            final_cap = swap_source_value  # Allow full recycled amount for very high ROI
-                            cap_reason = f"Very High ROI (Score {roi_score:.1f})"
-                        else:
-                            # For lower scores, use min of recycled amount and 40% cap
-                            final_cap = min(swap_source_value, max_swap_allocation) if swap_source_value > 0 else max_swap_allocation
-                            cap_reason = f"SWAP Guarantee (40% cap check: Score {roi_score:.1f})"
-                        
-                        optimal_investment = min(remaining_budget, final_cap)
-                        
-                        if optimal_investment >= _min_invest:
-                            current_price = _nv(float(opportunity['current_price']), 0)
-                            if current_price <= 0 or np.isnan(current_price):
-                                continue
-                            shares_to_buy = int(optimal_investment / current_price)
-                            actual_investment = shares_to_buy * current_price
-                            
-                            if actual_investment >= _min_invest:
-                                print(f"      ✅ SWAP TARGET {symbol}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | {cap_reason}")
-                                
-                                # Add to allocation_df as NEW POSITION.
-                                # [Rule 1 / 3a] Seed from results_df so Growth /
-                                # Value / Sleeve columns flow through for SWAP
-                                # targets too (same pattern as the BUY/INCREASE
-                                # branch below).
-                                _swt_mask = results_df['symbol'].str.upper() == symbol.upper()
-                                _swt_src = results_df[_swt_mask].iloc[0].to_dict() if _swt_mask.any() else {}
-                                _swt_data = dict(_swt_src)
-                                _swt_data.update({
-                                    'symbol': symbol,
-                                    'company_name': opportunity.get('company_name', symbol),
-                                    'sector': opportunity['sector'],
-                                    'current_price': current_price,
-                                    'current_value': 0,
-                                    'current_quantity': 0,
-                                    'investment_amount': actual_investment,
-                                    'suggested_quantity': shares_to_buy,
-                                    'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),
-                                    'overall_score': min(100.0, opportunity['score']),
-                                    'market_cap_category': opportunity['market_cap_category'],
-                                    'action_recommendation': opportunity.get('action_recommendation', '🚀 HIGH MOMENTUM NEW POSITION'),
-                                    'action_type': 'NEW POSITION',
-                                    'keep_stock': True,
-                                    'recommendation': 'BUY (SWAP)',
-                                    'exit_reason': opportunity.get('roi_label', 'SWAP upgrade'),
-                                    'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
-                                })
-                                new_row = pd.Series(_swt_data)
-                                
-                                # Check if already exists
-                                existing_mask = allocation_df['symbol'] == symbol
-                                if existing_mask.any():
-                                    existing_idx = allocation_df.index[existing_mask][0]
-                                    allocation_df.loc[existing_idx, 'investment_amount'] = actual_investment
-                                    allocation_df.loc[existing_idx, 'suggested_quantity'] = shares_to_buy
-                                else:
-                                    allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
-                                
-                                # Update tracking
-                                remaining_budget -= actual_investment
-                                total_allocated += actual_investment
-                                buy_count += 1
-                                sector_allocation[_swap_sector] = sector_allocation.get(_swap_sector, 0) + 1
-                                opportunity['funded'] = True  # Mark as funded to skip in main loop
-
-                for opportunity in all_opportunities:
-                    # Skip if already funded as SWAP target
-                    if opportunity.get('funded'):
-                        continue
-
-                    # 🔄 HANDLE SWAPS / SELLS (Priority Over Allocation)
-                    if opportunity.get('priority_sell'):
-                        # Already handled in SWAP recycling section above
-                        continue
-                        
-                    if remaining_budget < _min_invest:
-                        break
-                    
-                    sector = opportunity['sector']
-                    sector_count = sector_allocation.get(sector, 0)
-                    
-                    _is_existing = opportunity.get('is_existing_holding', False)
-                    _opp_score = opportunity.get('score', 0)
-                    _score_overrides_cap = _opp_score >= getattr(_config, 'SECTOR_CAP_SCORE_OVERRIDE', 75)
-                    if sector_count >= _config.SECTOR_CAP and not _is_existing and not _score_overrides_cap:
-                        logging.info(f"Sector cap reached: {sector} has {sector_count} stocks, skipping NEW {opportunity['symbol']} (score {_opp_score:.1f} < override threshold)")
-                        continue
-                    elif sector_count >= _config.SECTOR_CAP and not _is_existing and _score_overrides_cap:
-                        logging.info(f"Sector cap OVERRIDE: {opportunity['symbol']} score {_opp_score:.1f} >= {_config.SECTOR_CAP_SCORE_OVERRIDE} — allowing despite {sector} at cap")
-                    elif sector_count >= _config.SECTOR_CAP and _is_existing:
-                        logging.info(f"Sector cap soft-pass: {opportunity['symbol']} is existing holding — allowing INCREASE despite {sector} at cap")
-
-                    # Per-category sector cap: only for NEW positions (also allow score override)
-                    _opp_cat = opportunity.get('stock_classification', '')
-                    _cat_sector_key = f"{_opp_cat}|{sector}"
-                    _cat_sector_counts = category_sector_counts if 'category_sector_counts' in dir() else {}
-                    if _cat_sector_key not in _cat_sector_counts:
-                        _cat_sector_counts[_cat_sector_key] = 0
-                    if _cat_sector_counts[_cat_sector_key] >= _config.CATEGORY_SECTOR_CAP and not _is_existing and not _score_overrides_cap:
-                        logging.info(f"Per-category sector cap: {sector} has {_cat_sector_counts[_cat_sector_key]} in {_opp_cat}, skipping NEW {opportunity['symbol']}")
-                        continue
-
-                    # [DQ-NATALUM] RSI>80 hard gate for opportunity-funding path.
-                    # The new-candidate loop and holdings-EXIT-STRATEGY block already gate RSI>80,
-                    # but this funding loop runs over a broader `all_opportunities` list and can
-                    # re-inject stocks that earlier blocks classified WATCHLIST/BOOK_PROFIT.
-                    # Without this guard the NESTLEIND-class (NEW) and NMDC-class (INCREASE)
-                    # slip-throughs repeat. RSI is looked up either from the opportunity dict
-                    # (if plumbed) or from the live allocation_df row.
-                    _opp_rsi = opportunity.get('real_rsi', opportunity.get('enhanced_rsi_14'))
-                    if _opp_rsi is None:
-                        _opp_sym = opportunity['symbol']
-                        _opp_row = allocation_df[allocation_df['symbol'] == _opp_sym]
-                        if not _opp_row.empty:
-                            _opp_rsi = _opp_row.iloc[0].get('enhanced_rsi_14')
-                    try:
-                        _opp_rsi = float(_opp_rsi) if _opp_rsi is not None else 50.0
-                    except (TypeError, ValueError):
-                        _opp_rsi = 50.0
-                    if _opp_rsi > 80:
-                        _action_kind = 'INCREASE' if _is_existing else 'NEW POSITION'
-                        logging.info(
-                            f"[DQ-BLOCK] RSI guard: {opportunity['symbol']} RSI {_opp_rsi:.1f} "
-                            f"> 80 — skipping {_action_kind} funding (wait for pullback)"
                         )
-                        print(f"      ⚠️ {opportunity['symbol']} blocked: RSI {_opp_rsi:.0f} extreme — wait for pullback to <70")
-                        continue
-
-                    # Calculate optimal investment (standard logic for INCREASE and remaining BUY opportunities)
-                    optimal_investment = min(
-                        opportunity['max_investment'],
-                        remaining_budget
-                    )
-                    logging.debug(f"Alloc calc for {opportunity['symbol']}: invest={optimal_investment:.0f} | Score={opportunity['score']:.1f} | Type={opportunity['type']}")
-                    
-                    if optimal_investment < _min_invest:
-                        continue
-                    
-                    current_price = _nv(float(opportunity['current_price']), 0)
-                    if current_price <= 0 or np.isnan(current_price):
-                        continue
-                    shares_to_buy = int(optimal_investment / current_price)
-                    actual_investment = shares_to_buy * current_price
-
-                    # Final validation
-                    if actual_investment < _min_invest or shares_to_buy < 1:
-                        continue
-                    
-                    # ALLOCATE FUNDS
-                    if opportunity['type'] == 'INCREASE':
-                        # [FIX] Use symbol-based lookup instead of stale index.
-                        # pd.concat(ignore_index=True) in the SWAP step above resets the
-                        # DataFrame index, so the original idx stored in opportunity['index']
-                        # may point to the wrong row or be silently ignored.
-                        _inc_sym = opportunity['symbol']
-                        _inc_mask = allocation_df['symbol'] == _inc_sym
-                        if _inc_mask.any():
-                            _inc_idx = allocation_df.index[_inc_mask][0]
-                            allocation_df.loc[_inc_idx, 'investment_amount'] = actual_investment
-                            allocation_df.loc[_inc_idx, 'suggested_quantity'] = shares_to_buy
-                        else:
-                            # Fallback to old index if symbol lookup fails (shouldn't happen)
-                            idx = opportunity['index']
-                            allocation_df.loc[idx, 'investment_amount'] = actual_investment
-                            allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
-                        
-                        increase_count += 1
-                        print(f"      🔼 {opportunity['symbol']} (Rank #{opportunity.get('rank', 'N/A')}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
-                    
-                    else:  # BUY
-                        # 🚀 ENHANCED: Preserve specific action recommendations for high-ROI stocks
-                        action_rec_from_analysis = opportunity.get('action_recommendation', '')
-                        if action_rec_from_analysis and ('🚀' in action_rec_from_analysis or '🟢' in action_rec_from_analysis):
-                            action_label = action_rec_from_analysis  # Keep specific pre-breakout/conflict label
-                        else:
-                            action_label = 'NEW POSITION'  # Default for standard BUY
-
-                        # [DQ-MARICO FIX] Late-injected NEW POSITION rows (added via pd.concat
-                        # below when a candidate didn't make new_candidates.head(N) but the
-                        # funding loop later allocates capital) used to start as a sparse
-                        # ~30-field Series. _clean_dataframe_for_excel then filled NaN→0/50
-                        # for every missing numeric column, producing the MARICO surface
-                        # (RSI=0, VOL=0, V2 RAW=0, FUND/MOM/VOL/MTF/RISK=0). The post-alloc
-                        # DQ guard had already run before this concat, so the late row was
-                        # never re-evaluated.
-                        # We now seed new_row from the underlying analysis row in results_df
-                        # so RSI / volatility / fundamentals / hybrid components / signals
-                        # carry their real values into the Portfolio Allocation sheet AND
-                        # remain visible to the late DQ pass added below.
-                        _src_mask = results_df['symbol'].str.upper() == opportunity['symbol'].upper()
-                        _src_row = results_df[_src_mask].iloc[0].to_dict() if _src_mask.any() else {}
-                        new_row_data = dict(_src_row)
-                        new_row_data.update({
-                            'symbol': opportunity['symbol'],
-                            'company_name': opportunity.get('company_name', _src_row.get('company_name', opportunity['symbol'])),
-                            'sector': opportunity.get('sector', _src_row.get('sector', 'Unknown')),
-                            'current_price': opportunity.get('current_price', _src_row.get('current_price', 0)),
-                            'current_value': 0,
-                            'current_quantity': 0,
-                            'investment_amount': actual_investment,
-                            'suggested_quantity': shares_to_buy,
-                            'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),
-                            'overall_score': min(100.0, opportunity['score']),  # GAP-A: cap at 100; ROI boost is internal ranking only
-                            'market_cap_category': opportunity['market_cap_category'],
-                            'action_recommendation': action_label,
-                            'action_type': 'NEW POSITION',
-                            'keep_stock': True,
-                            'recommendation': opportunity.get('recommendation', 'BUY'),
-                            'market_cap': opportunity.get('market_cap', _src_row.get('market_cap', 0)),
-                            'max_allocation_pct': opportunity.get('max_allocation_pct', 5.0),
-                            'is_current_holding': False,
-                            'exit_reason': opportunity.get('roi_label', 'New opportunity - Quality stock not in portfolio'),
-                            'exit_strategy': '🆕 NEW POSITION',
-                            'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
-                            'holdings_rank': 0,
-                            'current_profit_pct': float('nan'),
-                            'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0,
-                            # hard_stop_tier is N/A for new positions; rotation_score_delta set later by SWAP.
-                            'hard_stop_tier': 'NONE',
-                        })
-                        new_row = pd.Series(new_row_data)
-
-                        # Check if symbol already exists to prevent DUPLICATES
-                        existing_mask = allocation_df['symbol'] == opportunity['symbol']
-                        if existing_mask.any():
-                            # Update existing row
-                            existing_idx = allocation_df.index[existing_mask][0]
-                            allocation_df.loc[existing_idx, 'investment_amount'] = actual_investment
-                            allocation_df.loc[existing_idx, 'suggested_quantity'] = shares_to_buy
-                            # Preserve specific action labels (pre-breakout, conflict-resolved, etc.)
-                            current_action = allocation_df.loc[existing_idx, 'action_recommendation']
-                            if current_action == 'BUY' or pd.isna(current_action):
-                                allocation_df.loc[existing_idx, 'action_recommendation'] = action_label
-                            # Update scores
-                            if allocation_df.loc[existing_idx, 'overall_score'] == 0:
-                                allocation_df.loc[existing_idx, 'overall_score'] = opportunity['score']
-                        else:
-                            # Add to allocation_df
-                            allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
-                        
-                        buy_count += 1
-                        roi_info = f" | {opportunity.get('roi_label', '')}" if opportunity.get('roi_label') else ""
-                        print(f"      🆕 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f}{roi_info} | {sector}")
-                    
-                    # Update tracking
-                    remaining_budget -= actual_investment
-                    total_allocated += actual_investment
-                    sector_allocation[sector] = sector_count + 1
-                    _cat_sector_counts[_cat_sector_key] = _cat_sector_counts.get(_cat_sector_key, 0) + 1
-                
-                # Relabel unfunded positions: existing holdings → HOLD, new → WATCHLIST
-                _is_holding_col = allocation_df.get('is_current_holding', pd.Series(False, index=allocation_df.index))
-                _unfunded_base = (
-                    allocation_df['action_recommendation'].str.contains('NEW POSITION|BUY|INCREASE|MOMENTUM', na=False, regex=True) &
-                    ~allocation_df['action_recommendation'].str.contains('SWAP', na=False) &
-                    (allocation_df['investment_amount'] == 0)
-                )
-                _unfunded_new = _unfunded_base & ~(_is_holding_col == True)
-                _unfunded_existing = _unfunded_base & (_is_holding_col == True)
-                if _unfunded_new.sum() > 0:
-                    allocation_df.loc[_unfunded_new, 'action_recommendation'] = 'WATCHLIST'
-                    allocation_df.loc[_unfunded_new, 'exit_reason'] = 'Budget exhausted — monitor for future entry'
-                    print(f"   📋 Relabeled {_unfunded_new.sum()} unfunded NEW positions as WATCHLIST")
-                if _unfunded_existing.sum() > 0:
-                    allocation_df.loc[_unfunded_existing, 'action_recommendation'] = 'HOLD'
-                    allocation_df.loc[_unfunded_existing, 'exit_reason'] = 'INCREASE target but budget exhausted — hold position'
-                    print(f"   📋 Relabeled {_unfunded_existing.sum()} unfunded INCREASE (existing holdings) as HOLD")
-
-                # [DQ-MARICO POST] Re-run data-quality guard against any rows added/changed
-                # by the SWAP / BUY funding loop above. The earlier guard ran on the initial
-                # allocation_df only; without this second pass a late-injected NEW POSITION
-                # whose underlying analysis has zero RSI / fundamentals / volatility (the
-                # MARICO failure mode) would survive as a fundable allocation. This reuses
-                # the same flag set and BUY-block semantics as the original guard.
-                try:
-                    if 'data_quality' not in allocation_df.columns:
-                        allocation_df['data_quality'] = 'OK'
-                    _dq_late_bad_price = pd.to_numeric(allocation_df['current_price'], errors='coerce').fillna(0) <= 0
-                    _dq_late_zero_score = pd.to_numeric(allocation_df['overall_score'], errors='coerce').fillna(0) == 0
-                    _dq_late_has_real = (~_dq_late_bad_price) & (~_dq_late_zero_score)
-                    _rsi_col_late = 'enhanced_rsi_14' if 'enhanced_rsi_14' in allocation_df.columns else None
-                    _vol_col_late = 'volatility' if 'volatility' in allocation_df.columns else None
-                    _pe_col_late = 'pe_ratio' if 'pe_ratio' in allocation_df.columns else None
-                    _roe_col_late = 'roe' if 'roe' in allocation_df.columns else None
-                    _dq_late_no_rsi = pd.Series(False, index=allocation_df.index)
-                    _dq_late_no_fund = pd.Series(False, index=allocation_df.index)
-                    _dq_late_no_vol = pd.Series(False, index=allocation_df.index)
-                    if _rsi_col_late is not None:
-                        _dq_late_no_rsi = _dq_late_has_real & (
-                            pd.to_numeric(allocation_df[_rsi_col_late], errors='coerce').fillna(0) == 0
-                        )
-                    if _pe_col_late is not None and _roe_col_late is not None:
-                        _pe_zero_l = pd.to_numeric(allocation_df[_pe_col_late], errors='coerce').fillna(0) == 0
-                        _roe_zero_l = pd.to_numeric(allocation_df[_roe_col_late], errors='coerce').fillna(0) == 0
-                        _dq_late_no_fund = _dq_late_has_real & _pe_zero_l & _roe_zero_l
-                    if _vol_col_late is not None:
-                        _dq_late_no_vol = _dq_late_has_real & (
-                            pd.to_numeric(allocation_df[_vol_col_late], errors='coerce').fillna(0) == 0
-                        )
-                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
-                    allocation_df.loc[_dq_late_bad_price & _ok_mask, 'data_quality'] = 'NO_PRICE'
-                    allocation_df.loc[_dq_late_zero_score & ~_dq_late_bad_price & _ok_mask, 'data_quality'] = 'NO_SCORE'
-                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
-                    allocation_df.loc[_dq_late_no_rsi & _ok_mask, 'data_quality'] = 'NO_RSI'
-                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
-                    allocation_df.loc[_dq_late_no_fund & _ok_mask, 'data_quality'] = 'NO_FUNDAMENTALS'
-                    _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
-                    allocation_df.loc[_dq_late_no_vol & _ok_mask, 'data_quality'] = 'NO_VOLATILITY'
-
-                    _DQ_BLOCK_FLAGS_LATE = ('NO_PRICE', 'NO_SCORE', 'NO_RSI', 'NO_FUNDAMENTALS', 'NO_VOLATILITY')
-                    _dq_late_buy_mask = (
-                        allocation_df['data_quality'].astype(str).isin(_DQ_BLOCK_FLAGS_LATE) &
-                        allocation_df['action_recommendation'].astype(str).str.contains(
-                            'BUY|INCREASE|NEW POSITION', na=False, regex=True
-                        )
-                    )
-                    if _dq_late_buy_mask.any():
-                        for _dqi in allocation_df[_dq_late_buy_mask].index:
-                            _flag = allocation_df.at[_dqi, 'data_quality']
-                            _sym = allocation_df.at[_dqi, 'symbol']
-                            allocation_df.at[_dqi, 'action_recommendation'] = f'SKIP - {_flag}'
-                            allocation_df.at[_dqi, 'exit_reason'] = f'Data quality fail: {_flag}'
-                            allocation_df.at[_dqi, 'investment_amount'] = 0
-                            allocation_df.at[_dqi, 'suggested_quantity'] = 0
-                            allocation_df.at[_dqi, 'keep_stock'] = False
-                            logging.warning(
-                                f"[DQ-BLOCK-LATE] {_sym}: BUY/INCREASE/NEW blocked due to {_flag} "
-                                f"after SWAP/BUY funding pass"
-                            )
+                        _lvm_funding_done = True
+                        sector_allocation = {}
                         print(
-                            f"   ⚠️ Late DQ guard blocked {_dq_late_buy_mask.sum()} late-injected "
-                            f"BUY/INCREASE/NEW recommendations"
+                            f"\n   [LVM] EQUAL-WEIGHT ALLOCATION "
+                            f"(fund {len(_lvm_fund_syms)}/{lvm_fund_n(_config)}, "
+                            f"screen {len(_lvm_screen_syms)}/{lvm_top_n(_config)}):"
                         )
-                except Exception as _dq_late_err:
-                    logging.error(f"Late DQ guard failed (non-fatal): {_dq_late_err}")
+                        print(f"      📊 Total available: ₹{total_available:,.0f}")
+                        print(f"      ✅ Total allocated: ₹{total_allocated:,.0f}")
+                        print(f"      🆕 NEW (LVM): {buy_count} | 🔼 INCREASE (LVM): {increase_count}")
+                        print(f"      💵 Remaining: ₹{remaining_budget:,.0f}")
+                    except Exception as _lvm_fund_err:
+                        logging.warning(f"LVM equal-weight funding failed, falling back to unified pool: {_lvm_fund_err}")
+                        _lvm_funding_done = False
+
+                if not _lvm_funding_done:
+                    # [RANK] UNIFIED RANKING-BASED ALLOCATION (No 80/20 split)
+                    # Combine ALL opportunities (existing INCREASE + new BUY) into ONE ranked list
+                    print(f"\n   [RANK] UNIFIED RANKING-BASED CAPITAL ALLOCATION:")
+
+                    keep_stocks = allocation_df[allocation_df['keep_stock'] == True].copy()
+                    current_portfolio_value = allocation_df['current_value'].sum()
+                    total_target_portfolio = current_portfolio_value + total_available
+                
+                    # === BUILD UNIFIED OPPORTUNITY LIST ===
+                    all_opportunities = []
+                
+                    # 1. EXISTING HOLDINGS - Calculate max additional investment
+                    print(f"\n   📊 Analyzing existing holdings for additional investment...")
+                    for idx, row in keep_stocks.iterrows():
+                        if row['current_value'] > 0:  # Already holding this stock
+                            # CRITICAL: Exclude SELL stocks from allocation
+                            action = str(row.get('action_recommendation', '')).upper()
+                            if action == 'SELL':
+                                continue  # Skip SELL stocks - they should get ₹0 allocation
+                        
+                            rank = row.get('holdings_rank', 999)
+                            exit_reason = str(row.get('exit_reason', ''))
+                        
+                            # 🚀 UPDATED: Include ALL holdings for analysis (even mediocre ones for potential SWAP)
+                            # We used to filter by rank, but now we let the Unified Allocation logic decide.
+                            # [RT-08 FIX] Only allow INCREASE opportunity if not at meaningful loss (unless ML=STRONG_BUY)
+                            _profit_for_increase = _nv(row.get('current_profit_pct'), 0)
+                            _ml_for_increase = str(row.get('ml_signal', ''))
+                            is_top_performer = (_profit_for_increase >= -0.02) or (_ml_for_increase == 'STRONG_BUY')
+                        
+                            if is_top_performer:
+                                current_value = row['current_value']
+                                market_cap = row.get('market_cap', 0)
+                            
+                                # Get market cap category and max allocation percentage
+                                cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
+                                max_allocation_per_stock = total_target_portfolio * max_allocation_pct
+                            
+                                # 🔧 FIX: Allow top performers (score >= 80 or rank <= 6) to exceed normal cap
+                                # This ensures best stocks get fresh capital even if already well-allocated
+                                score = _nv(row.get('overall_score', row.get('final_blended_score', row.get('risk_adjusted_score', 0))), 0)
+                                is_top_scorer = score >= 80 or rank <= 6
+                            
+                                if is_top_scorer:
+                                    # Allow up to 150% of normal cap for elite stocks
+                                    extended_cap = max_allocation_per_stock * 1.5
+                                    max_additional = max(0, extended_cap - current_value)
+                                else:
+                                    max_additional = max(0, max_allocation_per_stock - current_value)
+                            
+                                # allow all holdings to be added (for SWAP analysis), even if fully allocated
+                                if True: 
+                                    # [FIX-SCORE] allocation_df does not carry final_blended_score (only in results_df).
+                                    # Use overall_score (the capped 100-pt score written to allocation_df) as the
+                                    # primary sort key so high-conviction holdings like J&KBANK (score=100) rank
+                                    # above weaker stocks and are funded first.
+                                    _opp_score = _nv(row.get('overall_score'), _nv(row.get('final_blended_score'), _nv(row.get('risk_adjusted_score'), 0)))
+                                    all_opportunities.append({
+                                        'type': 'INCREASE',
+                                        'index': idx,
+                                        'symbol': row['symbol'],
+                                        # ✅ UPDATED: Use overall_score from allocation_df (correctly reflects ranking)
+                                        'score': _opp_score,
+                                        'rank': rank,
+                                        'current_value': current_value,
+                                        'max_investment': max_additional,
+                                        'current_price': row['current_price'],
+                                        'sector': row.get('sector', 'Unknown'),
+                                        'market_cap_category': cap_category,
+                                        'stock_class': row.get('stock_classification', 'CORE_VALUE'),
+                                        'is_existing_holding': True
+                                    })
+                
+                    print(f"      ✅ Found {len(all_opportunities)} existing holdings eligible for INCREASE")
+                
+                    # 2. NEW BUY OPPORTUNITIES
+                    print(f"\n   🔍 Searching for NEW buy opportunities...")
+                
+                    # Get current holdings symbols
+                    actual_holdings_symbols = set()
+                    if current_holdings is not None and not current_holdings.empty:
+                        _ah_col = next((c for c in ['Instrument', 'Symbol', 'Stock', 'Ticker', 'symbol', 'instrument'] if c in current_holdings.columns), 'Instrument')
+                        actual_holdings_symbols = set(current_holdings[_ah_col].str.upper())
+                
+                    # 🔧 FIX: Load full analysis report to get ALL opportunities (not just current holdings)
+                    all_analyzed_df = results_df.copy()
+                
+                    # 🔧 DISABLED: Implicit merging of previous reports causes confusion (e.g. phantom AUBANK)
+                    # If users want full allocation, they should run full analysis.
+                    # import glob
+                    # reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
+                    # ... (disabled logic)
+                        
+                    if len(all_analyzed_df) == len(results_df):
+                        # print(f"      ⚠️  Could not load additional stocks from reports")
+                        print(f"      📊 Using current analysis only: {len(all_analyzed_df)} stocks")
+                
+                    # 🚀 CRITICAL FIX: Check allocation_df for pre-breakout/high-momentum stocks (already has action_recommendation)
+                    # These stocks have pre-breakout flags set during holdings analysis but may not be current holdings
+                    prebreakout_stocks_in_allocation = allocation_df[
+                        (allocation_df['keep_stock'] == True) &
+                        (~allocation_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
+                        (
+                            allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('🚀', na=False) |
+                            allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('PRE-BREAKOUT', na=False) |
+                            allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('HIGH MOMENTUM', na=False) |
+                            allocation_df.get('action_recommendation', pd.Series(dtype=str)).str.contains('🟢 ENTER', na=False)
+                        )
+                    ].copy()
+                
+                    print(f"      🚀 Found {len(prebreakout_stocks_in_allocation)} pre-breakout/high-ROI stocks from allocation")
+                
+                    # 🚀 ENHANCED: Include pre-breakout and high-momentum stocks in allocation
+                    # These stocks have high ROI potential but were previously excluded.
+                    # [v2 Promotion] When v2 is live, gate on `overall_score` directly
+                    # rather than `risk_adjusted_score`. v2's signed-weight model
+                    # already incorporates risk preference (risk_adjustment carries a
+                    # negative weight in the BEAR-calibrated file), so multiplying
+                    # overall_score by (1 - vol_penalty) double-counts risk and
+                    # blocks legitimate v2 BUY picks. Falls back to v1's risk-
+                    # adjusted gate when shadow-mode is still active.
+                    try:
+                        from config import get_config as _gc_v2_gate
+                        _v2_shadow_gate = bool(getattr(_gc_v2_gate(), 'V2_SHADOW_MODE', True))
+                    except Exception:
+                        _v2_shadow_gate = True
+                    if _v2_shadow_gate:
+                        _gate_score_col = 'risk_adjusted_score'
+                        _gate_thr = 55
+                    else:
+                        _gate_score_col = 'overall_score'
+                        _gate_thr = 55
+                    # [Investor-audit Q8] Add an explicit DQ exclusion. A stock
+                    # tagged "BUY (CAUTION: NO FUNDAMENTAL DATA)" would otherwise
+                    # slip past the `.contains('BUY')` filter even though the
+                    # caution suffix is meant to demote it. We exclude any
+                    # `fundamental_data_failed=True` row outright, plus rows
+                    # whose `data_quality_score` is below 40 (steep deterioration
+                    # signal we already enforce in _evaluate_thesis_break).
+                    _dq_score_col = 'data_quality_score' if 'data_quality_score' in all_analyzed_df.columns else None
+                    _dq_fail_col = 'fundamental_data_failed' if 'fundamental_data_failed' in all_analyzed_df.columns else None
+                    _dq_ok_mask = pd.Series(True, index=all_analyzed_df.index)
+                    if _dq_fail_col is not None:
+                        _dq_ok_mask &= ~all_analyzed_df[_dq_fail_col].fillna(False).astype(bool)
+                    if _dq_score_col is not None:
+                        _dq_ok_mask &= pd.to_numeric(all_analyzed_df[_dq_score_col], errors='coerce').fillna(100) >= 40
+                    _entry_driver_alloc = str(getattr(_config, 'ENTRY_DRIVER', 'turbo_mtf')).lower()
+                    if _entry_driver_alloc in ('turbo_mtf', 'turbo'):
+                        from src.turbo_entry import enrich_dataframe_with_turbo, compute_turbo_score
+                        from src.picking_metrics import add_picking_rank_column
+                        all_analyzed_df = enrich_dataframe_with_turbo(all_analyzed_df, _config)
+                        all_analyzed_df = add_picking_rank_column(all_analyzed_df, _config)
+                        _turbo_pool = float(getattr(_config, 'TURBO_ENTRY_V2_MIN', 60)) - 5.0
+                        _fund_rank = 'picking_rank' if 'picking_rank' in all_analyzed_df.columns else 'turbo_score'
+                        _buy_mask = all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)
+                        _turbo_mask = all_analyzed_df['turbo_score'] >= _turbo_pool
+                        from src.lowvol_momentum import active_lvm_eligible_col, is_lvm_strategy
+                        _lvm_ecol_f = active_lvm_eligible_col(_config) if is_lvm_strategy(_config) else ''
+                        _lvm_bypass_fund = (
+                            bool(getattr(_config, 'LVM_BYPASS_TURBO_GATE', False))
+                            and _lvm_ecol_f
+                            and _lvm_ecol_f in all_analyzed_df.columns
+                        )
+                        if _lvm_bypass_fund:
+                            _lvm_elig = all_analyzed_df[_lvm_ecol_f].fillna(False).astype(bool)
+                            _buy_mask = _buy_mask | _lvm_elig
+                            _turbo_mask = _turbo_mask | _lvm_elig
+                        new_opportunities_candidates = all_analyzed_df[
+                            (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
+                            _buy_mask &
+                            (~all_analyzed_df['final_recommendation'].astype(str).str.contains('CAUTION', case=False, na=False)) &
+                            _turbo_mask &
+                            (all_analyzed_df['current_price'].fillna(0) > 0) &
+                            _dq_ok_mask
+                        ].copy().sort_values(_fund_rank, ascending=False)
+                        print(f"      🎯 TURBO MTF funding pool: {len(new_opportunities_candidates)} candidates (turbo>={_turbo_pool:.0f}, rank={_fund_rank})")
+                    else:
+                        from src.picking_metrics import add_picking_rank_column
+                        all_analyzed_df = add_picking_rank_column(all_analyzed_df, _config)
+                        _fund_rank = 'picking_rank' if 'picking_rank' in all_analyzed_df.columns else _gate_score_col
+                        new_opportunities_candidates = all_analyzed_df[
+                            (~all_analyzed_df['symbol'].str.upper().isin(actual_holdings_symbols)) &
+                            (all_analyzed_df['final_recommendation'].str.contains('BUY', na=False)) &
+                            (~all_analyzed_df['final_recommendation'].astype(str).str.contains('CAUTION', case=False, na=False)) &
+                            (all_analyzed_df[_gate_score_col] >= _gate_thr) &
+                            (all_analyzed_df['current_price'].fillna(0) > 0) &
+                            _dq_ok_mask
+                        ].copy().sort_values(_fund_rank, ascending=False)
+                
+                    _curr_regime_alloc = str(getattr(self, 'current_market_regime', '') or '').upper()
+                    if _curr_regime_alloc in ('BEAR', 'BEARISH'):
+                        # [Investor-audit Q54] When v2 is the live engine, the
+                        # BEAR vol cap double-penalises volatility - v2 already
+                        # has a -0.34 weight on risk_adjustment in its BEAR
+                        # calibration, which means a high-volatility stock that
+                        # still scores BUY in v2 has explicitly survived the
+                        # risk-aware engine. Relax the cap from 40% (= 80*0.5)
+                        # to 60% (= 80*0.75) when v2 is live. This was the
+                        # exact issue blocking GROWW (vol=60%, V2=76, BUY)
+                        # despite v2 explicitly recommending it.
+                        try:
+                            from config import get_config as _gc_v2_vol
+                            _v2_live_vol = not bool(getattr(_gc_v2_vol(), 'V2_SHADOW_MODE', True))
+                        except Exception:
+                            _v2_live_vol = False
+                        # 0.8125 * 80 = 65% in v2 mode. GROWW (the canonical
+                        # v2 BUY example) sits at 60.37% vol so we need >=60%
+                        # to let it through. 65% gives a small safety margin
+                        # over GROWW's level while still blocking truly
+                        # extreme-vol names (RVNL/IRCTC class 80%+ stocks).
+                        _vol_cap_mult = 0.8125 if _v2_live_vol else 0.5
+                        _bear_vol_cap = getattr(_config, 'MAX_SAFE_VOLATILITY', 80.0) * _vol_cap_mult
+                        _pre_count = len(new_opportunities_candidates)
+                        new_opportunities_candidates = new_opportunities_candidates[
+                            new_opportunities_candidates['volatility'].fillna(100) <= _bear_vol_cap  # HI-04: unknown vol = high risk
+                        ]
+                        _dropped = _pre_count - len(new_opportunities_candidates)
+                        if _dropped > 0:
+                            _label = "v2-relaxed" if _v2_live_vol else "v1-strict"
+                            print(f"      🛡️ BEAR filter ({_label}): Excluded {_dropped} high-volatility (>{_bear_vol_cap:.0f}%) candidates")
+                
+                    print(f"      📊 Found {len(new_opportunities_candidates)} standard BUY candidates from analysis")
+                
+                    # 🚀 PROCESS PRE-BREAKOUT STOCKS FROM ALLOCATION_DF FIRST (priority)
+                    for _, prebreakout_stock in prebreakout_stocks_in_allocation.iterrows():
+                        symbol = str(prebreakout_stock.get('symbol', '')).upper()
+                    
+                        if symbol:
+                            market_cap = prebreakout_stock.get('market_cap', 0)
+                            cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
+                            max_allocation_per_stock = total_target_portfolio * max_allocation_pct
+                        
+                            # 🚀 ROI POTENTIAL SCORING: These are HIGH PRIORITY - already flagged with pre-breakout
+                            base_score = prebreakout_stock.get('overall_score', prebreakout_stock.get('risk_adjusted_score', 0))
+                            action_rec = str(prebreakout_stock.get('action_recommendation', ''))
+                            roi_boost = 0
+                            roi_label = ""
+                        
+                            # Check for high-ROI indicators from action_recommendation
+                            if '🚀' in action_rec or 'PRE-BREAKOUT' in action_rec:
+                                breakout_prob = prebreakout_stock.get('breakout_probability', 0)
+                                if breakout_prob >= 85:
+                                    roi_boost = 8  # Very high ROI potential
+                                    roi_label = "🔥 Very High ROI"
+                                elif breakout_prob >= 70:
+                                    roi_boost = 5  # High ROI potential
+                                    roi_label = "⚡ High ROI"
+                                else:
+                                    roi_boost = 3  # Moderate ROI potential
+                                    roi_label = "💫 Moderate ROI"
+                            elif '🟢 ENTER' in action_rec:
+                                roi_boost = 6  # Conflict-resolved ENTER signal
+                                roi_label = "✅ Conflict-Resolved ENTER"
+                            elif 'HIGH MOMENTUM' in action_rec:
+                                roi_boost = 4  # Momentum play
+                                roi_label = "📈 High Momentum"
+                        
+                            adjusted_score = base_score + roi_boost
+                        
+                            print(f"         🚀 Adding pre-breakout: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f}) {roi_label}")
+                        
+                            all_opportunities.append({
+                                'type': 'BUY',
+                                'symbol': symbol,
+                                'score': adjusted_score,  # Use ROI-adjusted score
+                                'base_score': base_score,
+                                'roi_boost': roi_boost,
+                                'roi_label': roi_label,
+                                'max_investment': max_allocation_per_stock,
+                                'current_price': prebreakout_stock.get('current_price', 100),
+                                'sector': prebreakout_stock.get('sector', 'Unknown'),
+                                'market_cap_category': cap_category,
+                                'max_allocation_pct': max_allocation_pct * 100,
+                                'is_existing_holding': False,
+                                'recommendation': 'BUY',
+                                'action_recommendation': action_rec,
+                                'company_name': prebreakout_stock.get('company_name', symbol),
+                                'market_cap': market_cap,
+                                'rank': 0,
+                                'breakout_probability': prebreakout_stock.get('breakout_probability', 0),
+                                # [DQ-NATALUM] RSI plumbed for the funding-loop RSI>80 gate.
+                                'real_rsi': prebreakout_stock.get('real_rsi'),
+                                'enhanced_rsi_14': prebreakout_stock.get('enhanced_rsi_14'),
+                            })
+                
+                    # Add new opportunities to the unified list
+                    for _, analyzed_stock in new_opportunities_candidates.iterrows():
+                        symbol = str(analyzed_stock.get('symbol', '')).upper()
+                    
+                        if symbol:
+                            market_cap = analyzed_stock.get('market_cap', 0)
+                            cap_category, max_allocation_pct = self.classify_market_cap(market_cap)
+                            max_allocation_per_stock = total_target_portfolio * max_allocation_pct
+                        
+                            # 🚀 ROI POTENTIAL SCORING: Cumulative boosts for high-probability setups
+                            if _entry_driver_alloc in ('turbo_mtf', 'turbo'):
+                                base_score = compute_turbo_score(
+                                    analyzed_stock.to_dict() if hasattr(analyzed_stock, 'to_dict') else dict(analyzed_stock),
+                                    _config,
+                                )
+                            else:
+                                base_score = _nv(analyzed_stock.get('final_blended_score', analyzed_stock.get('risk_adjusted_score')), 0)
+                        
+                            momentum_score = analyzed_stock.get('momentum_score', 0)
+                            rsi = analyzed_stock.get('rsi', 50)
+                            volume_trend = analyzed_stock.get('volume_trend', 0)
+                            price_near_high = analyzed_stock.get('distance_from_52w_high_pct', 100)
+                        
+                            roi_boost = 0
+                            roi_labels = []
+                        
+                            # 🚀 MOMENTUM (cumulative with other factors)
+                            if momentum_score >= 75 and volume_trend > 20 and rsi < 70:
+                                roi_boost += 5
+                                roi_labels.append("🚀 High Momentum")
+                            elif momentum_score >= 70 and rsi < 70:
+                                roi_boost += 4
+                                roi_labels.append("📈 Good Momentum")
+                            elif momentum_score >= 60 and rsi < 75:
+                                roi_boost += 2
+                                roi_labels.append("📈 Moderate Momentum")
+                        
+                            # 🎯 PRE-BREAKOUT (additive on top of momentum)
+                            if price_near_high <= 5 and momentum_score >= 60 and 45 <= rsi <= 70:
+                                roi_boost += 4
+                                roi_labels.append("⚡ Pre-Breakout")
+                        
+                            # 📊 STRONG FUNDAMENTALS (additive)
+                            if base_score >= 75 and analyzed_stock.get('is_undervalued', False):
+                                roi_boost += 3
+                                roi_labels.append("💎 Strong Fundamentals")
+                            elif base_score >= 70 and analyzed_stock.get('undervaluation_score', 0) >= 70:
+                                roi_boost += 2
+                                roi_labels.append("💎 Undervalued")
+                        
+                            # 📊 HIGH ROE (strong return generator)
+                            _roe = _nv(analyzed_stock.get('roe', 0), 0)
+                            if _roe > 20:
+                                roi_boost += 2
+                                roi_labels.append(f"📊 High ROE ({_roe:.0f}%)")
+                        
+                            roi_label = " + ".join(roi_labels) if roi_labels else ""
+                            adjusted_score = base_score + roi_boost
+                        
+                            if roi_boost > 0:
+                                print(f"         {roi_label}: {symbol} (Base: {base_score:.1f} + ROI: +{roi_boost} = {adjusted_score:.1f})")
+                        
+                            action_rec = str(analyzed_stock.get('action_recommendation', analyzed_stock.get('final_recommendation', 'BUY')))
+                        
+                            all_opportunities.append({
+                                'type': 'BUY',
+                                'symbol': symbol,
+                                'score': adjusted_score,
+                                'base_score': base_score,
+                                'roi_boost': roi_boost,
+                                'roi_label': roi_label,
+                                'max_investment': max_allocation_per_stock,
+                                'current_price': analyzed_stock.get('current_price', 100),
+                                'sector': analyzed_stock.get('sector', 'Unknown'),
+                                'market_cap_category': cap_category,
+                                'max_allocation_pct': max_allocation_pct * 100,
+                                'is_existing_holding': False,
+                                'recommendation': analyzed_stock.get('final_recommendation', ''),
+                                'action_recommendation': action_rec,
+                                'company_name': analyzed_stock.get('company_name', symbol),
+                                'market_cap': market_cap,
+                                'rank': 0,
+                                'breakout_probability': analyzed_stock.get('breakout_probability', 0),
+                                # [DQ-NATALUM] RSI plumbed for the funding-loop RSI>80 gate.
+                                'real_rsi': analyzed_stock.get('real_rsi'),
+                                'enhanced_rsi_14': analyzed_stock.get('enhanced_rsi_14'),
+                                'turbo_score': base_score if _entry_driver_alloc in ('turbo_mtf', 'turbo') else analyzed_stock.get('turbo_score'),
+                                'entry_confirm_ret': analyzed_stock.get('entry_confirm_ret', analyzed_stock.get('price_change_5d', 0)),
+                                'hybrid_momentum_technical': analyzed_stock.get('hybrid_momentum_technical'),
+                                'hybrid_multi_timeframe': analyzed_stock.get('hybrid_multi_timeframe'),
+                                'hybrid_fundamental_quality': analyzed_stock.get('hybrid_fundamental_quality'),
+                                'hybrid_overall_score_v2': analyzed_stock.get('hybrid_overall_score_v2'),
+                            })
+                
+                    # Deduplicate all_opportunities by symbol (keep highest score)
+                    _seen_syms = {}
+                    for opp in all_opportunities:
+                        sym = opp['symbol']
+                        if sym not in _seen_syms or opp['score'] > _seen_syms[sym]['score']:
+                            _seen_syms[sym] = opp
+                    _dedup_count = len(all_opportunities) - len(_seen_syms)
+                    all_opportunities = list(_seen_syms.values())
+                    if _dedup_count > 0:
+                        print(f"      ⚠️  Removed {_dedup_count} duplicate opportunity entries")
+                    print(f"      ✅ Total opportunities: {len(all_opportunities)} (INCREASE + BUY)")
+                
+                    # === SORT BY SCORE (HIGHEST FIRST) ===
+                    if _entry_driver_alloc in ('turbo_mtf', 'turbo'):
+                        all_opportunities.sort(
+                            key=lambda x: (x.get('turbo_score', x['score']), x.get('entry_confirm_ret', 0)),
+                            reverse=True,
+                        )
+                    else:
+                        all_opportunities.sort(key=lambda x: x['score'], reverse=True)
+                
+                    # 🔄 SMART ROTATION LOGIC (Expert Portfolio Management)
+                    print(f"\n   🔄 Analyzing Portfolio Rotation Opportunities...")
+                
+                    # 1. Identify "Weak" Holdings (Score < 50) - CUT
+                    weak_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and op['score'] < 50]
+                    for wh in weak_holdings:
+                        print(f"      [CUT] CUT CANDIDATE: {wh['symbol']} (Score: {wh['score']:.1f}) -> WEAK")
+                        wh['recommendation'] = "SELL (WEAK)"
+                        wh['action_comment'] = "Score < 50: Fundamental momentum lost"
+                
+                    # 2. Identify "Mediocre" Holdings (Score 50-70) - SWAP CANDIDATES
+                    mediocre_holdings = [op for op in all_opportunities if op.get('is_existing_holding') and 50 <= op['score'] < 70]
+                
+                    # 3. Identify "Superstar" Opportunities (Turbo/v2 threshold, Not Held)
+                    _super_thr = (
+                        float(getattr(_config, 'TURBO_ENTRY_V2_MIN', 60))
+                        if _entry_driver_alloc in ('turbo_mtf', 'turbo')
+                        else 70.0
+                    )
+                    superstars = [
+                        op for op in all_opportunities
+                        if not op.get('is_existing_holding')
+                        and (op.get('turbo_score', op['score']) if _entry_driver_alloc in ('turbo_mtf', 'turbo') else op['score']) >= _super_thr
+                    ]
+
+
+                
+                    # 4. Find Valid Swaps (Gap > 15 points)
+                    swaps_found = 0
+                
+                    # Match worst mediocre with best superstar
+                    if mediocre_holdings and superstars:
+                        mediocre_holdings.sort(key=lambda x: x['score']) # Lowest first
+                        superstars.sort(key=lambda x: x['score'], reverse=True) # Highest first
+                    
+
+                    
+                        for med in mediocre_holdings:
+                            if swaps_found >= 2: break
+                        
+                            # Find best available superstar
+                            for star in superstars:
+                                if star.get('is_matched'): continue
+                            
+                                score_gap = star['score'] - med['score']
+                            
+                                # Phase 3c: rotation-friction gate — SWAP only when holding is weak
+                                # AND the score advantage exceeds friction. Existing 20-point
+                                # gap remains as a sanity floor; rotation gate adds weakness check.
+                                _med_rsi = med.get('rsi', med.get('real_rsi', med.get('enhanced_rsi_14', 50)))
+                                _med_pnl = med.get('current_profit_pct', med.get('profit_pct', 0)) or 0
+                                _rot_eval = self._should_rotate(
+                                    holding_score=med['score'],
+                                    candidate_score=star['score'],
+                                    holding_rsi=_med_rsi,
+                                    holding_profit_pct=_med_pnl,
+                                )
+                                med['rotation_score_delta'] = _rot_eval['score_delta']
+
+                                if score_gap >= 20 and _rot_eval['should_rotate']:
+                                    # FOUND SWAP!
+                                    print(f"      🔄 SWAP FOUND: Sell {med['symbol']} ({med['score']:.1f}) -> Buy {star['symbol']} ({star['score']:.1f}) | Gap: +{score_gap:.1f} | {_rot_eval['reason']}")
+
+                                    # Update Mediocre Holding Action
+                                    med['recommendation'] = f"SWAP -> {star['symbol']}"
+                                    med['action_comment'] = f"Upgrade to {star['symbol']} (Score +{score_gap:.1f})"
+                                    med['priority_sell'] = True
+                                
+                                    # Update Superstar Action
+                                    star['recommendation'] = "BUY (SWAP)"
+                                    star['action_comment'] = f"Funded by selling {med['symbol']}"
+                                    star['is_matched'] = True
+                                    star['swap_source_value'] = med.get('current_value', 0) # Store source value for capping
+                                    star['rotation_score_delta'] = _rot_eval['score_delta']
+                                
+                                    swaps_found += 1
+                                    break
+                                elif score_gap >= 20:
+                                    print(f"      ⏸️  SWAP BLOCKED: {med['symbol']} ({med['score']:.1f}) -> {star['symbol']} ({star['score']:.1f}) Gap +{score_gap:.1f} | {_rot_eval['reason']}")
+
+                
+                    # === ALLOCATE FUNDS SEQUENTIALLY ===
+                    print(f"\n   💰 Allocating ₹{total_available:,.0f} across ranked opportunities...")
+                
+                    remaining_budget = total_available
+                    # F-04 FIX: Pre-populate sector counts with existing KEEP/HOLD holdings
+                    # so the SECTOR_CAP applies to total positions (existing + new), not just new.
+                    sector_allocation = {}
+                    if 'sector' in allocation_df.columns:
+                        _kept = allocation_df[
+                            (allocation_df['keep_stock'] == True) &
+                            (allocation_df['is_current_holding'] == True)
+                        ]
+                        for _s in _kept['sector'].dropna():
+                            sector_allocation[_s] = sector_allocation.get(_s, 0) + 1
+                        if sector_allocation:
+                            _top_sec = max(sector_allocation, key=sector_allocation.get)
+                            print(f"      ℹ️  Pre-loaded sector counts from {len(_kept)} existing holdings (largest: {_top_sec}={sector_allocation[_top_sec]})")
+                    category_sector_counts = {}  # Track per-category sector caps
+                    increase_count = 0
+                    buy_count = 0
+                    total_allocated = 0
+                
+                    # 🔄 CRITICAL FIX: Process Priority Sells/Swaps FIRST & RECYCLE CAPITAL
+                    # Then IMMEDIATELY fund SWAP targets before other opportunities consume the budget
+                    print(f"\n   🔄 Applying Priority Swap Actions & Recycling Capital...")
+                
+                    # Step 1: Recycle capital from SELL stocks
+                    swap_targets = []
+                    for opportunity in all_opportunities:
+                        if opportunity.get('priority_sell'):
+                            # [FIX] Use symbol-based lookup — index stored before SWAP/concat may be stale
+                            _sw1_sym = opportunity['symbol']
+                            _sw1_mask = allocation_df['symbol'] == _sw1_sym
+                            action_rec = opportunity['recommendation']
+                            reason = opportunity.get('action_comment', '')
+                            current_val = opportunity.get('current_value', 0)
+                        
+                            print(f"      ✅ Executing Swap: {opportunity['symbol']} | Recycling Rs{current_val:,.0f}")
+                        
+                            # Apply to Allocation DF (symbol-safe)
+                            if _sw1_mask.any():
+                                _sw1_idx = allocation_df.index[_sw1_mask][0]
+                                allocation_df.loc[_sw1_idx, 'action_recommendation'] = action_rec
+                                allocation_df.loc[_sw1_idx, 'action_type'] = action_rec
+                                allocation_df.loc[_sw1_idx, 'exit_reason'] = reason
+                                allocation_df.loc[_sw1_idx, 'investment_amount'] = 0
+                                allocation_df.loc[_sw1_idx, 'priority'] = 'HIGH'
+                        
+                            _swap_invested = opportunity.get('invested_amount', current_val)
+                            _swap_gain = max(0, current_val - _swap_invested)
+                            _swap_tax = _swap_gain * 0.20
+                            _swap_post_tax = current_val - _swap_tax
+                            remaining_budget += _swap_post_tax
+                            total_available += _swap_post_tax
+                            print(f"         💰 Budget increased to: ₹{remaining_budget:,.0f} (post-tax on ₹{_swap_gain:,.0f} gain)")
+                            logging.debug(f"Capital recycled: {opportunity['symbol']} {current_val} -> budget {remaining_budget}")
+                
+                    # Step 2: IMMEDIATELY fund SWAP targets (guaranteed allocation from recycled capital)
+                    print(f"\n   🚀 Funding SWAP Targets (Priority Allocation)...")
+                    for opportunity in all_opportunities:
+                        if opportunity.get('recommendation') == 'BUY (SWAP)' and not opportunity.get('is_existing_holding'):
+                            symbol = opportunity['symbol']
+                            swap_source_value = opportunity.get('swap_source_value', 0)
+                        
+                            _swap_sector = opportunity.get('sector', '')
+                            _swap_score = opportunity.get('score', 0)
+                            _swap_cap_override = _swap_score >= getattr(_config, 'SECTOR_CAP_SCORE_OVERRIDE', 75)
+                            if sector_allocation.get(_swap_sector, 0) >= _config.SECTOR_CAP and not _swap_cap_override:
+                                print(f"      ⚠️ SWAP TARGET {symbol} blocked: sector '{_swap_sector}' at cap ({_config.SECTOR_CAP})")
+                                continue
+
+                            # [DQ-NATALUM] RSI>80 hard gate also applies to SWAP targets — NESTLEIND-class
+                            # slip-through happened here because this path bypasses the new-candidate loop.
+                            try:
+                                _swap_rsi = float(opportunity.get('real_rsi',
+                                                  opportunity.get('enhanced_rsi_14', 50)) or 50)
+                            except (TypeError, ValueError):
+                                _swap_rsi = 50.0
+                            if _swap_rsi > 80:
+                                print(f"      ⚠️ SWAP TARGET {symbol} blocked: RSI {_swap_rsi:.0f} extreme — wait for pullback")
+                                continue
+                        
+                            # 🎯 GUARANTEED ALLOCATION: Use recycled capital for SWAP target
+                            # Cap at 40% of total budget OR recycled amount, whichever is HIGHER for high-ROI swaps
+                            roi_score = opportunity.get('score', 0)
+                            max_swap_allocation = total_available * 0.40
+                        
+                            if roi_score >= 85:
+                                final_cap = swap_source_value  # Allow full recycled amount for very high ROI
+                                cap_reason = f"Very High ROI (Score {roi_score:.1f})"
+                            else:
+                                # For lower scores, use min of recycled amount and 40% cap
+                                final_cap = min(swap_source_value, max_swap_allocation) if swap_source_value > 0 else max_swap_allocation
+                                cap_reason = f"SWAP Guarantee (40% cap check: Score {roi_score:.1f})"
+                        
+                            optimal_investment = min(remaining_budget, final_cap)
+                        
+                            if optimal_investment >= _min_invest:
+                                current_price = _nv(float(opportunity['current_price']), 0)
+                                if current_price <= 0 or np.isnan(current_price):
+                                    continue
+                                shares_to_buy = int(optimal_investment / current_price)
+                                actual_investment = shares_to_buy * current_price
+                            
+                                if actual_investment >= _min_invest:
+                                    print(f"      ✅ SWAP TARGET {symbol}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | {cap_reason}")
+                                
+                                    # Add to allocation_df as NEW POSITION.
+                                    # [Rule 1 / 3a] Seed from results_df so Growth /
+                                    # Value / Sleeve columns flow through for SWAP
+                                    # targets too (same pattern as the BUY/INCREASE
+                                    # branch below).
+                                    _swt_mask = results_df['symbol'].str.upper() == symbol.upper()
+                                    _swt_src = results_df[_swt_mask].iloc[0].to_dict() if _swt_mask.any() else {}
+                                    _swt_data = dict(_swt_src)
+                                    _swt_data.update({
+                                        'symbol': symbol,
+                                        'company_name': opportunity.get('company_name', symbol),
+                                        'sector': opportunity['sector'],
+                                        'current_price': current_price,
+                                        'current_value': 0,
+                                        'current_quantity': 0,
+                                        'investment_amount': actual_investment,
+                                        'suggested_quantity': shares_to_buy,
+                                        'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),
+                                        'overall_score': min(100.0, opportunity['score']),
+                                        'market_cap_category': opportunity['market_cap_category'],
+                                        'action_recommendation': opportunity.get('action_recommendation', '🚀 HIGH MOMENTUM NEW POSITION'),
+                                        'action_type': 'NEW POSITION',
+                                        'keep_stock': True,
+                                        'recommendation': 'BUY (SWAP)',
+                                        'exit_reason': opportunity.get('roi_label', 'SWAP upgrade'),
+                                        'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
+                                    })
+                                    new_row = pd.Series(_swt_data)
+                                
+                                    # Check if already exists
+                                    existing_mask = allocation_df['symbol'] == symbol
+                                    if existing_mask.any():
+                                        existing_idx = allocation_df.index[existing_mask][0]
+                                        allocation_df.loc[existing_idx, 'investment_amount'] = actual_investment
+                                        allocation_df.loc[existing_idx, 'suggested_quantity'] = shares_to_buy
+                                    else:
+                                        allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
+                                
+                                    # Update tracking
+                                    remaining_budget -= actual_investment
+                                    total_allocated += actual_investment
+                                    buy_count += 1
+                                    sector_allocation[_swap_sector] = sector_allocation.get(_swap_sector, 0) + 1
+                                    opportunity['funded'] = True  # Mark as funded to skip in main loop
+
+                    for opportunity in all_opportunities:
+                        # Skip if already funded as SWAP target
+                        if opportunity.get('funded'):
+                            continue
+
+                        # 🔄 HANDLE SWAPS / SELLS (Priority Over Allocation)
+                        if opportunity.get('priority_sell'):
+                            # Already handled in SWAP recycling section above
+                            continue
+                        
+                        if remaining_budget < _min_invest:
+                            break
+                    
+                        sector = opportunity['sector']
+                        sector_count = sector_allocation.get(sector, 0)
+                    
+                        _is_existing = opportunity.get('is_existing_holding', False)
+                        _opp_score = opportunity.get('score', 0)
+                        _score_overrides_cap = _opp_score >= getattr(_config, 'SECTOR_CAP_SCORE_OVERRIDE', 75)
+                        if sector_count >= _config.SECTOR_CAP and not _is_existing and not _score_overrides_cap:
+                            logging.info(f"Sector cap reached: {sector} has {sector_count} stocks, skipping NEW {opportunity['symbol']} (score {_opp_score:.1f} < override threshold)")
+                            continue
+                        elif sector_count >= _config.SECTOR_CAP and not _is_existing and _score_overrides_cap:
+                            logging.info(f"Sector cap OVERRIDE: {opportunity['symbol']} score {_opp_score:.1f} >= {_config.SECTOR_CAP_SCORE_OVERRIDE} — allowing despite {sector} at cap")
+                        elif sector_count >= _config.SECTOR_CAP and _is_existing:
+                            logging.info(f"Sector cap soft-pass: {opportunity['symbol']} is existing holding — allowing INCREASE despite {sector} at cap")
+
+                        # Per-category sector cap: only for NEW positions (also allow score override)
+                        _opp_cat = opportunity.get('stock_classification', '')
+                        _cat_sector_key = f"{_opp_cat}|{sector}"
+                        _cat_sector_counts = category_sector_counts if 'category_sector_counts' in dir() else {}
+                        if _cat_sector_key not in _cat_sector_counts:
+                            _cat_sector_counts[_cat_sector_key] = 0
+                        if _cat_sector_counts[_cat_sector_key] >= _config.CATEGORY_SECTOR_CAP and not _is_existing and not _score_overrides_cap:
+                            logging.info(f"Per-category sector cap: {sector} has {_cat_sector_counts[_cat_sector_key]} in {_opp_cat}, skipping NEW {opportunity['symbol']}")
+                            continue
+
+                        # [DQ-NATALUM] RSI>80 hard gate for opportunity-funding path.
+                        # The new-candidate loop and holdings-EXIT-STRATEGY block already gate RSI>80,
+                        # but this funding loop runs over a broader `all_opportunities` list and can
+                        # re-inject stocks that earlier blocks classified WATCHLIST/BOOK_PROFIT.
+                        # Without this guard the NESTLEIND-class (NEW) and NMDC-class (INCREASE)
+                        # slip-throughs repeat. RSI is looked up either from the opportunity dict
+                        # (if plumbed) or from the live allocation_df row.
+                        _opp_rsi = opportunity.get('real_rsi', opportunity.get('enhanced_rsi_14'))
+                        if _opp_rsi is None:
+                            _opp_sym = opportunity['symbol']
+                            _opp_row = allocation_df[allocation_df['symbol'] == _opp_sym]
+                            if not _opp_row.empty:
+                                _opp_rsi = _opp_row.iloc[0].get('enhanced_rsi_14')
+                        try:
+                            _opp_rsi = float(_opp_rsi) if _opp_rsi is not None else 50.0
+                        except (TypeError, ValueError):
+                            _opp_rsi = 50.0
+                        if _opp_rsi > 80:
+                            _action_kind = 'INCREASE' if _is_existing else 'NEW POSITION'
+                            logging.info(
+                                f"[DQ-BLOCK] RSI guard: {opportunity['symbol']} RSI {_opp_rsi:.1f} "
+                                f"> 80 — skipping {_action_kind} funding (wait for pullback)"
+                            )
+                            print(f"      ⚠️ {opportunity['symbol']} blocked: RSI {_opp_rsi:.0f} extreme — wait for pullback to <70")
+                            continue
+
+                        # Calculate optimal investment (standard logic for INCREASE and remaining BUY opportunities)
+                        optimal_investment = min(
+                            opportunity['max_investment'],
+                            remaining_budget
+                        )
+                        logging.debug(f"Alloc calc for {opportunity['symbol']}: invest={optimal_investment:.0f} | Score={opportunity['score']:.1f} | Type={opportunity['type']}")
+                    
+                        if optimal_investment < _min_invest:
+                            continue
+                    
+                        current_price = _nv(float(opportunity['current_price']), 0)
+                        if current_price <= 0 or np.isnan(current_price):
+                            continue
+                        shares_to_buy = int(optimal_investment / current_price)
+                        actual_investment = shares_to_buy * current_price
+
+                        # Final validation
+                        if actual_investment < _min_invest or shares_to_buy < 1:
+                            continue
+                    
+                        # ALLOCATE FUNDS
+                        if opportunity['type'] == 'INCREASE':
+                            # [FIX] Use symbol-based lookup instead of stale index.
+                            # pd.concat(ignore_index=True) in the SWAP step above resets the
+                            # DataFrame index, so the original idx stored in opportunity['index']
+                            # may point to the wrong row or be silently ignored.
+                            _inc_sym = opportunity['symbol']
+                            _inc_mask = allocation_df['symbol'] == _inc_sym
+                            if _inc_mask.any():
+                                _inc_idx = allocation_df.index[_inc_mask][0]
+                                allocation_df.loc[_inc_idx, 'investment_amount'] = actual_investment
+                                allocation_df.loc[_inc_idx, 'suggested_quantity'] = shares_to_buy
+                            else:
+                                # Fallback to old index if symbol lookup fails (shouldn't happen)
+                                idx = opportunity['index']
+                                allocation_df.loc[idx, 'investment_amount'] = actual_investment
+                                allocation_df.loc[idx, 'suggested_quantity'] = shares_to_buy
+                        
+                            increase_count += 1
+                            print(f"      🔼 {opportunity['symbol']} (Rank #{opportunity.get('rank', 'N/A')}): +₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f} | {sector}")
+                    
+                        else:  # BUY
+                            # 🚀 ENHANCED: Preserve specific action recommendations for high-ROI stocks
+                            action_rec_from_analysis = opportunity.get('action_recommendation', '')
+                            if action_rec_from_analysis and ('🚀' in action_rec_from_analysis or '🟢' in action_rec_from_analysis):
+                                action_label = action_rec_from_analysis  # Keep specific pre-breakout/conflict label
+                            else:
+                                action_label = 'NEW POSITION'  # Default for standard BUY
+
+                            # [DQ-MARICO FIX] Late-injected NEW POSITION rows (added via pd.concat
+                            # below when a candidate didn't make new_candidates.head(N) but the
+                            # funding loop later allocates capital) used to start as a sparse
+                            # ~30-field Series. _clean_dataframe_for_excel then filled NaN→0/50
+                            # for every missing numeric column, producing the MARICO surface
+                            # (RSI=0, VOL=0, V2 RAW=0, FUND/MOM/VOL/MTF/RISK=0). The post-alloc
+                            # DQ guard had already run before this concat, so the late row was
+                            # never re-evaluated.
+                            # We now seed new_row from the underlying analysis row in results_df
+                            # so RSI / volatility / fundamentals / hybrid components / signals
+                            # carry their real values into the Portfolio Allocation sheet AND
+                            # remain visible to the late DQ pass added below.
+                            _src_mask = results_df['symbol'].str.upper() == opportunity['symbol'].upper()
+                            _src_row = results_df[_src_mask].iloc[0].to_dict() if _src_mask.any() else {}
+                            new_row_data = dict(_src_row)
+                            new_row_data.update({
+                                'symbol': opportunity['symbol'],
+                                'company_name': opportunity.get('company_name', _src_row.get('company_name', opportunity['symbol'])),
+                                'sector': opportunity.get('sector', _src_row.get('sector', 'Unknown')),
+                                'current_price': opportunity.get('current_price', _src_row.get('current_price', 0)),
+                                'current_value': 0,
+                                'current_quantity': 0,
+                                'investment_amount': actual_investment,
+                                'suggested_quantity': shares_to_buy,
+                                'risk_adjusted_score': opportunity.get('base_score', opportunity['score']),
+                                'overall_score': min(100.0, opportunity['score']),  # GAP-A: cap at 100; ROI boost is internal ranking only
+                                'market_cap_category': opportunity['market_cap_category'],
+                                'action_recommendation': action_label,
+                                'action_type': 'NEW POSITION',
+                                'keep_stock': True,
+                                'recommendation': opportunity.get('recommendation', 'BUY'),
+                                'market_cap': opportunity.get('market_cap', _src_row.get('market_cap', 0)),
+                                'max_allocation_pct': opportunity.get('max_allocation_pct', 5.0),
+                                'is_current_holding': False,
+                                'exit_reason': opportunity.get('roi_label', 'New opportunity - Quality stock not in portfolio'),
+                                'exit_strategy': '🆕 NEW POSITION',
+                                'stock_classification': 'CORE_VALUE' if opportunity['score'] >= 75 else 'OPPORTUNISTIC',
+                                'holdings_rank': 0,
+                                'current_profit_pct': float('nan'),
+                                'portfolio_weight': (actual_investment / total_target_portfolio) if total_target_portfolio > 0 else 0,
+                                # hard_stop_tier is N/A for new positions; rotation_score_delta set later by SWAP.
+                                'hard_stop_tier': 'NONE',
+                            })
+                            new_row = pd.Series(new_row_data)
+
+                            # Check if symbol already exists to prevent DUPLICATES
+                            existing_mask = allocation_df['symbol'] == opportunity['symbol']
+                            if existing_mask.any():
+                                # Update existing row
+                                existing_idx = allocation_df.index[existing_mask][0]
+                                allocation_df.loc[existing_idx, 'investment_amount'] = actual_investment
+                                allocation_df.loc[existing_idx, 'suggested_quantity'] = shares_to_buy
+                                # Preserve specific action labels (pre-breakout, conflict-resolved, etc.)
+                                current_action = allocation_df.loc[existing_idx, 'action_recommendation']
+                                if current_action == 'BUY' or pd.isna(current_action):
+                                    allocation_df.loc[existing_idx, 'action_recommendation'] = action_label
+                                # Update scores
+                                if allocation_df.loc[existing_idx, 'overall_score'] == 0:
+                                    allocation_df.loc[existing_idx, 'overall_score'] = opportunity['score']
+                            else:
+                                # Add to allocation_df
+                                allocation_df = pd.concat([allocation_df, new_row.to_frame().T], ignore_index=True)
+                        
+                            buy_count += 1
+                            roi_info = f" | {opportunity.get('roi_label', '')}" if opportunity.get('roi_label') else ""
+                            print(f"      🆕 {opportunity['symbol']}: ₹{actual_investment:,.0f} ({shares_to_buy} shares) | Score: {opportunity['score']:.1f}{roi_info} | {sector}")
+                    
+                        # Update tracking
+                        remaining_budget -= actual_investment
+                        total_allocated += actual_investment
+                        sector_allocation[sector] = sector_count + 1
+                        _cat_sector_counts[_cat_sector_key] = _cat_sector_counts.get(_cat_sector_key, 0) + 1
+                
+                    # Relabel unfunded positions: existing holdings → HOLD, new → WATCHLIST
+                    _is_holding_col = allocation_df.get('is_current_holding', pd.Series(False, index=allocation_df.index))
+                    _unfunded_base = (
+                        allocation_df['action_recommendation'].str.contains('NEW POSITION|BUY|INCREASE|MOMENTUM', na=False, regex=True) &
+                        ~allocation_df['action_recommendation'].str.contains('SWAP', na=False) &
+                        (allocation_df['investment_amount'] == 0)
+                    )
+                    _unfunded_new = _unfunded_base & ~(_is_holding_col == True)
+                    _unfunded_existing = _unfunded_base & (_is_holding_col == True)
+                    if _unfunded_new.sum() > 0:
+                        allocation_df.loc[_unfunded_new, 'action_recommendation'] = 'WATCHLIST'
+                        allocation_df.loc[_unfunded_new, 'exit_reason'] = 'Budget exhausted — monitor for future entry'
+                        print(f"   📋 Relabeled {_unfunded_new.sum()} unfunded NEW positions as WATCHLIST")
+                    if _unfunded_existing.sum() > 0:
+                        allocation_df.loc[_unfunded_existing, 'action_recommendation'] = 'HOLD'
+                        allocation_df.loc[_unfunded_existing, 'exit_reason'] = 'INCREASE target but budget exhausted — hold position'
+                        print(f"   📋 Relabeled {_unfunded_existing.sum()} unfunded INCREASE (existing holdings) as HOLD")
+
+                    # [DQ-MARICO POST] Re-run data-quality guard against any rows added/changed
+                    # by the SWAP / BUY funding loop above. The earlier guard ran on the initial
+                    # allocation_df only; without this second pass a late-injected NEW POSITION
+                    # whose underlying analysis has zero RSI / fundamentals / volatility (the
+                    # MARICO failure mode) would survive as a fundable allocation. This reuses
+                    # the same flag set and BUY-block semantics as the original guard.
+                    try:
+                        if 'data_quality' not in allocation_df.columns:
+                            allocation_df['data_quality'] = 'OK'
+                        _dq_late_bad_price = pd.to_numeric(allocation_df['current_price'], errors='coerce').fillna(0) <= 0
+                        _dq_late_zero_score = pd.to_numeric(allocation_df['overall_score'], errors='coerce').fillna(0) == 0
+                        _dq_late_has_real = (~_dq_late_bad_price) & (~_dq_late_zero_score)
+                        _rsi_col_late = 'enhanced_rsi_14' if 'enhanced_rsi_14' in allocation_df.columns else None
+                        _vol_col_late = 'volatility' if 'volatility' in allocation_df.columns else None
+                        _pe_col_late = 'pe_ratio' if 'pe_ratio' in allocation_df.columns else None
+                        _roe_col_late = 'roe' if 'roe' in allocation_df.columns else None
+                        _dq_late_no_rsi = pd.Series(False, index=allocation_df.index)
+                        _dq_late_no_fund = pd.Series(False, index=allocation_df.index)
+                        _dq_late_no_vol = pd.Series(False, index=allocation_df.index)
+                        if _rsi_col_late is not None:
+                            _dq_late_no_rsi = _dq_late_has_real & (
+                                pd.to_numeric(allocation_df[_rsi_col_late], errors='coerce').fillna(0) == 0
+                            )
+                        if _pe_col_late is not None and _roe_col_late is not None:
+                            _pe_zero_l = pd.to_numeric(allocation_df[_pe_col_late], errors='coerce').fillna(0) == 0
+                            _roe_zero_l = pd.to_numeric(allocation_df[_roe_col_late], errors='coerce').fillna(0) == 0
+                            _dq_late_no_fund = _dq_late_has_real & _pe_zero_l & _roe_zero_l
+                        if _vol_col_late is not None:
+                            _dq_late_no_vol = _dq_late_has_real & (
+                                pd.to_numeric(allocation_df[_vol_col_late], errors='coerce').fillna(0) == 0
+                            )
+                        _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                        allocation_df.loc[_dq_late_bad_price & _ok_mask, 'data_quality'] = 'NO_PRICE'
+                        allocation_df.loc[_dq_late_zero_score & ~_dq_late_bad_price & _ok_mask, 'data_quality'] = 'NO_SCORE'
+                        _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                        allocation_df.loc[_dq_late_no_rsi & _ok_mask, 'data_quality'] = 'NO_RSI'
+                        _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                        allocation_df.loc[_dq_late_no_fund & _ok_mask, 'data_quality'] = 'NO_FUNDAMENTALS'
+                        _ok_mask = allocation_df['data_quality'].fillna('OK').astype(str) == 'OK'
+                        allocation_df.loc[_dq_late_no_vol & _ok_mask, 'data_quality'] = 'NO_VOLATILITY'
+
+                        _DQ_BLOCK_FLAGS_LATE = ('NO_PRICE', 'NO_SCORE', 'NO_RSI', 'NO_FUNDAMENTALS', 'NO_VOLATILITY')
+                        _dq_late_buy_mask = (
+                            allocation_df['data_quality'].astype(str).isin(_DQ_BLOCK_FLAGS_LATE) &
+                            allocation_df['action_recommendation'].astype(str).str.contains(
+                                'BUY|INCREASE|NEW POSITION', na=False, regex=True
+                            )
+                        )
+                        if _dq_late_buy_mask.any():
+                            for _dqi in allocation_df[_dq_late_buy_mask].index:
+                                _flag = allocation_df.at[_dqi, 'data_quality']
+                                _sym = allocation_df.at[_dqi, 'symbol']
+                                allocation_df.at[_dqi, 'action_recommendation'] = f'SKIP - {_flag}'
+                                allocation_df.at[_dqi, 'exit_reason'] = f'Data quality fail: {_flag}'
+                                allocation_df.at[_dqi, 'investment_amount'] = 0
+                                allocation_df.at[_dqi, 'suggested_quantity'] = 0
+                                allocation_df.at[_dqi, 'keep_stock'] = False
+                                logging.warning(
+                                    f"[DQ-BLOCK-LATE] {_sym}: BUY/INCREASE/NEW blocked due to {_flag} "
+                                    f"after SWAP/BUY funding pass"
+                                )
+                            print(
+                                f"   ⚠️ Late DQ guard blocked {_dq_late_buy_mask.sum()} late-injected "
+                                f"BUY/INCREASE/NEW recommendations"
+                            )
+                    except Exception as _dq_late_err:
+                        logging.error(f"Late DQ guard failed (non-fatal): {_dq_late_err}")
 
                 # === ALLOCATION SUMMARY ===
                 print(f"\n   🎯 UNIFIED ALLOCATION SUMMARY:")
@@ -10249,15 +10404,21 @@ class EnhancedTop200StockAnalyzer:
                     'market_regime': _vix_regime,
                     'recommended_exposure': _regime_exposure,
                     'original_capital': _original_target,
-                    'adjusted_capital': target_amount,
+                    'adjusted_capital': float(target_amount or 0),
                     'cash_reserve': _cash_reserve,
-                    'regime_strategy': 'VIX-based regime from MarketRegimeDetector'
+                    'regime_strategy': 'VIX-based regime from MarketRegimeDetector',
                 }
                 print(f"      📊 Market Regime: {_vix_regime} (VIX-based)")
                 print(f"      💰 Exposure: {_regime_exposure*100:.0f}% | Cash Reserve: ₹{_cash_reserve:,.0f}")
             except Exception as e:
                 print(f"      ⚠️ Market regime summary skipped: {e}")
-                regime_adjustment = {'market_regime': 'NEUTRAL', 'recommended_exposure': 0.85}
+                regime_adjustment = {
+                    'market_regime': _vix_regime,
+                    'recommended_exposure': _regime_exposure,
+                    'original_capital': _original_target,
+                    'adjusted_capital': float(target_amount or 0),
+                    'cash_reserve': _cash_reserve,
+                }
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🎯 ENHANCEMENT #3: CONFIDENCE BANDS
@@ -10383,7 +10544,7 @@ class EnhancedTop200StockAnalyzer:
                 'positions_to_keep': len(allocation_df[allocation_df['action_recommendation'].isin(['KEEP'])]) if 'action_recommendation' in allocation_df.columns else 0,
                 'sale_proceeds': sale_proceeds_value,  # NEW: Money from selling
                 'new_capital': target_amount,
-                'total_available_capital': target_amount + sale_proceeds_value,
+                'total_available_capital': float(total_available) if float(total_available or 0) > 0 else target_amount + sale_proceeds_value,
                 'available_funds': target_amount,
                 'current_portfolio_value': current_portfolio_value,
                 'market_regime': regime_adjustment.get('market_regime', 'NEUTRAL'),  # NEW: Market regime
@@ -10397,7 +10558,10 @@ class EnhancedTop200StockAnalyzer:
                 'avg_undervaluation': allocation_df[allocation_df['undervaluation_score'] > 0]['undervaluation_score'].mean() if len(allocation_df[allocation_df['undervaluation_score'] > 0]) > 0 else 0,
                 'sector_count': allocation_df['sector'].nunique(),
                 'high_priority_count': len(allocation_df[allocation_df['priority'] == 'HIGH']),
-                'funds_utilization': (keep_stocks['investment_amount'].sum() / max(total_available, 1)) * 100 if len(keep_stocks) > 0 else 0,
+                'funds_utilization': (
+                    (keep_stocks['investment_amount'].sum() / max(float(total_available), 1.0)) * 100
+                    if len(keep_stocks) > 0 else 0
+                ),
                 'target_portfolio_size': target_stocks,
                 'max_allowed_size': portfolio_size_info['max_allowed'] if portfolio_size_info else target_stocks,
                 'portfolio_utilization': (len(keep_stocks) / target_stocks) * 100 if target_stocks > 0 else 0
@@ -11738,14 +11902,26 @@ Trading Plan ({risk_tolerance} RISK):
                         if not stock_data.empty:
                             stock = stock_data.iloc[0]
                             _fb_action = _map_fallback_action(stock)
+                            _fb_avg_cost = holding.get('Avg. cost', 0) or holding.get('LTP', 0)
+                            _fb_price = _nv(stock.get('current_price'), holding.get('LTP', 0))
+                            _fb_pnl = ((_fb_price - _fb_avg_cost) / _fb_avg_cost) if _fb_avg_cost > 0 else float('nan')
+                            _fb_cur_val = _nv(holding.get('Cur. val'), 0)
+                            _fb_qty = _nv(holding.get('Qty.'), 0)
+                            from src.lvm_action_plan import fallback_holding_row_extras
+                            _fb_tax = fallback_holding_row_extras(
+                                holding, _fb_action, _fb_cur_val, _fb_qty, float(_fb_avg_cost or 0),
+                            )
                             minimal_data.append({
                                 'symbol': symbol,
                                 'company_name': stock.get('company_name', symbol),
-                                'current_price': _nv(stock.get('current_price'), holding.get('LTP', 0)),
-                                'current_value': holding.get('Cur. val', 0),
-                                'current_quantity': holding.get('Qty.', 0),
+                                'current_price': _fb_price,
+                                'current_value': _fb_cur_val,
+                                'current_quantity': _fb_qty,
+                                'avg_cost': _fb_avg_cost,
+                                'current_profit_pct': _fb_pnl,
                                 'overall_score': _nv(stock.get('final_blended_score'), _nv(stock.get('risk_adjusted_score'), 50)),
                                 'action_recommendation': _fb_action,
+                                'action_type': _fb_action,
                                 'sector': _sector_label(stock.get('sector')),
                                 'is_current_holding': True,
                                 'investment_amount': 0,
@@ -11756,10 +11932,58 @@ Trading Plan ({risk_tolerance} RISK):
                                 'momentum_score': 0,
                                 'breakout_score': 0,
                                 'picking_rank': _nv(stock.get('picking_rank'), _nv(stock.get('fq_score'), 50)),
+                                'volatility_6m': _nv(stock.get('volatility_6m'), _nv(stock.get('volatility'), 0)),
+                                'volatility': _nv(stock.get('volatility_6m'), _nv(stock.get('volatility'), 0)),
+                                'keep_stock': 'SELL' not in str(_fb_action).upper(),
+                                **_fb_tax,
                             })
                     
+                    _fb_df = pd.DataFrame(minimal_data)
+                    try:
+                        from src.picking_metrics import (
+                            backfill_allocation_from_results,
+                            populate_sell_categories,
+                        )
+                        from src.lowvol_momentum import (
+                            apply_lvm_rotation_to_allocation,
+                            is_lvm_strategy,
+                            lvm_top_label,
+                        )
+                        _fb_df = backfill_allocation_from_results(_fb_df, df, _config)
+                        _fb_df = populate_sell_categories(_fb_df)
+                        if is_lvm_strategy(_config):
+                            from src.lvm_action_plan import resolve_lvm_universe
+                            from datetime import date as _fb_lvm_date
+                            _fb_screen, _, _, _fb_lvm_deg = resolve_lvm_universe(
+                                df, _config, as_of=_fb_lvm_date.today(),
+                            )
+                            if _fb_screen and not _fb_lvm_deg:
+                                _fb_df, _ = apply_lvm_rotation_to_allocation(_fb_df, _fb_screen, _config)
+                                _lvm_lbl_fb = lvm_top_label(_config)
+                                for _fri, _frr in _fb_df.iterrows():
+                                    if 'LVM ROTATION' not in str(_frr.get('action_recommendation', '')).upper():
+                                        continue
+                                    _cv_fb = _nv(_frr.get('current_value'), 0)
+                                    if _cv_fb > 0:
+                                        _fb_df.at[_fri, 'profit_booking_pct'] = 1.0
+                                        _fb_df.at[_fri, 'profit_booking_amount'] = _cv_fb
+                                        _ac_fb = _nv(_frr.get('avg_cost'), 0)
+                                        _q_fb = _nv(_frr.get('current_quantity'), 0)
+                                        _inv_fb = _ac_fb * _q_fb if _ac_fb > 0 and _q_fb > 0 else _cv_fb
+                                        _gain_fb = _cv_fb - _inv_fb
+                                        if _gain_fb > 0:
+                                            _fb_df.at[_fri, 'tax_type'] = 'STCG (est.)'
+                                            _fb_df.at[_fri, 'estimated_tax'] = round(_gain_fb * 0.20, 0)
+                                            _fb_df.at[_fri, 'post_tax_proceeds'] = _cv_fb - _fb_df.at[_fri, 'estimated_tax']
+                                        else:
+                                            _fb_df.at[_fri, 'tax_type'] = 'NO_TAX (LOSS)'
+                                            _fb_df.at[_fri, 'estimated_tax'] = 0
+                                            _fb_df.at[_fri, 'post_tax_proceeds'] = _cv_fb
+                    except Exception as _fb_enrich_err:
+                        logging.warning(f'Fallback allocation enrich skipped: {_fb_enrich_err}')
+
                     portfolio_allocation = {
-                        'allocation_df': pd.DataFrame(minimal_data),
+                        'allocation_df': _fb_df,
                         'summary': {
                             'total_stocks': len(minimal_data),
                             'current_holdings': len(minimal_data),
@@ -11768,6 +11992,13 @@ Trading Plan ({risk_tolerance} RISK):
                         }
                     }
                     print(f"   ✅ Created emergency fallback with {len(minimal_data)} holdings")
+                    # Log P&L diagnostic for fallback
+                    _fb_with_pnl = sum(1 for m in minimal_data if m.get('avg_cost', 0) > 0)
+                    _fb_with_valid_pnl = sum(1 for m in minimal_data if not pd.isna(m.get('current_profit_pct', float('nan'))))
+                    logging.info(f"[FALLBACK] Holdings with avg_cost: {_fb_with_pnl}/{len(minimal_data)}, with valid P&L: {_fb_with_valid_pnl}/{len(minimal_data)}")
+                    if _fb_with_pnl < len(minimal_data):
+                        _missing = [m['symbol'] for m in minimal_data if m.get('avg_cost', 0) <= 0][:5]
+                        logging.warning(f"[FALLBACK] Holdings missing avg_cost (first 5): {_missing}")
                 else:
                     print(f"   ❌ Cannot create fallback - no holdings file found")
             elif not portfolio_allocation:
@@ -11791,6 +12022,22 @@ Trading Plan ({risk_tolerance} RISK):
             # Sort by risk-adjusted score (new primary metric)
             df = df.sort_values(['risk_adjusted_score', 'symbol'], ascending=[False, True], na_position='last', kind='mergesort')
             
+            # Enrich df with LVM family columns for Excel sheet generation
+            try:
+                from datetime import date as _lvm_date
+                from src.lowvol_momentum import (
+                    active_lvm_eligible_col,
+                    active_lvm_score_col,
+                    compute_active_lvm_score,
+                    is_lvm_strategy,
+                )
+                if is_lvm_strategy(_config):
+                    _sc = active_lvm_score_col(_config)
+                    if _sc not in df.columns:
+                        df = compute_active_lvm_score(df, _config, as_of=_lvm_date.today())
+            except Exception as _lvm_enrich_err:
+                logging.debug(f"LVM enrichment for Excel skipped: {_lvm_enrich_err}")
+
             # Generate enhanced Excel report
             print("   4️⃣ Creating Excel report with charts...")
             filename = self.generate_enhanced_excel_report(df, portfolio_allocation)
@@ -12024,6 +12271,41 @@ Trading Plan ({risk_tolerance} RISK):
                     summary_df['final_recommendation'] = summary_df.apply(_annotate_risk, axis=1)
                 summary_df.to_excel(writer, sheet_name='Top Picks', index=False)
                 
+                # LVM family Top 10 sheet (LowVol→Mom or Quality+LVM per ORACLE_PICK_METRIC)
+                try:
+                    from src.lowvol_momentum import (
+                        active_lvm_eligible_col,
+                        active_lvm_score_col,
+                        is_lvm_strategy,
+                        is_quality_lvm_strategy,
+                        lvm_sheet_name,
+                        lvm_top_n,
+                    )
+                    _ecol = active_lvm_eligible_col(_config)
+                    _scol = active_lvm_score_col(_config)
+                    if is_lvm_strategy(_config) and _ecol in df.columns and df[_ecol].any():
+                        _rank_col = _scol.replace('_score', '_rank')
+                        _lvm_cols = [c for c in ['symbol', 'company_name', 'sector', 'current_price',
+                                    'price_change_1y', 'volatility_6m', 'volatility', 'roe',
+                                    _scol, _rank_col] if c in df.columns]
+                        _lvm_picks = df[df[_ecol] == True][_lvm_cols].copy()
+                        if not _lvm_picks.empty:
+                            _sheet = lvm_sheet_name(_config)
+                            _strat = 'Quality+LowVol→Mom' if is_quality_lvm_strategy(_config) else 'LowVol→Mom'
+                            _lvm_picks.to_excel(writer, sheet_name=_sheet, index=False, startrow=1)
+                            _ws_lvm = writer.sheets[_sheet]
+                            _pick_metric = str(getattr(_config, 'ORACLE_PICK_METRIC', 'lowvol_mom'))
+                            _ws_lvm.write(
+                                0, 0,
+                                f'STRATEGY: {_strat} | Pick Metric: {_pick_metric} | '
+                                f'Screen {lvm_top_n(_config)} | Fund {getattr(_config, "LVM_FUND_N", 12)} | '
+                                f'Rebalance: Monthly',
+                                workbook.add_format({'bold': True, 'font_size': 12}),
+                            )
+                            print(f"   📊 {_sheet}: {len(_lvm_picks)} picks")
+                except Exception as _lvm_sheet_err:
+                    logging.warning(f"LVM Top-N sheet skipped: {_lvm_sheet_err}")
+
                 # Path 2: Breakout Radar sheet (coil / ignition candidates for Monday watch)
                 try:
                     _radar_out = getattr(self, '_breakout_radar_df', None)
@@ -12385,7 +12667,10 @@ Trading Plan ({risk_tolerance} RISK):
 
                     # 🔧 FIX: Ensure hard SELL/SWAP stocks have profit_booking_pct = 1.0
                     # Exclude CONSIDER SELLING — those use graduated booking from conviction gate
-                    _hard_sell_mask = alloc_df_simple['action_recommendation'].astype(str).str.upper().str.strip().isin(['SELL', 'SWAP'])
+                    _act_u_book = alloc_df_simple['action_recommendation'].astype(str).str.upper()
+                    _hard_sell_mask = _act_u_book.str.strip().isin(['SELL', 'SWAP']) | _act_u_book.str.contains(
+                        'LVM ROTATION', na=False,
+                    )
                     alloc_df_simple['profit_booking_pct'] = pd.to_numeric(alloc_df_simple['profit_booking_pct'], errors='coerce')
                     _sell_swap_no_book = _hard_sell_mask & (alloc_df_simple['profit_booking_pct'].isna() | (alloc_df_simple['profit_booking_pct'] <= 0))
                     if _sell_swap_no_book.any():
@@ -12971,7 +13256,8 @@ Trading Plan ({risk_tolerance} RISK):
                         _badge = str(getattr(_config, 'QMST_STATUS_BADGE', 'QMST-BETA') or '')
                         if getattr(_config, 'QMST_ENABLED', True) and _badge:
                             _stack_note += f'Strategy: {_badge}. '
-                        _stack_note += 'Priority: VMQ exit > Turbo > Pick rank > SCORE audit.'
+                        _pick_metric = str(getattr(_config, 'ORACLE_PICK_METRIC', 'fq_score'))
+                        _stack_note += f'Pick: {_pick_metric}. Priority: VMQ exit > Turbo > Pick rank > SCORE audit.'
                         _pa_ws.merge_range(
                             _footer_row, 0, _footer_row, 12, _stack_note, _footer_fmt,
                         )
@@ -13461,6 +13747,10 @@ Trading Plan ({risk_tolerance} RISK):
                                     'fq_score', 'picking_rank', 'turbo_score',
                                     'entry_confirm_ret', 'on_oracle_watchlist',
                                     'turbo_score_recomputed', 'active_oracle',
+                                    'price_change_1y', 'price_change_6m', 'price_change_3m',
+                                    'price_change_1m', 'legacy_sma_50', 'volatility_6m',
+                                    'quality_lvm_score', 'quality_lvm_eligible',
+                                    'lowvol_mom_score', 'lowvol_mom_eligible',
                                 )]
                 _drop_cd = list(set(_internal_cd + _constant_cd))
                 if _drop_cd:
@@ -16439,206 +16729,28 @@ def main():
             print(f"[LOG] Log file: {analyzer.log_filename}")
             print(f"\n[TIP] TIP: Check the TOP 10 categories above for quick investment insights!")
             
-            # Auto-generate Portfolio Allocation Dashboard
+            # Auto-generate QMST Tape & Ledger dashboard (replaces legacy purple HTML)
             try:
                 print(f"\n{'='*90}")
-                print(f"[DASH] AUTO-GENERATING PORTFOLIO ALLOCATION DASHBOARD")
+                print(f"[DASH] AUTO-GENERATING QMST ANALYSIS DASHBOARD")
                 print(f"{'='*90}")
-                
-                import webbrowser
-                
-                # Load Portfolio Allocation data (skip group-header row 0)
-                df_portfolio = pd.read_excel(report_file, sheet_name='Portfolio Allocation', header=1)
-                _dash_score_cols = {'SCORE', 'ADJ SCORE', 'ML CONF %'}
-                for col in df_portfolio.select_dtypes(include='number').columns:
-                    _default = 50 if col in _dash_score_cols else 0
-                    df_portfolio[col] = df_portfolio[col].fillna(_default)
-                for col in df_portfolio.select_dtypes(include='object').columns:
-                    df_portfolio[col] = df_portfolio[col].fillna('')
-                
-                numeric_cols = ['INVEST ₹', 'BUY QTY', 'MY QTY', 'MY VALUE ₹',
-                               'P&L %', 'BOOK %', 'SCORE', 'PRICE',
-                               'ADJ SCORE', 'ML CONF %']
-                for col in numeric_cols:
-                    if col in df_portfolio.columns:
-                        _fv = 50 if col in _dash_score_cols else 0
-                        df_portfolio[col] = pd.to_numeric(df_portfolio[col], errors='coerce').fillna(_fv)
-
-                # Ensure string columns are actual strings before .str accessor
-                for _str_col in ['ACTION', 'WHEN', 'TYPE', 'sector', 'symbol', 'company_name']:
-                    if _str_col in df_portfolio.columns:
-                        df_portfolio[_str_col] = df_portfolio[_str_col].fillna('').astype(str)
-                
-                total_stocks = len(df_portfolio)
-                _val_col = 'MY VALUE ₹' if 'MY VALUE ₹' in df_portfolio.columns else 'current_value'
-                _inv_col = 'INVEST ₹' if 'INVEST ₹' in df_portfolio.columns else None
-                total_value = df_portfolio[_val_col].sum() if _val_col in df_portfolio.columns else 0
-                total_investment = df_portfolio[_inv_col].sum() if _inv_col else 0
-                avg_score = df_portfolio['SCORE'].mean() if 'SCORE' in df_portfolio.columns else 0
-                profitable = len(df_portfolio[df_portfolio['P&L %'] > 0]) if 'P&L %' in df_portfolio.columns else 0
-                losses = len(df_portfolio[df_portfolio['P&L %'] < 0]) if 'P&L %' in df_portfolio.columns else 0
-                avg_profit = df_portfolio[df_portfolio[_val_col] > 0]['P&L %'].mean() if (_val_col in df_portfolio.columns and 'P&L %' in df_portfolio.columns) else 0
-
-                actions = df_portfolio['ACTION'].value_counts().to_dict() if 'ACTION' in df_portfolio.columns else {}
-                if 'WHEN' in df_portfolio.columns:
-                    df_portfolio['WHEN'] = df_portfolio['WHEN'].replace({0: 'MONITOR', '0': 'MONITOR', 0.0: 'MONITOR'}).fillna('MONITOR').astype(str)
-                    df_portfolio.loc[df_portfolio['WHEN'].str.strip() == '', 'WHEN'] = 'MONITOR'
-                timings = df_portfolio['WHEN'].value_counts().to_dict() if 'WHEN' in df_portfolio.columns else {}
-                types = df_portfolio['TYPE'].value_counts().to_dict() if 'TYPE' in df_portfolio.columns else {}
-                sectors = df_portfolio['sector'].value_counts().head(10).to_dict() if 'sector' in df_portfolio.columns else {}
-
-                urgent_sells = df_portfolio[(df_portfolio['ACTION'].str.contains('SELL', na=False)) & (df_portfolio['WHEN'].str.contains('TODAY', na=False))].to_dict('records') if 'ACTION' in df_portfolio.columns else []
-                _inv_col_safe = 'INVEST ₹' if 'INVEST ₹' in df_portfolio.columns else None
-                urgent_buys = df_portfolio[(df_portfolio['ACTION'].str.contains('BUY|INCREASE|NEW', na=False, regex=True)) & (df_portfolio[_inv_col_safe] > 0)].nlargest(10, _inv_col_safe).to_dict('records') if _inv_col_safe and 'ACTION' in df_portfolio.columns else []
-                warnings = df_portfolio[(df_portfolio['ACTION'].str.contains('KEEP', na=False)) & (df_portfolio['WHEN'].str.contains('TODAY', na=False))].to_dict('records') if 'ACTION' in df_portfolio.columns else []
-                _book_col = 'BOOK %' if 'BOOK %' in df_portfolio.columns else None
-                profit_booking = df_portfolio[df_portfolio[_book_col] > 0].to_dict('records') if _book_col else []
-                all_stocks = df_portfolio.to_dict('records')
-                
-                print(f"   [DONE] Loaded {total_stocks} stocks from Portfolio Allocation")
-                
-                # Create HTML dashboard
-                html_content = """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Portfolio Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea, #764ba2); padding: 20px; }
-        .container { max-width: 1400px; margin: 0 auto; }
-        .header { background: white; padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .header h1 { color: #667eea; font-size: 2.5em; margin-bottom: 10px; }
-        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: transform 0.3s; }
-        .card:hover { transform: translateY(-5px); }
-        .card-title { color: #666; font-size: 0.9em; text-transform: uppercase; margin-bottom: 10px; }
-        .card-value { color: #667eea; font-size: 2.5em; font-weight: bold; margin-bottom: 5px; }
-        .card-subtitle { color: #999; font-size: 0.85em; }
-        .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .chart-card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .chart-card h3 { margin-bottom: 20px; color: #333; }
-        .chart-container { position: relative; height: 300px; }
-        .stocks-section { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .stocks-section h2 { color: #667eea; margin-bottom: 20px; }
-        .tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-        .tab { padding: 12px 25px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; }
-        .tab:hover { background: #e0e0e0; }
-        .tab.active { background: #667eea; color: white; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .stock-list { max-height: 600px; overflow-y: auto; }
-        .stock-item { background: #f9f9f9; padding: 20px; margin-bottom: 15px; border-radius: 8px; border-left: 4px solid #667eea; }
-        .stock-item:hover { background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .stock-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .stock-symbol { font-size: 1.3em; font-weight: bold; }
-        .stock-badge { padding: 5px 15px; border-radius: 20px; font-size: 0.85em; font-weight: bold; }
-        .badge-sell { background: #ff6b6b; color: white; }
-        .badge-buy { background: #51cf66; color: white; }
-        .badge-keep { background: #ffd43b; color: #333; }
-        .stock-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 15px; }
-        .detail-label { color: #666; font-size: 0.85em; }
-        .detail-value { font-weight: bold; color: #333; }
-        .profit-positive { color: #51cf66; }
-        .profit-negative { color: #ff6b6b; }
-        .search-box { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em; margin-bottom: 20px; }
-        .search-box:focus { outline: none; border-color: #667eea; }
-        .empty { text-align: center; padding: 40px; color: #999; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Portfolio Allocation Dashboard</h1>
-            <p>Generated on """ + datetime.now().strftime('%B %d, %Y at %I:%M %p') + """</p>
-        </div>
-        <div class="summary">
-            <div class="card"><div class="card-title">Total Stocks</div><div class="card-value">""" + str(total_stocks) + """</div><div class="card-subtitle">In portfolio</div></div>
-            <div class="card"><div class="card-title">Portfolio Value</div><div class="card-value">Rs """ + f"{total_value:,.0f}" + """</div><div class="card-subtitle">Current holdings</div></div>
-            <div class="card"><div class="card-title">Average Score</div><div class="card-value">""" + f"{avg_score:.1f}" + """</div><div class="card-subtitle">Out of 100</div></div>
-            <div class="card"><div class="card-title">Capital Needed</div><div class="card-value">Rs """ + f"{total_investment:,.0f}" + """</div><div class="card-subtitle">For BUY stocks</div></div>
-            <div class="card"><div class="card-title">Profitable</div><div class="card-value">""" + str(profitable) + """</div><div class="card-subtitle">""" + str(losses) + """ in loss</div></div>
-            <div class="card"><div class="card-title">Avg Profit</div><div class="card-value" style="color: """ + ('#51cf66' if avg_profit > 0 else '#ff6b6b') + """">""" + f"{avg_profit:.1f}%" + """</div><div class="card-subtitle">Across portfolio</div></div>
-        </div>
-        <div class="charts">
-            <div class="chart-card"><h3>Action Breakdown</h3><div class="chart-container"><canvas id="chart1"></canvas></div></div>
-            <div class="chart-card"><h3>Timing Priority</h3><div class="chart-container"><canvas id="chart2"></canvas></div></div>
-            <div class="chart-card"><h3>Portfolio Types</h3><div class="chart-container"><canvas id="chart3"></canvas></div></div>
-            <div class="chart-card"><h3>Top Sectors</h3><div class="chart-container"><canvas id="chart4"></canvas></div></div>
-        </div>
-        <div class="stocks-section">
-            <h2>Priority Actions</h2>
-            <div class="tabs">
-                <button class="tab active" onclick="showTab(0)">Urgent Sells (""" + str(len(urgent_sells)) + """)</button>
-                <button class="tab" onclick="showTab(1)">Top Buys (""" + str(len(urgent_buys)) + """)</button>
-                <button class="tab" onclick="showTab(2)">Warnings (""" + str(len(warnings)) + """)</button>
-                <button class="tab" onclick="showTab(3)">Profit Booking (""" + str(len(profit_booking)) + """)</button>
-                <button class="tab" onclick="showTab(4)">All Stocks (""" + str(len(all_stocks)) + """)</button>
-            </div>
-            <div id="tab0" class="tab-content active"></div>
-            <div id="tab1" class="tab-content"></div>
-            <div id="tab2" class="tab-content"></div>
-            <div id="tab3" class="tab-content"></div>
-            <div id="tab4" class="tab-content"><input type="text" class="search-box" id="search" placeholder="Search stocks..."><div id="all-list"></div></div>
-        </div>
-    </div>
-    <script>
-        const data = {
-            actions: """ + json.dumps(actions) + """,
-            timings: """ + json.dumps(timings) + """,
-            types: """ + json.dumps(types) + """,
-            sectors: """ + json.dumps(sectors) + """,
-            urgentSells: """ + json.dumps(urgent_sells) + """,
-            topBuys: """ + json.dumps(urgent_buys) + """,
-            warnings: """ + json.dumps(warnings) + """,
-            profitBooking: """ + json.dumps(profit_booking) + """,
-            allStocks: """ + json.dumps(all_stocks) + """
-        };
-        const colors = { primary: '#667eea', success: '#51cf66', danger: '#ff6b6b', warning: '#ffd43b' };
-        new Chart(document.getElementById('chart1'), { type: 'doughnut', data: { labels: Object.keys(data.actions), datasets: [{ data: Object.values(data.actions), backgroundColor: [colors.success, colors.danger, colors.warning] }] }, options: { responsive: true, maintainAspectRatio: false } });
-        new Chart(document.getElementById('chart2'), { type: 'bar', data: { labels: Object.keys(data.timings), datasets: [{ label: 'Stocks', data: Object.values(data.timings), backgroundColor: colors.primary }] }, options: { responsive: true, maintainAspectRatio: false } });
-        new Chart(document.getElementById('chart3'), { type: 'pie', data: { labels: Object.keys(data.types), datasets: [{ data: Object.values(data.types), backgroundColor: [colors.primary, colors.warning, colors.danger] }] }, options: { responsive: true, maintainAspectRatio: false } });
-        new Chart(document.getElementById('chart4'), { type: 'bar', data: { labels: Object.keys(data.sectors), datasets: [{ data: Object.values(data.sectors), backgroundColor: colors.primary }] }, options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false } });
-        function createStockCard(s) {
-            const pnl = s['P&L %'] || 0;
-            const pClass = pnl > 0 ? 'profit-positive' : 'profit-negative';
-            const pSign = pnl > 0 ? '+' : '';
-            const act = s.ACTION || '';
-            const badgeClass = act.includes('SELL') ? 'badge-sell' : (act.includes('BUY') || act.includes('INCREASE')) ? 'badge-buy' : 'badge-keep';
-            const inv = s['INVEST ₹'] || 0;
-            const val = s['MY VALUE ₹'] || 0;
-            return `<div class="stock-item"><div class="stock-header"><div><div class="stock-symbol">${s.symbol}</div><div style="color:#666;margin-top:5px;">${s.company_name}</div></div><span class="stock-badge ${badgeClass}">${act}</span></div><div class="stock-details">${inv > 0 ? `<div><span class="detail-label">Invest:</span> <span class="detail-value">Rs ${inv.toLocaleString()}</span></div>` : ''}${val > 0 ? `<div><span class="detail-label">Value:</span> <span class="detail-value">Rs ${val.toLocaleString()}</span></div>` : ''}${val > 0 ? `<div><span class="detail-label">P&L:</span> <span class="detail-value ${pClass}">${pSign}${pnl.toFixed(1)}%</span></div>` : ''}<div><span class="detail-label">Score:</span> <span class="detail-value">${(s.SCORE||0).toFixed(1)}/100</span></div><div><span class="detail-label">Price:</span> <span class="detail-value">Rs ${(s.PRICE||0).toLocaleString()}</span></div><div><span class="detail-label">Sector:</span> <span class="detail-value">${s.sector||''}</span></div><div><span class="detail-label">Type:</span> <span class="detail-value">${s.TYPE||''}</span></div></div>${s.REASON ? `<div style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;"><span class="detail-label">Reason:</span> ${s.REASON}</div>` : ''}</div>`;
-        }
-        function showList(id, stocks) {
-            const html = stocks.length === 0 ? '<div class="empty">No stocks in this category</div>' : '<div class="stock-list">' + stocks.map(s => createStockCard(s)).join('') + '</div>';
-            document.getElementById(id).innerHTML = html;
-        }
-        showList('tab0', data.urgentSells); showList('tab1', data.topBuys); showList('tab2', data.warnings); showList('tab3', data.profitBooking); showList('all-list', data.allStocks);
-        function showTab(n) { document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active')); document.querySelectorAll('.tab').forEach(t => t.classList.remove('active')); document.getElementById('tab' + n).classList.add('active'); document.querySelectorAll('.tab')[n].classList.add('active'); }
-        document.getElementById('search').addEventListener('input', function(e) { const term = e.target.value.toLowerCase(); const filtered = data.allStocks.filter(s => s.symbol.toLowerCase().includes(term) || s.company_name.toLowerCase().includes(term) || s.sector.toLowerCase().includes(term)); showList('all-list', filtered); });
-    </script>
-</body>
-</html>"""
-                
-                # Save dashboard
-                dashboard_file = "Portfolio_Allocation_Dashboard.html"
-                with open(dashboard_file, 'w', encoding='utf-8') as f:
-                    f.write(html_content)
-                
-                print(f"   . Dashboard created: {dashboard_file}")
-                print(f"   . Opening dashboard in browser...")
-                
-                # Open in browser
-                webbrowser.open(dashboard_file)
-                
-                print(f"\n   [DASH] Dashboard Features:")
-                print(f"      - Interactive charts with 4 visualizations")
-                print(f"      - 5 action tabs (Urgent Sells, Top Buys, Warnings, Profit Booking, All Stocks)")
-                print(f"      - Real-time search functionality")
-                print(f"      - Color-coded action badges")
-                print(f"      - Hover effects and smooth animations")
-                
+                _dash_df = pd.read_excel(report_file, sheet_name='Portfolio Allocation', header=1)
+                from src.analysis_dashboard import build_analysis_dashboard
+                _regime_dash = (
+                    getattr(analyzer, 'current_market_regime', None)
+                    or getattr(analyzer, 'market_regime', None)
+                    or 'Sideways'
+                )
+                _dash_path = build_analysis_dashboard(
+                    report_file,
+                    allocation_df=_dash_df,
+                    portfolio_amount=float(getattr(args, 'portfolio_amount', 0) or 0),
+                    regime=str(_regime_dash),
+                    open_browser=True,
+                )
+                if _dash_path:
+                    print(f"   · Dashboard: {_dash_path}")
+                    print(f"   · Tape & Ledger UI — action plan, holdings, universe, risk")
             except Exception as dashboard_error:
                 print(f"\n   [WARN] Dashboard generation failed: {dashboard_error}")
             
@@ -16722,6 +16834,74 @@ def main():
                 print('='*100)
                 print('\n🎯 EXECUTE IN THIS ORDER:\n')
 
+                from src.action_plan_legend import print_action_plan_legend, format_holdings_action_lines
+                from src.action_scenarios import print_action_scenario_block
+                from src.lowvol_momentum import (
+                    active_lvm_eligible_col,
+                    compute_active_lvm_score,
+                    is_lvm_strategy,
+                    is_quality_lvm_strategy,
+                    lvm_fund_label,
+                    lvm_fund_n,
+                    lvm_fund_symbols,
+                    lvm_sheet_name,
+                    lvm_top_label,
+                    lvm_top_n,
+                )
+                _lvm_terminal = is_lvm_strategy(_config)
+                _lvm_label = lvm_top_label(_config)
+                _lvm_fund_label = lvm_fund_label(_config)
+                _lvm_screen_syms = set()
+                _lvm_fund_syms = set()
+                _lvm_degraded_reason = None
+
+                # LVM ROTATION: mark non-LVM holdings for sell
+                if _lvm_terminal:
+                    try:
+                        from src.lvm_action_plan import resolve_lvm_universe
+                        from datetime import date as _lvm_d
+                        _cd_ap = pd.read_excel(report_file, sheet_name='Complete Data')
+                        _lvm_screen_syms, _lvm_fund_syms, _cd_ap, _lvm_degraded_reason = resolve_lvm_universe(
+                            _cd_ap, _config, as_of=_lvm_d.today(),
+                        )
+                        if _lvm_degraded_reason:
+                            print(
+                                '\n⚠️  LVM DATA DEGRADED: momentum inputs missing or flat. '
+                                'LVM rotation and Priority 5 buys are suppressed.\n'
+                                f'   {_lvm_degraded_reason}\n'
+                            )
+                        if not _lvm_screen_syms:
+                            _sheet_try = lvm_sheet_name(_config)
+                            try:
+                                _lvm_sheet = pd.read_excel(report_file, sheet_name=_sheet_try, header=1)
+                                _lvm_screen_syms = set(
+                                    _lvm_sheet['symbol'].astype(str).str.upper().tolist(),
+                                )
+                                _lvm_fund_syms = set(list(_lvm_screen_syms)[:lvm_fund_n(_config)])
+                            except Exception:
+                                pass
+                        if _lvm_screen_syms and not _lvm_degraded_reason:
+                            _sym_col = 'symbol' if 'symbol' in allocation_df.columns else 'STOCK'
+                            for _ri, _rr in allocation_df.iterrows():
+                                _s = str(_rr.get(_sym_col, '')).upper()
+                                _act = str(_rr.get('ACTION', '')).upper()
+                                _has_value = float(_rr.get(_V, 0)) > 0
+                                _is_hold = 'HOLD' in _act or 'KEEP' in _act or 'INCREASE' in _act
+                                if _has_value and _is_hold and _s not in _lvm_screen_syms:
+                                    from src.lvm_action_plan import apply_lvm_rotation_display_fields
+                                    apply_lvm_rotation_display_fields(
+                                        allocation_df, _ri, _rr, _lvm_label, value_col=_V,
+                                    )
+                    except Exception as _lvm_rot_err:
+                        logging.debug(f'LVM rotation override skipped: {_lvm_rot_err}')
+
+                if not _lvm_terminal:
+                    print_action_plan_legend()
+                    print('-' * 80 + '\n')
+                else:
+                    _strat_label = 'Quality+LowVol→Mom' if is_quality_lvm_strategy(_config) else 'LowVol→Mom'
+                    print(f'Strategy: {_strat_label} | SELL (VMQ + LVM rotation) → BUY NEW (LVM picks)\n')
+
                 _vmq_stats = getattr(analyzer, '_vmq_stats', {}) or {}
                 if not _vmq_stats.get('entry_blocked') and not _vmq_stats.get('exit_forced'):
                     _watch = allocation_df[allocation_df['ACTION'].str.contains('WATCHLIST', na=False)]
@@ -16758,7 +16938,7 @@ def main():
                     print()
 
                 _p2 = getattr(analyzer, '_path2_stats', {}) or {}
-                if _p2.get('softened_sells') or _p2.get('radar_count'):
+                if (_p2.get('softened_sells') or _p2.get('radar_count')) and not _lvm_terminal:
                     print('PATH 2 — BALANCED 🟢')
                     if _p2.get('softened_sells'):
                         print(f"  • {_p2['softened_sells']} rank SELL(s) softened → CONSIDER (flat ±3% P&L)")
@@ -16770,14 +16950,22 @@ def main():
                     print()
 
                 _radar_ap = getattr(analyzer, '_breakout_radar_df', None)
-                if _radar_ap is not None and not _radar_ap.empty:
+                if _radar_ap is not None and not _radar_ap.empty and not _lvm_terminal:
                     print('PRIORITY 4: BREAKOUT RADAR 📡 (Monday watch — vol≥2.5× & +2.5% day)')
+                    print('  Use WATCH SCENARIOS for timing if tier triggers.\n')
                     for _, _rr in _radar_ap.head(8).iterrows():
                         print(
                             f"{_rr.get('symbol')}: {_rr.get('breakout_tier')} — "
                             f"{str(_rr.get('breakout_radar_reason', ''))[:55]} | "
                             f"{_rr.get('monday_trigger', '')}"
                         )
+                        print_action_scenario_block(
+                            _rr,
+                            'radar',
+                            _config,
+                            allocation_df=allocation_df,
+                        )
+                        print()
                     print()
 
                 # SELL category breakdown — why each exit was flagged
@@ -16797,11 +16985,13 @@ def main():
                                  if c in _cat_rows.columns),
                                 None,
                             )
+                            from src.lvm_action_plan import format_allocation_pnl
+                            from src.action_plan_legend import row_reason_text
                             for _, _sr in _cat_rows.iterrows():
-                                _rsn = str(_sr.get(_reason_col, ''))[:75] if _reason_col else ''
-                                _pnl = _sr.get('P&L %', '')
-                                _pnl_s = f" P&L={_pnl}%" if _pnl != '' and pd.notna(_pnl) else ''
-                                print(f"    • {_sr.get('symbol', '?')}: {_rsn}{_pnl_s}")
+                                _rsn = row_reason_text(_sr, max_len=75)
+                                _pnl_s = format_allocation_pnl(_sr)
+                                _pnl_txt = f' P&L={_pnl_s}' if _pnl_s else ''
+                                print(f"    • {_sr.get('symbol', '?')}: {_rsn}{_pnl_txt}")
                         print()
                     elif not _sell_ap.empty and 'sell_category' in allocation_df.columns:
                         print('SELL CATEGORY BREAKDOWN (why each exit was flagged):')
@@ -16814,15 +17004,30 @@ def main():
                     logging.debug(f'sell category breakdown skipped: {_sc_err}')
 
                 # PRIORITY 1: SWAP POSITIONS
+                from src.new_entry_scenarios import new_buy_symbols_from_df
+                _new_buy_syms = new_buy_symbols_from_df(allocation_df, _V, _I)
                 swaps = allocation_df[allocation_df['ACTION'].str.contains('SWAP', na=False)].sort_values(_V, ascending=False)
                 swap_total = 0
-                if len(swaps) > 0:
+                if len(swaps) > 0 and not _lvm_terminal:
                     print('PRIORITY 1: SWAP 🔄')
+                    print('  (Exit source on schedule; buy target per ENTRY SCENARIOS — not blind market chase)\n')
                     for _, row in swaps.iterrows():
                         _rot = str(row.get('rotation_target', '')).strip()
                         target = _rot if _rot and _rot != 'nan' else (row['ACTION'].split('->')[1].strip() if '->' in str(row['ACTION']) else 'Unknown')
-                        print(f"Sell {row['symbol']} ({row[_Q]:.0f} shares) → ₹{row[_V]:,.0f} → Immediately buy {target}")
+                        _tgt_sym = str(target).upper()
+                        _defer_buy = _tgt_sym in _new_buy_syms
+                        _hint = 'see PRIORITY 5 below' if _defer_buy else 'see scenarios below'
+                        print(f"Sell {row['symbol']} ({row[_Q]:.0f} shares) → ₹{row[_V]:,.0f} → Rotate into {target} ({_hint})")
                         swap_total += row[_V]
+                        print_action_scenario_block(
+                            row,
+                            'swap',
+                            _config,
+                            new_buy_syms=_new_buy_syms,
+                            swap_target=_tgt_sym,
+                            allocation_df=allocation_df,
+                        )
+                        print()
                     print()
                 
                 # PRIORITY 1.5: EXIT (momentum exhaustion — partial or full exit)
@@ -16848,6 +17053,9 @@ def main():
                         else:
                             print(f"{row['symbol']}: {row['ACTION']} → ₹{row[_V]:,.0f}")
                             exit_total += row[_V]
+                        if not _lvm_terminal:
+                            print_action_scenario_block(row, 'exit', _config)
+                        print()
                     print(f"EXIT Proceeds: ~₹{exit_total:,.0f}\n")
 
                 # PRIORITY 2: SELL (hard sells only — exclude CONSIDER SELLING)
@@ -16859,13 +17067,35 @@ def main():
                     for _, row in sells.iterrows():
                         print(f"{row['symbol']}: Sell ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}")
                         sell_total += row[_V]
+                        if not _lvm_terminal:
+                            print_action_scenario_block(row, 'sell', _config)
+                        print()
                     print()
+
+                # PRIORITY 2.1: LVM ROTATION (non-LVM holdings to exit)
+                if _lvm_terminal:
+                    _lvm_rot_mask = allocation_df['ACTION'].str.contains('LVM ROTATION', na=False)
+                    lvm_rotations = allocation_df[_lvm_rot_mask].sort_values(_V, ascending=False)
+                    lvm_rot_total = 0
+                    if len(lvm_rotations) > 0:
+                        print('PRIORITY 2.1: SELL (LVM ROTATION) 🔄')
+                        print(f'  Not in {_lvm_label} — sell to free capital for new LVM picks:\n')
+                        for _, row in lvm_rotations.iterrows():
+                            _pnl_str = format_allocation_pnl(row)
+                            _pnl_txt = f' (P&L {_pnl_str})' if _pnl_str else ''
+                            print(f"  {row['symbol']}: Sell ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}{_pnl_txt}")
+                            lvm_rot_total += row[_V]
+                        print(f"\n  LVM Rotation proceeds: ₹{lvm_rot_total:,.0f}")
+                        print(
+                            f"  → Use this capital for {_lvm_fund_label} "
+                            f"(from {_lvm_label} screen — see Priority 5)\n"
+                        )
 
                 # PRIORITY 2.5: CONSIDER SELLING (softer — evaluate and decide)
                 _consider_mask = allocation_df['ACTION'].str.contains('CONSIDER', na=False)
                 considers = allocation_df[_consider_mask].sort_values(_V, ascending=False)
                 consider_total = 0
-                if len(considers) > 0:
+                if len(considers) > 0 and not _lvm_terminal:
                     print('PRIORITY 2.5: CONSIDER SELLING 🟠 (evaluate before acting)')
                     for _, row in considers.iterrows():
                         _cs_bk = row.get('BOOK %', 1.0)
@@ -16873,16 +17103,19 @@ def main():
                         if _cs_bk < 1.0:
                             _cs_qty = max(1, int(row[_Q] * _cs_bk))
                             print(f"{row['symbol']}: Consider selling ~{_cs_qty} of {row[_Q]:.0f} shares ({_cs_bk*100:.0f}%) → ~₹{_cs_qty * row['PRICE']:,.0f}")
+                            consider_total += _cs_qty * row['PRICE']
                         else:
                             print(f"{row['symbol']}: Consider selling ALL {row[_Q]:.0f} shares → ₹{row[_V]:,.0f}")
-                        consider_total += _cs_qty * row['PRICE']
+                            consider_total += row[_V]
+                        print_action_scenario_block(row, 'consider', _config)
+                        print()
                     print()
                 
                 # PRIORITY 3: BOOK PARTIAL PROFITS
                 book_profit = allocation_df[(allocation_df['ACTION'].str.contains('BOOK', na=False)) & 
                                            (allocation_df[_V] > 0)].sort_values(_V, ascending=False)
                 book_total = 0
-                if len(book_profit) > 0:
+                if len(book_profit) > 0 and not _lvm_terminal:
                     print('PRIORITY 3: BOOK PROFITS 🟡 (PARTIAL SELL)')
                     for _, row in book_profit.iterrows():
                         _bk_pct = _nv(row.get('BOOK %'), 0)
@@ -16896,13 +17129,15 @@ def main():
                         proceeds_max = sell_max * row['PRICE']
                         print(f"{row['symbol']}: Sell {sell_min}-{sell_max} shares → ₹{proceeds_min:,.0f}-₹{proceeds_max:,.0f}")
                         book_total += (proceeds_min + proceeds_max) / 2
+                        print_action_scenario_block(row, 'book', _config)
+                        print()
                     print(f"BOOK Proceeds: ₹{book_total:,.0f}\n")
                 
                 # PRIORITY 3.5: REDUCE (SECTOR OVERWEIGHT)
                 reduces = allocation_df[allocation_df['ACTION'].str.contains('REDUCE', na=False)].sort_values(_V, ascending=True)
                 reduce_total = 0
                 _reduce_repeat_count = 0
-                if len(reduces) > 0:
+                if len(reduces) > 0 and not _lvm_terminal:
                     print('PRIORITY 3.5: REDUCE (SECTOR DIVERSIFICATION) ⚖️')
                     _ap_rec_hist = RecommendationHistory()
                     for _, row in reduces.iterrows():
@@ -16915,6 +17150,8 @@ def main():
                             _reduce_repeat_count += 1
                         print(f"{row['symbol']}: Reduce by ~{_red_qty} shares (~₹{_red_val:,.0f}) — sector overweight{_repeat_tag}")
                         reduce_total += _red_val
+                        print_action_scenario_block(row, 'reduce', _config)
+                        print()
                     print(f"REDUCE Proceeds (est): ₹{reduce_total:,.0f}")
                     if _reduce_repeat_count > 0:
                         print(f"⚠️  WARNING: {_reduce_repeat_count} REDUCE signals were repeated from the previous run.")
@@ -16925,50 +17162,230 @@ def main():
                 increases = allocation_df[(allocation_df[_V] > 0) & (allocation_df[_I] > 0) &
                                          (allocation_df['ACTION'].str.contains('INCREASE', na=False))].sort_values(_I, ascending=False)
                 total_increase = 0
-                if len(increases) > 0:
+                if len(increases) > 0 and not _lvm_terminal:
                     print('PRIORITY 4: INCREASE 📈')
+                    print('  Add-on size is ceiling. Use ADD SCENARIOS for timing/price.\n')
                     for _, row in increases.iterrows():
                         new_total = row[_Q] + row[_BQ]
                         print(f"{row['symbol']}: Add {row[_BQ]:.0f} shares = ₹{row[_I]:,.0f} ({row[_Q]:.0f}→{new_total:.0f} shares)")
                         total_increase += row[_I]
+                        print_action_scenario_block(row, 'increase', _config)
+                        print()
                     print()
 
                 # PRIORITY 5: BUY NEW (includes BREAKOUT NEW fast-track)
                 new_buys = allocation_df[(allocation_df[_V] == 0) & (allocation_df[_I] > 0)].sort_values(_I, ascending=False)
                 total_new = 0
-                if len(new_buys) > 0:
-                    print('PRIORITY 5: BUY NEW 🆕')
-                    for _, row in new_buys.iterrows():
-                        _act = str(row.get('ACTION', 'NEW POSITION')).upper()
-                        _lbl = 'BREAKOUT NEW (half-size)' if 'BREAKOUT' in _act else 'NEW POSITION'
-                        print(f"{row['symbol']}: {_lbl} — {row[_BQ]:.0f} shares @ ₹{row['PRICE']:.2f} = ₹{row[_I]:,.0f}")
-                        total_new += row[_I]
-                    print(f"Buy orders total: ₹{total_new:,.0f}\n")
+                if not _lvm_terminal:
+                    if len(new_buys) > 0:
+                        print('PRIORITY 5: BUY NEW 🆕')
+                        print('  Rank-based size below = budget ceiling. Use ENTRY SCENARIOS for timing/price.\n')
+                        for _, row in new_buys.iterrows():
+                            _act = str(row.get('ACTION', 'NEW POSITION')).upper()
+                            _lbl = 'BREAKOUT NEW (half-size)' if 'BREAKOUT' in _act else 'NEW POSITION'
+                            print(f"{row['symbol']}: {_lbl} — {row[_BQ]:.0f} shares @ ₹{row['PRICE']:.2f} = ₹{row[_I]:,.0f} (system max)")
+                            print_action_scenario_block(row, 'buynew', _config)
+                            print()
+                            total_new += row[_I]
+                        print(f"Buy orders total (system max, before scenarios): ₹{total_new:,.0f}\n")
 
-                # PRIORITY 5.5: WATCHLIST (VMQ/turbo blocked — do not buy until gates pass)
+                # PRIORITY 5 (LVM): Rebalance — BUY NEW / INCREASE / AT WEIGHT
+                _lvm_p5_buy_total = 0.0
+                if _lvm_terminal and _lvm_degraded_reason:
+                    print('\n' + '=' * 100)
+                    print('PRIORITY 5: LVM REBALANCE — SKIPPED (data degraded)')
+                    print('=' * 100)
+                    print(f'\n  {_lvm_degraded_reason}\n')
+                elif _lvm_terminal:
+                    try:
+                        from src.lvm_action_plan import compute_lvm_p5_actions
+
+                        _vmq_sell_p5 = sell_total if 'sell_total' in dir() else 0
+                        _exit_sell_p5 = exit_total if 'exit_total' in dir() else 0
+                        _lvm_rot_p5 = lvm_rot_total if 'lvm_rot_total' in dir() else 0
+                        _input_cash_p5 = float(getattr(args, 'portfolio_amount', 0) or 0)
+                        _sell_proceeds_p5 = _vmq_sell_p5 + _exit_sell_p5 + _lvm_rot_p5
+                        _total_avail_p5 = _sell_proceeds_p5 + _input_cash_p5
+
+                        try:
+                            _cd_p5 = pd.read_excel(report_file, sheet_name='Complete Data')
+                        except Exception:
+                            _cd_p5 = None
+
+                        _p5_actions, _target_per, _held_value_sum, _lvm_held_syms, _lvm_new_syms = (
+                            compute_lvm_p5_actions(
+                                _lvm_fund_syms,
+                                _total_avail_p5,
+                                allocation_df,
+                                _cd_p5,
+                                min_invest=5000.0,
+                                val_col=_V,
+                            )
+                        )
+
+                        _p5_buys = [a for a in _p5_actions if a['action'] in ('BUY NEW', 'INCREASE')]
+                        _p5_at_weight = [a for a in _p5_actions if a['action'] == 'AT WEIGHT']
+
+                        print('\n' + '=' * 100)
+                        if _p5_buys:
+                            print(f'PRIORITY 5: LVM REBALANCE — {_lvm_fund_label} (screen {_lvm_label})')
+                            print('=' * 100)
+                            print(f'\n  Capital: sell ₹{_sell_proceeds_p5:,.0f} + cash ₹{_input_cash_p5:,.0f} = ₹{_total_avail_p5:,.0f}')
+                            print(
+                                f'  Fund {len(_lvm_fund_syms)} names monthly '
+                                f'(screen {len(_lvm_screen_syms)}). '
+                                f'Held funded LVM: ₹{_held_value_sum:,.0f} | Target/stock: ₹{_target_per:,.0f}\n'
+                            )
+                            print(f"  {'ACTION':<10} {'Symbol':<14} {'Price':>8} {'Shares':>7} {'Invest ₹':>10} {'Held ₹':>10} {'Target ₹':>10} {'Stop-10%':>9} {'Entry band':>14}")
+                            print('  ' + '-' * 100)
+                            _total_p5_buy = 0
+                            _p5_increase_syms = set()
+                            for a in sorted(_p5_buys, key=lambda x: -x['invest']):
+                                _stop = round(a['price'] * 0.9, 1)
+                                _elo = int(a['price'] * 0.97)
+                                _ehi = int(a['price'] * 1.01)
+                                print(f"  {a['action']:<10} {a['sym']:<14} {a['price']:>8.1f} {a['shares']:>7} {a['invest']:>10,.0f} {a['cur_val']:>10,.0f} {a['target']:>10,.0f} {_stop:>9.1f} {_elo:>6}–{_ehi}")
+                                _total_p5_buy += a['invest']
+                                _p5_increase_syms.add(a['sym'].upper())
+                            print(f"  {'':10} {'':14} {'':>8} {'TOTAL':>7} {_total_p5_buy:>10,.0f}")
+                            _lvm_p5_buy_total = float(_total_p5_buy)
+                            if _p5_at_weight:
+                                print(f'\n  Already at target ({len(_p5_at_weight)}): {", ".join(a["sym"] for a in _p5_at_weight)}')
+                            _excess = _total_avail_p5 - _total_p5_buy
+                            if _excess < 0:
+                                print(
+                                    f'  ⚠️ Shortfall: buys exceed rotation proceeds + cash by '
+                                    f'₹{abs(_excess):,.0f} (scale buys or add capital)'
+                                )
+                            elif _excess > 0:
+                                print(f'  Cash remaining: ₹{_excess:,.0f} → use for RSI Pullback trades or carry to next month')
+                        else:
+                            if _lvm_new_syms:
+                                print(
+                                    f'PRIORITY 5: LVM REBALANCE — {_lvm_fund_label} '
+                                    f'(screen {_lvm_label}) — OPEN NEW NAMES'
+                                )
+                            else:
+                                print(f'PRIORITY 5: {_lvm_fund_label} — ALL AT TARGET WEIGHT')
+                            print('=' * 100)
+                            if _lvm_new_syms:
+                                _open_actions = [
+                                    a for a in _p5_actions
+                                    if a['sym'] in _lvm_new_syms and a['action'] == 'BUY NEW'
+                                ]
+                                print(
+                                    f'\n  Held {len(_lvm_held_syms)} funded names at ~₹{_target_per:,.0f} each. '
+                                    f'Open {len(_lvm_new_syms)} new funded name(s):\n'
+                                )
+                                if _open_actions:
+                                    print(
+                                        f"  {'ACTION':<10} {'Symbol':<14} {'Price':>8} "
+                                        f"{'Shares':>7} {'Target ₹':>10}"
+                                    )
+                                    print('  ' + '-' * 60)
+                                    for a in sorted(_open_actions, key=lambda x: x['sym']):
+                                        print(
+                                            f"  {a['action']:<10} {a['sym']:<14} "
+                                            f"{a['price']:>8.1f} {a['shares']:>7} {a['target']:>10,.0f}"
+                                        )
+                                else:
+                                    print(f'  {", ".join(sorted(_lvm_new_syms))}')
+                            else:
+                                print(
+                                    f'\n  All {len(_p5_at_weight)} funded LVM picks already held at '
+                                    f'~₹{_target_per:,.0f} each.'
+                                )
+                                print(f'  No new buys or increases needed.')
+                            print(f'  Excess cash (sells + input): ₹{_total_avail_p5:,.0f}')
+                        print()
+                    except Exception as _lvm_p5_err:
+                        print(f'[WARN] LVM rebalance section error: {_lvm_p5_err}')
+
+                # PRIORITY 5.5: RSI PULLBACK (weekly trades, independent of LVM monthly)
+                if _lvm_terminal:
+                    try:
+                        from src.rsi_pullback_scanner import scan_rsi_pullback
+                        _rsi_cd = pd.read_excel(report_file, sheet_name='Complete Data')
+                        _rsi_candidates = scan_rsi_pullback(_rsi_cd, _config)
+                        if _rsi_candidates.empty:
+                            print('PRIORITY 5.5: RSI PULLBACK — no candidates today (RSI 35-45 + above SMA50)\n')
+                        if not _rsi_candidates.empty:
+                            _rsi_top = _rsi_candidates.head(5)
+                            _rsi_cash = max(0, _total_avail_p5 - _lvm_p5_buy_total) if '_total_avail_p5' in dir() else 0
+                            from src.lvm_action_plan import portfolio_value_for_rsi_sizing
+                            _rsi_per = portfolio_value_for_rsi_sizing(allocation_df, val_col=_V)
+                            print('PRIORITY 5.5: RSI PULLBACK — WEEKLY TRADES (5-day hold, -3% stop)')
+                            print(f'  Size: ~₹{_rsi_per:,.0f} per trade (1% of portfolio). Pick 1-2 closest to RSI 40.\n')
+                            print(f"  {'Symbol':<14} {'Price':>8} {'RSI':>5} {'Qty':>5} {'Invest':>9} {'Stop -3%':>9} {'Max Loss':>9} {'SMA50':>8}")
+                            print('  ' + '-' * 72)
+                            _rsi_total = 0
+                            for _, _rr in _rsi_top.iterrows():
+                                _rpx = float(_rr.get('current_price', 0))
+                                _rstop = round(_rpx * 0.97, 1)
+                                _rqty = int(_rsi_per / _rpx) if _rpx > 0 else 0
+                                _rinv = _rqty * _rpx
+                                _rloss = round(_rqty * (_rpx - _rstop), 0)
+                                _rabove = f"+{_rr.get('above_sma50_pct', 0):.1f}%"
+                                _rsi_total += _rinv
+                                print(f"  {str(_rr.get('symbol','')):14} {_rpx:>8.1f} {_rr.get('rsi',0):>5.1f} {_rqty:>5} {_rinv:>9,.0f} {_rstop:>9.1f} {-_rloss:>9,.0f} {_rabove:>8}")
+                            print(f'\n  Total candidates: {len(_rsi_candidates)} (showing top 5)')
+                            print(f'  Strategy: Buy 1-2 closest to RSI 40, hold 5 days, exit or stop -3%.\n')
+                    except Exception as _rsi_err:
+                        logging.debug(f'RSI pullback section skipped: {_rsi_err}')
+
+                # PRIORITY 5.5b: WATCHLIST (VMQ/turbo blocked — do not buy until gates pass)
                 watchlist = allocation_df[allocation_df['ACTION'].str.contains('WATCHLIST|CONFIRM WAIT', na=False, regex=True)].sort_values('PRICE', ascending=False)
                 if len(watchlist) > 0:
-                    print('PRIORITY 5.5: WATCHLIST / CONFIRM WAIT 👀 (turbo MTF — wait for timing)')
+                    print('PRIORITY 5.5: WATCHLIST / CONFIRM WAIT 👀')
+                    print(f'  {len(watchlist)} stocks gate-blocked (details in dashboard/Excel):\n')
                     for _, row in watchlist.iterrows():
                         _rsn = str(row.get('REASON', row.get('action_reason', row.get('exit_reason', row.get('vmq_reason', '')))))[:90]
                         _ts = row.get('turbo_score', row.get('V2 RAW', ''))
-                        _cr = row.get('entry_confirm_ret', '')
-                        _extra = f" turbo={_ts} confirm={_cr}" if _ts != '' else ''
-                        print(f"{row['symbol']}: {row['ACTION']} — {_rsn or 'entry gate failed'}{_extra}")
+                        from src.lowvol_momentum import active_lvm_eligible_col, is_lvm_strategy
+                        _lvm_ecol_p = active_lvm_eligible_col(_config) if is_lvm_strategy(_config) else ''
+                        _lvm_flag = f' [LVM✓]' if _lvm_ecol_p and row.get(_lvm_ecol_p) else ''
+                        _extra = f" turbo={_ts}{_lvm_flag}" if _ts != '' else _lvm_flag
+                        print(f"  {row['symbol']}: {row['ACTION']} — {_rsn or 'entry gate failed'}{_extra}")
                     print()
                 
-                # PRIORITY 6: HOLD
+                # PRIORITY 6: HOLD / KEEP (with REASON — was count-only)
+                _p5_syms_set = _p5_increase_syms if '_p5_increase_syms' in dir() else set()
                 holds = allocation_df[(allocation_df[_V] > 0) & ((allocation_df[_I] == 0) | pd.isna(allocation_df[_I])) &
-                                     (allocation_df['ACTION'].str.contains('HOLD|KEEP', na=False))].sort_values(_V, ascending=False)
+                                     (allocation_df['ACTION'].str.contains('HOLD|KEEP', na=False)) &
+                                     (~allocation_df['symbol'].astype(str).str.upper().isin(_p5_syms_set))].sort_values(_V, ascending=False)
                 if len(holds) > 0:
-                    print(f'PRIORITY 6: HOLD ✋')
-                    print(f"{len(holds)} stocks - No action\n")
-                
-                # PRIORITY 7: WATCHLIST
-                watchlist = allocation_df[allocation_df['ACTION'].str.contains('WATCHLIST', na=False)]
-                if len(watchlist) > 0:
-                    print(f'PRIORITY 7: WATCHLIST 👁️')
-                    print(f"{len(watchlist)} stocks - Monitor for future entry\n")
+                    print('PRIORITY 6: HOLD / KEEP ✋')
+                    print(f'  {len(holds)} positions held — no trade (details in dashboard/Excel):\n')
+                    for _, row in holds.iterrows():
+                        for _hl in format_holdings_action_lines(
+                            pd.DataFrame([row]), value_col=_V, pnl_col='P&L %'
+                        ):
+                            print(_hl)
+                    print()
+
+                # PRIORITY 7 removed — duplicate of 5.5 WATCHLIST count; names already in 5.5
+
+                if not _lvm_terminal:
+                    _skipped_sections: List[str] = []
+                    if len(swaps) == 0:
+                        _skipped_sections.append('PRIORITY 1 SWAP')
+                    if len(exits) == 0:
+                        _skipped_sections.append('PRIORITY 1.5 EXIT')
+                    if len(sells) == 0:
+                        _skipped_sections.append('PRIORITY 2 SELL')
+                    if len(considers) == 0:
+                        _skipped_sections.append('PRIORITY 2.5 CONSIDER')
+                    if len(book_profit) == 0:
+                        _skipped_sections.append('PRIORITY 3 BOOK')
+                    if len(reduces) == 0:
+                        _skipped_sections.append('PRIORITY 3.5 REDUCE')
+                    if len(increases) == 0:
+                        _skipped_sections.append('PRIORITY 4 INCREASE')
+                    if len(new_buys) == 0:
+                        _skipped_sections.append('PRIORITY 5 BUY NEW')
+                    if _skipped_sections:
+                        print('Sections not triggered this run (no names):')
+                        print('  ' + ', '.join(_skipped_sections) + '\n')
 
                 skip_wait = allocation_df[(allocation_df[_V] > 0) &
                                          (allocation_df['ACTION'].str.contains('SKIP', na=False))].sort_values(_V, ascending=False)
@@ -16979,8 +17396,11 @@ def main():
                     print(f'PRIORITY 8: OPTIONAL ⚪')
                     print(f"{skip_symbols} → ₹{skip_total:,.0f} (not urgent)\n")
                 
-                # RISK WARNINGS
+                # RISK WARNINGS (include LVM P5 buys when in LVM mode)
                 _buy_increase = pd.concat([new_buys, increases], ignore_index=True) if len(new_buys) + len(increases) > 0 else pd.DataFrame()
+                if _lvm_terminal and '_p5_increase_syms' in dir() and _p5_increase_syms:
+                    _lvm_buy_rows = allocation_df[allocation_df['symbol'].astype(str).str.upper().isin(_p5_increase_syms)]
+                    _buy_increase = pd.concat([_buy_increase, _lvm_buy_rows], ignore_index=True) if not _lvm_buy_rows.empty else _buy_increase
                 if not _buy_increase.empty:
                     _warnings = []
                     _regime_str = str(getattr(analyzer, 'current_market_regime', '') or '').upper() if hasattr(analyzer, 'current_market_regime') else ''
@@ -17096,11 +17516,40 @@ def main():
                     except (NameError, TypeError, ValueError):
                         _user_input = 0.0
 
+                # LVM stability audit (uses the new _lvm_p5_buy_total from PRIORITY 5 LVM block above)
+                _lvm_buy_total = _lvm_p5_buy_total
+                if _lvm_terminal:
+                    try:
+                        from src.lowvol_momentum import lvm_stability_audit
+                        _lvm_universe = pd.read_excel(report_file, sheet_name='Complete Data')
+                        print('=' * 100)
+                        print('PICK STABILITY AUDIT — ±2% perturbation, 50 trials')
+                        from src.lowvol_momentum import lvm_top_n as _lvm_n
+                        print(lvm_stability_audit(
+                            _lvm_universe, _config, n_trials=50, top_n_display=_lvm_n(_config),
+                        ))
+                    except Exception as _stab_err:
+                        print(f'[WARN] Stability audit skipped: {_stab_err}')
+
+                if _lvm_terminal and _lvm_buy_total > 0:
+                    _lvm_rot_for_final = lvm_rot_total if 'lvm_rot_total' in dir() else 0
+                    total_investment = _lvm_buy_total
+                    total_proceeds_min = (
+                        swap_total + sell_total + exit_total + book_total + _lvm_rot_for_final
+                    )
+                    total_proceeds_max = total_proceeds_min + skip_total
+                    net_min = total_investment - total_proceeds_min
+                    net_max = total_investment - total_proceeds_max
+
                 print('='*100)
                 print('💰 FINAL NUMBERS:\n')
                 print('MINIMUM (Priority 1-5 only):')
-                print(f"Sell proceeds (SWAP + SELL + EXIT + BOOK):  ₹{total_proceeds_min:,.0f}")
-                print(f"Buy orders   (NEW + INCREASE):              ₹{total_investment:,.0f}")
+                if _lvm_terminal and _lvm_buy_total > 0:
+                    print(f"Sell proceeds (VMQ + LVM rotation):       ₹{total_proceeds_min:,.0f}")
+                    print(f"Buy orders   ({_lvm_label}):                  ₹{total_investment:,.0f}")
+                else:
+                    print(f"Sell proceeds (SWAP + SELL + EXIT + BOOK):  ₹{total_proceeds_min:,.0f}")
+                    print(f"Buy orders   (NEW + INCREASE):              ₹{total_investment:,.0f}")
                 print(f"Net cash deployment (Buy - Sell):           ₹{net_min:>+,.0f}")
                 if _user_input > 0:
                     _cash_after = _user_input - max(0, net_min)
@@ -17126,22 +17575,14 @@ def main():
                 # we read by display labels ('ACTION', 'BOOK ₹', 'TAX ₹', etc.).
                 try:
                     if 'ACTION' in allocation_df.columns and 'P&L %' in allocation_df.columns:
-                        _sell_mask_ap = allocation_df['ACTION'].astype(str).str.contains(
-                            'SELL', case=False, na=False, regex=False
-                        )
-                        _sell_df_ap = allocation_df.loc[_sell_mask_ap].copy()
-                        if not _sell_df_ap.empty:
-                            _bk_inr = pd.to_numeric(_sell_df_ap.get('BOOK ₹'), errors='coerce').fillna(0)
-                            _pnl_pct_col = pd.to_numeric(_sell_df_ap.get('P&L %'), errors='coerce').fillna(0)
-                            _pnl_pct_unit = _pnl_pct_col / (100.0 if _pnl_pct_col.abs().max() > 1 else 1.0)
-                            # Proceeds = BOOK ₹; cost basis = proceeds / (1 + pnl_pct);
-                            # realised P&L per row = proceeds - cost_basis.
-                            _cost = _bk_inr / (1.0 + _pnl_pct_unit).replace(0, 1.0)
-                            _pnl_inr_ap = _bk_inr - _cost
-                            _losses_ap = _pnl_inr_ap[_pnl_inr_ap < 0].sum()
-                            _gains_ap  = _pnl_inr_ap[_pnl_inr_ap > 0].sum()
-                            _tax_inr_ap = pd.to_numeric(_sell_df_ap.get('TAX ₹'), errors='coerce').fillna(0).sum()
-                            _net_pnl_ap = _gains_ap + _losses_ap
+                        from src.lvm_action_plan import actionable_sell_mask, compute_tax_harvest_totals
+                        _sell_df_ap = allocation_df.loc[actionable_sell_mask(allocation_df['ACTION'])].copy()
+                        _tax_tot = compute_tax_harvest_totals(_sell_df_ap)
+                        if _tax_tot:
+                            _losses_ap = _tax_tot['losses']
+                            _gains_ap = _tax_tot['gains']
+                            _net_pnl_ap = _tax_tot['net_pnl']
+                            _tax_inr_ap = _tax_tot['tax']
                             print('📋 TAX-LOSS HARVEST SUMMARY:')
                             print(f"  Realised LOSSES (offset other STCG/LTCG): ₹{abs(_losses_ap):>10,.0f}")
                             print(f"  Realised GAINS  (taxable):                ₹{_gains_ap:>10,.0f}")
@@ -17210,7 +17651,8 @@ def main():
                 try:
                     from config import get_config as _gc_dual
                     _dual_profiles = getattr(_gc_dual(), 'DUAL_STRATEGY_PROFILES', {})
-                    if _dual_profiles and hasattr(analyzer, '_rescore_with_alternate_weights'):
+                    _suppress_dual_terminal = True  # Dual view in dashboard only; terminal is clean
+                    if _dual_profiles and hasattr(analyzer, '_rescore_with_alternate_weights') and not _suppress_dual_terminal:
                         from src.picking_metrics import oracle_stack_align_enabled
                         _alloc_dual = analyzer.portfolio_allocation.get('allocation_df')
                         if _alloc_dual is None:

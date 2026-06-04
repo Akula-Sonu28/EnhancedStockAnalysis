@@ -302,10 +302,10 @@ class AnalysisConfig:
     V2_IC_DISAGREE_USE_30D: bool = True
 
     # Stock-picking rank for NEW candidates / funding pool.
-    PICKING_RANK_DRIVER: str = 'flow_quality'  # flow_quality | turbo_mtf | auto | v2_synth | blended
+    PICKING_RANK_DRIVER: str = 'quality_lvm'  # quality_lvm | lowvol_mom | flow_quality | turbo_mtf | auto | v2_synth
 
     # Oracle recovery (pick / time / exit separation).
-    ORACLE_PICK_METRIC: str = 'fq_score'  # fq_score | volume_only | fq_adapt
+    ORACLE_PICK_METRIC: str = 'quality_lvm'  # quality_lvm | lowvol_mom | fq_score | volume_only | fq_adapt
     ORACLE_WATCHLIST_PCT: float = 0.20
     ORACLE_ROLLING_SWITCH_ENABLED: bool = True
     ORACLE_IC_SWITCH_WINDOW_DAYS: int = 21
@@ -335,6 +335,22 @@ class AnalysisConfig:
     ORACLE_DIST_20D_HIGH_FILTER: bool = True
     ORACLE_DIST_20D_HIGH_MIN_PCT: float = -12.0
     ORACLE_MAX_NEW_PER_FORTNIGHT: int = 3
+
+    # LowVol→Mom strategy parameters (when ORACLE_PICK_METRIC=lowvol_mom).
+    LVM_LOWVOL_POOL_SIZE: int = 40
+    LVM_TOP_N: int = 20
+    # Monthly capital deployment: equal-weight only the top LVM_FUND_N names from the screen list.
+    LVM_FUND_N: int = 12
+    LVM_REQUIRE_ABOVE_SMA50: bool = True
+    LVM_STOP_PCT: float = -10.0
+    LVM_SECTOR_CAP: int = 3
+    LVM_BYPASS_TURBO_GATE: bool = True
+    LVM_QUALITY_POOL_SIZE: int = 30
+    LVM_QUALITY_MIN_ROE: float = 10.0
+    LVM_QUALITY_MAX_DEBT_TO_EQUITY: float = 150.0
+    LVM_QUALITY_MIN_EARNINGS_GROWTH: float = -100.0
+    LVM_QUALITY_EXCLUDE_VALUE_TRAPS: bool = True
+    LVM_QUALITY_REQUIRE_REAL_PIT: bool = True
 
     # Upstox — market data only (no holdings/orders). Token in .env only.
     UPSTOX_DATA_ENABLED: bool = False
@@ -512,6 +528,10 @@ def _validate_config(cfg: 'AnalysisConfig') -> None:
     _w_sum = _fw + _tw + _uw
     if abs(_w_sum - 1.0) > 0.01:
         errors.append(f"Scoring weights must sum to 1.0, got {_w_sum:.3f} (FUNDAMENTAL+TECHNICAL+UNDERVALUATION)")
+    fund_n = int(getattr(cfg, 'LVM_FUND_N', 12))
+    top_n = int(getattr(cfg, 'LVM_TOP_N', 20))
+    if fund_n > top_n:
+        errors.append(f"LVM_FUND_N={fund_n} cannot exceed LVM_TOP_N={top_n}")
     if errors:
         raise ValueError("[CONFIG] Validation failed:\n  " + "\n  ".join(errors))
 

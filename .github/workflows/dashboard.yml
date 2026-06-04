@@ -1,0 +1,63 @@
+name: Dashboard
+
+on:
+  push:
+    paths:
+      - 'frontend/dashboard/**'
+      - 'src/analysis_dashboard.py'
+      - 'src/action_plan_legend.py'
+      - 'src/dashboard_action_document.py'
+      - 'scripts/build_analysis_dashboard.py'
+      - 'scripts/serve_dashboard.py'
+      - 'scripts/update_analysis_canvas.py'
+      - 'src/dashboard_browser.py'
+      - 'tests/test_analysis_dashboard.py'
+      - 'tests/test_dashboard_browser.py'
+      - 'tests/test_action_plan_legend.py'
+      - 'tests/test_dashboard_action_document.py'
+      - 'src/lowvol_momentum.py'
+      - 'src/rsi_pullback_scanner.py'
+      - 'tests/test_lowvol_momentum.py'
+  pull_request:
+    paths:
+      - 'frontend/dashboard/**'
+      - 'src/analysis_dashboard.py'
+      - 'src/dashboard_browser.py'
+      - 'src/action_plan_legend.py'
+      - 'src/dashboard_action_document.py'
+      - 'scripts/**'
+      - 'tests/test_analysis_dashboard.py'
+      - 'tests/test_dashboard_browser.py'
+      - 'tests/test_action_plan_legend.py'
+      - 'tests/test_dashboard_action_document.py'
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Dashboard unit tests
+        run: |
+          python3 tests/test_action_plan_legend.py
+          python3 tests/test_dashboard_action_document.py
+          python3 tests/test_analysis_dashboard.py
+          python3 tests/test_dashboard_browser.py
+
+      - name: LowVol-Mom strategy tests
+        run: python3 -m pytest tests/test_lowvol_momentum.py -v
+
+      - name: Build dashboard when report present
+        run: |
+          if ls reports/Enhanced_Stock_Report_*.xlsx 1>/dev/null 2>&1; then
+            python3 scripts/build_analysis_dashboard.py
+          else
+            echo "No sample report in CI — build step skipped (unit tests cover slim payload)."
+          fi

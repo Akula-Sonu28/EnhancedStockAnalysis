@@ -250,6 +250,165 @@ def run_qmst(args) -> int:
     return 0
 
 
+def _run_lvm_variant(
+    args,
+    *,
+    score_mode: str,
+    rank_column: str,
+    eligible_column: str,
+    strategy_label: str,
+    write_mode: str,
+) -> tuple[int, list]:
+    """Run LVM-family backtest; returns (exit_code, list of BacktestResult)."""
+    from backtest.lvm_snapshot_builder import LvmSnapshotBuilder
+    from backtest.lvm_strategy import LVMStrategyAdapter
+
+    months = getattr(args, 'months', 24) or 24
+    end = args.end or date.today()
+    start = args.start or _months_before(end, months)
+    stop_pcts = [float(args.stop_pct)]
+    if getattr(args, 'compare_stops', False):
+        stop_pcts = [10.0, 15.0]
+
+    pit_only = bool(getattr(args, 'pit_only', False)) and score_mode == 'quality_lvm'
+    pit_tag = ' [real Screener only]' if pit_only else ''
+    print(f'{strategy_label}: Nifty 200, {start} -> {end}, rebalance={args.rebalance}, '
+          f'vol_mode={args.vol_mode}, score={score_mode}{pit_tag}')
+    builder = LvmSnapshotBuilder(
+        vol_mode=args.vol_mode, score_mode=score_mode, pit_only=pit_only,
+    )
+    if getattr(args, 'warmup', True):
+        print(f'  Warming OHLCV for {len(builder.universe)} symbols...')
+        ok = sum(1 for v in builder.warmup_prices(start, end).values() if v)
+        print(f'  Price cache warmed: {ok}/{len(builder.universe)} symbols')
+
+    snapshots = builder.build_snapshots(
+        start, end, cadence=args.rebalance, use_cache=not args.no_cache,
+    )
+    if not snapshots:
+        print(f'ERROR: no snapshots in [{start} -> {end}] ({score_mode})')
+        return 2, []
+
+    print(f'  Built {len(snapshots)} rebalance snapshots')
+    results = []
+    last_code = 0
+    for stop in stop_pcts:
+        cfg = _engine_config_from_args(args)
+        cfg.rank_column = rank_column
+        cfg.lvm_eligible_column = eligible_column
+        cfg.apply_min_entry_score = False
+        cfg.allow_rotation = False
+        cfg.require_turbo_pass = False
+        cfg.lvm_full_rebalance = True
+        cfg.momentum_exhaustion_enabled = False
+        cfg.monthly_cash_injection_inr = float(getattr(args, 'monthly_injection', 0) or 0)
+        cfg.cooldown_policy = resolve_policy('off')
+
+        strategy = LVMStrategyAdapter(stop_pct=stop)
+        label = f'{write_mode}_stop{int(stop)}'
+        engine = BacktestEngine(engine_label=label, cfg=cfg, strategy=strategy)
+        result = engine.run(snapshots)
+
+        result.summary['strategy'] = strategy_label
+        result.summary['lvm_stop_pct'] = stop
+        result.summary['vol_mode'] = args.vol_mode
+        result.summary['score_mode'] = score_mode
+        result.summary['pit_only'] = pit_only
+        result.summary['universe'] = 'Nifty200'
+        result.summary['months'] = months
+        result.summary['lvm_stop_exits'] = strategy.stop_exits
+        result.summary['monthly_injection_inr'] = cfg.monthly_cash_injection_inr
+
+        out_dir = write_result(result, mode=write_mode, extra_meta={
+            'cli_args': vars(args), 'stop_pct': stop, 'score_mode': score_mode,
+        })
+        _print_summary(f'{strategy_label} (-{stop:.0f}% stop)', result)
+        print(f'\n  Stop-trigger exits: {strategy.stop_exits}')
+        print(f'  Capital injected:   Rs {result.summary.get("capital_injected_inr", 0):,.0f}')
+        print(f'  Artifacts: {out_dir}')
+        print()
+        results.append(result)
+    return last_code, results
+
+
+def run_lvm(args) -> int:
+    """LowVol→Mom monthly backtest (Nifty 200, production ranker)."""
+    code, _ = _run_lvm_variant(
+        args,
+        score_mode='lvm',
+        rank_column='lowvol_mom_score',
+        eligible_column='lowvol_mom_eligible',
+        strategy_label='LowVol→Mom',
+        write_mode='lvm',
+    )
+    return code
+
+
+def run_quality_lvm(args) -> int:
+    """Quality + LowVol→Mom monthly backtest (PIT Screener fundamentals)."""
+    code, _ = _run_lvm_variant(
+        args,
+        score_mode='quality_lvm',
+        rank_column='quality_lvm_score',
+        eligible_column='quality_lvm_eligible',
+        strategy_label='Quality+LowVol→Mom',
+        write_mode='quality_lvm',
+    )
+    return code
+
+
+def run_compare_lvm(args) -> int:
+    """Head-to-head: current LVM vs Quality+LVM on identical window and stops."""
+    if getattr(args, 'compare_stops', False):
+        print('compare-lvm uses a single stop; ignoring --compare-stops')
+        args.compare_stops = False
+
+    code_a, res_a = _run_lvm_variant(
+        args,
+        score_mode='lvm',
+        rank_column='lowvol_mom_score',
+        eligible_column='lowvol_mom_eligible',
+        strategy_label='LowVol→Mom',
+        write_mode='lvm',
+    )
+    if code_a != 0:
+        return code_a
+    code_b, res_b = _run_lvm_variant(
+        args,
+        score_mode='quality_lvm',
+        rank_column='quality_lvm_score',
+        eligible_column='quality_lvm_eligible',
+        strategy_label='Quality+LowVol→Mom',
+        write_mode='quality_lvm',
+    )
+    if code_b != 0:
+        return code_b
+
+    if not res_a or not res_b:
+        return 2
+
+    base = res_a[-1]
+    cand = res_b[-1]
+    print(f'\n{"=" * 76}\n  LVM vs QUALITY+LVM\n{"=" * 76}')
+    print(f'  Baseline final:  Rs {base.summary["final_equity"]:>12,.0f}  '
+          f'({base.summary["total_return_pct"]:+.2f}%)')
+    print(f'  Candidate final: Rs {cand.summary["final_equity"]:>12,.0f}  '
+          f'({cand.summary["total_return_pct"]:+.2f}%)')
+    diff = cand.summary['final_equity'] - base.summary['final_equity']
+    print(f'  Edge:            Rs {diff:>+12,.0f}  '
+          f'({cand.summary["total_return_pct"] - base.summary["total_return_pct"]:+.2f}pp)')
+    print(f'  Baseline Sharpe: {base.summary.get("sharpe", 0):.3f}  '
+          f'MaxDD: {base.summary.get("max_drawdown_pct", 0):.2f}%')
+    print(f'  Candidate Sharpe:{cand.summary.get("sharpe", 0):.3f}  '
+          f'MaxDD: {cand.summary.get("max_drawdown_pct", 0):.2f}%')
+    bench_ex_a = base.summary.get('excess_return_pct')
+    bench_ex_b = cand.summary.get('excess_return_pct')
+    if bench_ex_a is not None and bench_ex_b is not None:
+        print(f'  Excess vs Nifty: {bench_ex_a:+.2f}pp -> {bench_ex_b:+.2f}pp  '
+              f'({bench_ex_b - bench_ex_a:+.2f}pp)')
+    return 0
+
+
 def run_compare(args) -> int:
     """Run both engines (v1 & v2) under identical conditions and emit a summary."""
     outputs = {}
@@ -373,6 +532,58 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_common(pq)
 
+    pl = sub.add_parser(
+        'lvm',
+        help='LowVol→Mom: Nifty 200, monthly rebalance, LVM stop (production ranker)',
+    )
+    pl.add_argument('--months', type=int, default=24,
+                    help='Trailing months of history (default 24)')
+    pl.add_argument('--stop-pct', type=float, default=10.0,
+                    help='LVM stop loss magnitude in percent (default 10 => -10%%)')
+    pl.add_argument('--compare-stops', action='store_true',
+                    help='Run both -10%% and -15%% stops in one invocation')
+    pl.add_argument('--monthly-injection', type=float, default=0.0,
+                    help='INR cash added each rebalance after the first (e.g. 100000)')
+    pl.add_argument('--vol-mode', choices=('12m', '6m'), default='12m',
+                    help='12m: 252d vol in volatility_6m column; 6m: 20d vol proxy')
+    pl.add_argument('--no-cache', action='store_true',
+                    help='Rebuild LVM snapshot cache')
+    pl.add_argument('--no-warmup', dest='warmup', action='store_false',
+                    help='Skip OHLCV warmup (use existing price cache only)')
+    _add_common(pl)
+    pl.set_defaults(rebalance='monthly', capital=1_000_000.0, top_n=10)
+
+    pql = sub.add_parser(
+        'quality-lvm',
+        help='Quality+LowVol→Mom: LVM with PIT quality filter (Screener fundamentals)',
+    )
+    pql.add_argument('--months', type=int, default=24)
+    pql.add_argument('--stop-pct', type=float, default=10.0)
+    pql.add_argument('--compare-stops', action='store_true')
+    pql.add_argument('--monthly-injection', type=float, default=0.0)
+    pql.add_argument('--vol-mode', choices=('12m', '6m'), default='12m')
+    pql.add_argument('--no-cache', action='store_true')
+    pql.add_argument('--no-warmup', dest='warmup', action='store_false')
+    pql.add_argument('--pit-only', action='store_true',
+                     help='Skip stocks without real Screener filing as of each date')
+    _add_common(pql)
+    pql.set_defaults(rebalance='monthly', capital=1_000_000.0, top_n=10)
+
+    pcl = sub.add_parser(
+        'compare-lvm',
+        help='Head-to-head: LowVol→Mom vs Quality+LowVol→Mom (same window/stops)',
+    )
+    pcl.add_argument('--months', type=int, default=120)
+    pcl.add_argument('--stop-pct', type=float, default=10.0)
+    pcl.add_argument('--monthly-injection', type=float, default=0.0)
+    pcl.add_argument('--vol-mode', choices=('12m', '6m'), default='12m')
+    pcl.add_argument('--no-cache', action='store_true')
+    pcl.add_argument('--no-warmup', dest='warmup', action='store_false')
+    pcl.add_argument('--pit-only', action='store_true',
+                     help='Quality leg: require real Screener filing (strict validation)')
+    _add_common(pcl)
+    pcl.set_defaults(rebalance='monthly', capital=1_000_000.0, top_n=10)
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='[backtest] %(message)s')
 
@@ -384,6 +595,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_compare(args)
     if args.cmd == 'qmst':
         return run_qmst(args)
+    if args.cmd == 'lvm':
+        return run_lvm(args)
+    if args.cmd == 'quality-lvm':
+        return run_quality_lvm(args)
+    if args.cmd == 'compare-lvm':
+        return run_compare_lvm(args)
     return 1
 
 

@@ -70,3 +70,17 @@ Symbols in universe CSV are bare tickers (`RELIANCE`); yfinance uses `.NS` inter
 - Entry timing → `india-markets-technical`, `src/turbo_entry.py`
 - Regime tilt → `india-markets-macro`
 - Allocation / action enum → `india-markets-portfolio`
+
+## Five-Agent Council
+
+**This desk is research-only.** Do not edit scoring code from a fundamental memo.
+
+Escalate via shared template: `.cursor/skills/five-agent-council/references/council-escalation-template.md`
+
+| Escalate when | Council agents most involved |
+|---------------|------------------------------|
+| v2 fundamental_quality/growth/value weights or thresholds | QUANT, AUDIT |
+| yfinance/Upstox data pipeline or cache schema | ARCH, AUDIT |
+| Universe exclusion affecting fundamental coverage | RISK, QUANT |
+
+Bridge: `.cursor/skills/five-agent-council/references/product-teams-bridge.md`

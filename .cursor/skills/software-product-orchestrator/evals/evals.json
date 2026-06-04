@@ -1,0 +1,20 @@
+{
+  "skill_name": "software-product-orchestrator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "BUILD a new panel on the dashboard that shows last 5 recommendation_history actions per symbol — read-only, no schema change",
+      "expected_output": "PM brief with Council required NO; Frontend+Backend payload read; serve_dashboard smoke; test_analysis_dashboard if payload touched."
+    },
+    {
+      "id": 2,
+      "prompt": "implement higher BUY threshold in config.json for BEAR regime",
+      "expected_output": "Refuses direct BUILD; Council required YES; escalates COUNCIL; cites stock-analysis-system breaking-change rules."
+    },
+    {
+      "id": 3,
+      "prompt": "add pytest for lvm_strategy backtest and wire into CI",
+      "expected_output": "Platform+Backend; backtest/tests; no council unless scoring logic changes."
+    }
+  ]
+}

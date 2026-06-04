@@ -7,6 +7,7 @@ Time layer (7d): turbo_mtf in turbo_entry.py (never alias score_v2).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
@@ -93,7 +94,16 @@ def add_oracle_pick_columns(df: pd.DataFrame, cfg=None) -> pd.DataFrame:
     ]
     pct = float(_cfg(cfg, 'ORACLE_WATCHLIST_PCT', 0.20))
     pick_col = str(_cfg(cfg, 'ORACLE_PICK_METRIC', 'fq_score')).lower()
-    if pick_col == 'volume_only':
+    if pick_col in ('lowvol_mom', 'low_vol_momentum', 'quality_lvm'):
+        try:
+            from datetime import date
+            from src.lowvol_momentum import active_lvm_score_col, compute_active_lvm_score
+            out = compute_active_lvm_score(out, cfg, as_of=date.today())
+            rank_src = out[active_lvm_score_col(cfg)]
+        except Exception as e:
+            logging.warning(f"LVM family scoring failed, falling back to fq_score: {e}")
+            rank_src = out['fq_score']
+    elif pick_col == 'volume_only':
         rank_src = out['volume_pick_score']
     elif pick_col == 'fq_adapt':
         rank_src = out['fq_adapt_score']
@@ -145,7 +155,18 @@ def enrich_oracle_columns(df: pd.DataFrame, cfg=None, history_df: Optional[pd.Da
     active = resolve_active_oracle(history_df, cfg)
     out['active_oracle'] = active
     pct = float(_cfg(cfg, 'ORACLE_WATCHLIST_PCT', 0.20))
-    if active == 'volume_only':
+    pick_metric = str(_cfg(cfg, 'ORACLE_PICK_METRIC', 'fq_score')).lower()
+    if pick_metric in ('lowvol_mom', 'low_vol_momentum', 'quality_lvm') or active in (
+        'lowvol_mom', 'low_vol_momentum', 'quality_lvm',
+    ):
+        from src.lowvol_momentum import active_lvm_score_col, is_quality_lvm_strategy
+        out['active_oracle'] = 'quality_lvm' if is_quality_lvm_strategy(cfg) else 'lowvol_mom'
+        scol = active_lvm_score_col(cfg)
+        if scol in out.columns:
+            src = out[scol]
+        else:
+            src = out['fq_score']
+    elif active == 'volume_only':
         src = out['volume_pick_score']
     elif active == 'fq_adapt':
         src = out['fq_adapt_score']

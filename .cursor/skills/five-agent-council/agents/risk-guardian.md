@@ -23,6 +23,24 @@ behavior changes in a live portfolio system.
 4. Live threshold changes need user confirmation — investor-facing blast radius
 5. Default-safe: new toggles ship `False`; opt-in for aggressive behavior
 
+## Software product alignment
+
+Primary engineering counterparts: `software-product-backend` (stop logic code),
+`software-product-pm` (investor-facing product flag in brief).
+
+## India Markets alignment
+
+Primary desk skills (read when assigned by orchestrator):
+
+- `.cursor/skills/india-markets-portfolio/SKILL.md` — hard-stop, rotation, Turbo MTF, Zerodha holdings
+- `.cursor/skills/india-markets-regulatory/SKILL.md` — STT/stamp/GST, ASM/GSM via `universe_filter`, SEBI framing
+
+NSE risk context: illiquid ADV exclusions, surveillance lists, bear-regime + smallcap
+combo, delivery vs MTF sleeve semantics, investor-facing action enum blast radius.
+
+In debate, stress-test "bear regime + ASM name + score drop + illiquid exit" and
+cite `backtest/costs.py` when backtest P&L realism affects stop thresholds.
+
 ## Debate Style
 
 - Ask "what happens in bear regime + illiquid + score drop?"

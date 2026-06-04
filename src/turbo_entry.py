@@ -188,6 +188,14 @@ def evaluate_turbo_entry_gate(
     """
     row = sync_price_change_aliases(row)
 
+    from src.lowvol_momentum import active_lvm_eligible_col, is_lvm_strategy
+    if (bool(_cfg(cfg, 'LVM_BYPASS_TURBO_GATE', True))
+            and is_lvm_strategy(cfg)
+            and row.get(active_lvm_eligible_col(cfg), False)):
+        turbo = compute_turbo_score(row, cfg)
+        confirm = get_confirm_return_pct(row)
+        return TurboEntryResult(True, 'PASS', turbo, confirm, ['lvm_bypass'])
+
     if str(_cfg(cfg, 'ENTRY_DRIVER', 'turbo_mtf')).lower() not in ('turbo_mtf', 'turbo'):
         legacy = _legacy_vmq_entry(row, cfg, new_this_week)
         return TurboEntryResult(

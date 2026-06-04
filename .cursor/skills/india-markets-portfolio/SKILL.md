@@ -86,3 +86,24 @@ Read `data/turbo_mtf_cadence_comparison.json` before changing weekly vs biweekly
 - Macro tilt → `india-markets-macro`
 - Single-name thesis → Fundamental + Technical
 - Code changes to stops/allocation → `five-agent-council`
+
+## Five-Agent Council
+
+**Research-only desk.** Weekly rebalance narrative stays here; stop/allocation **code** → council.
+
+| Escalate when | Council agents most involved |
+|---------------|------------------------------|
+| hard-stop tiers, rotation, cooldown rules | RISK (binding), AUDIT |
+| sector caps, allocation builder, action enum | RISK, AUDIT, ARCH |
+| Zerodha holdings merge or Turbo MTF sizing | ARCH, RISK |
+
+```markdown
+## Council Escalation (from Portfolio desk)
+**Goal:** [e.g. "Regime-aware hard-stop tier for BEAR"]
+**India context:** live recommendations | investor-facing: YES
+**Evidence:** [history rows, Risk Analysis sheet, stop trigger case]
+**Proposed change:** [function/config]
+**Council trigger:** COUNCIL <goal>
+```
+
+Bridge: `.cursor/skills/five-agent-council/references/product-teams-bridge.md`

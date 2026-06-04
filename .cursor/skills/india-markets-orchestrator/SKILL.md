@@ -29,6 +29,26 @@ Also load **`stock-analysis-system`** when the user touches config, scoring code
 | `ANALYSE` / audit latest run | `post-analysis-audit` |
 | Weekly dry-run vs live, Turbo MTF | `turbo-mtf-weekly-trader` |
 | Change scoring, thresholds, architecture | `five-agent-council` + `stock-analysis-system` |
+| `COUNCIL` / `DEBATE` / `PEER REVIEW` | `five-agent-council` |
+| `BUILD` / `SHIP` / full team | `product-teams-orchestrator` |
+
+## Council handoff (code changes)
+
+When research surfaces a system change, **stop at memo** and emit Council Escalation
+(from the relevant desk skill). Then run council in the main session:
+
+```
+COUNCIL <goal from escalation block>
+```
+
+Orchestrator reads:
+
+1. `.cursor/skills/five-agent-council/SKILL.md`
+2. `.cursor/skills/five-agent-council/references/product-teams-bridge.md`
+3. Desk skill that originated the escalation (for evidence)
+
+After council gate + user confirm + implement → optional dry-run + `ANALYSE` + re-synthesize
+multi-desk view with updated pipeline output.
 
 ## Mandatory disclaimer
 

@@ -10,6 +10,8 @@ You are [AGENT_ID] on the Stock_Analysis Five-Agent Council.
 Read first:
 1. Your persona: .cursor/skills/five-agent-council/agents/[persona-file]
 2. .cursor/skills/stock-analysis-system/SKILL.md
+3. .cursor/skills/five-agent-council/references/product-teams-bridge.md
+4. [Assigned india-markets desk and/or software-product skill(s) — orchestrator provides paths]
 
 Return ONLY a Position Paper in this format:
 
@@ -134,6 +136,8 @@ Council member task — Stock_Analysis Five-Agent Council
 Agent: [AGENT_ID]
 Persona: .cursor/skills/five-agent-council/agents/[file].md
 Domain skill: .cursor/skills/stock-analysis-system/SKILL.md
+India bridge: .cursor/skills/five-agent-council/references/product-teams-bridge.md
+Desk / engineering skills (this agent): [paths from bridge tables, or "none"]
 Round: [1 | 2 | 4]
 
 [Problem Brief OR Position Papers OR Council Recommendation]

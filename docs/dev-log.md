@@ -3,6 +3,452 @@
 This file tracks every code change with date, rationale, and affected files
 per the operating contract's Definition of Done.
 
+## 2026-06-04 — Scrapped QMST-15 Nifty intraday Pine (second time)
+
+**Context:** User removed `scripts/nifty-options-intraday.pine` after QMST-15 rebuild.
+
+**Files:** deleted `scripts/nifty-options-intraday.pine`; updated `pinescript-agents/references/repo-integration.md`
+
+---
+
+## 2026-06-04 — QMST-15 Strategy Tester zero-trades fix
+
+**Context:** NIFTY index often has no volume on TV (blocked all entries). Fixed IST day reset (`na(lastDay)`). Index volume bypass input; `from_entry` on exits; FILL markers vs GO shapes; Tester tip for past date range.
+
+**Files:** `scripts/nifty-options-intraday.pine`
+
+---
+
+## 2026-06-04 — QMST-15 Nifty intraday Pine (rebuild)
+
+**Context:** Council playbook shipped as `scripts/nifty-options-intraday.pine` — WATCH (live) vs GO (confirmed), IST 9:45–14:45 entries, flat 15:15, Thu expiry cut 12:30, max 2 GO/day, 1H/vol/ADX filters, ATR stop/target, skip labels, honest index-direction dashboard.
+
+**Files:** `scripts/nifty-options-intraday.pine`, `pinescript-agents/references/repo-integration.md`
+
+**Verify (TradingView):**
+1. Paste on **NSE:NIFTY** **15m** — compile with no warnings (no `alertcondition`).
+2. Strategy Tester date range = **past** data (not future-only).
+3. **DEBUG: bypass filters** ON → Strategy Tester shows trades.
+4. DEBUG OFF → WATCH circles on open bar; GO triangles on closed bars only; ≤2 GO per IST day.
+5. Thursday after 12:30 IST → no new GO; expiry row orange.
+6. Alerts: Create Alert → **Any alert() function call**.
+7. Dashboard: direction accuracy / equity proxy — not option P&L.
+
+---
+
+## 2026-06-04 — Scrapped Nifty intraday Pine script
+
+**Context:** User requested full removal of `nifty-options-intraday.pine` (direction bias / options intraday work).
+
+**Files:** deleted `scripts/nifty-options-intraday.pine`; updated `pinescript-agents/references/repo-integration.md`
+
+---
+
+## 2026-06-04 — Nifty direction bias backtest accuracy overhaul
+
+**Context:** IST session via `Asia/Kolkata`; DEBUG bypass for Strategy Tester; skip-reason labels; entries on `barstate.isconfirmed`; renamed to direction bias; equity proxy P&L + crude delta/theta option estimate; relaxed RSI/ADX defaults.
+
+**Files:** `scripts/nifty-options-intraday.pine`, `pinescript-agents/references/repo-integration.md`
+
+**Verify:** Paste on NSE:NIFTY 15m; enable DEBUG → trades in Strategy Tester; disable DEBUG + check skip labels; backtest date range must include history (not future-only).
+
+---
+
+## 2026-06-04 — Nifty options gap fixes (council review)
+
+**Context:** Disclaimer; Call/Put setup scores; 1H trend filter; high-vol skip; ADX min; no entries after 14:45; Thursday expiry warning; exit cancel on trend/EOD; 0.1% commission; theta note in box.
+
+**Files:** `scripts/nifty-options-intraday.pine`
+
+---
+
+## 2026-06-04 — Nifty options intraday predictive upgrade
+
+**Context:** LIVE (open-candle) + CONFIRMED signals; CE/PE probability scores; next-bar forecast; projected target/stop/R:R; enhanced dashboard; circle vs triangle markers.
+
+**Files:** `scripts/nifty-options-intraday.pine`
+
+**Verify:** Reload script on NSE:NIFTY 15m; on live candle see LIVE CE/PE circles + dashboard LIVE row updating; on close see BUY CE/PE triangles.
+
+---
+
+## 2026-06-04 — Nifty options intraday Pine (replaces equity swing script)
+
+**Context:** Removed `nse-swing-system.pine`; new intraday NIFTY CE/PE indicator with session filter (IST), EMA+ADX+VWAP+RSI+MACD, ATM strike hint, dashboard, chart markers.
+
+**Files:** `scripts/nifty-options-intraday.pine`, `pinescript-agents/references/repo-integration.md`
+
+**Verify:** TradingView → `NSE:NIFTY` or `NSE:NIFTY1!` on **15m**; paste script; watch BUY CE / BUY PE / EXIT labels.
+
+---
+
+## 2026-06-04 — Fix ALLOCATION DEGRADED when portfolio_amount=0
+
+**Context:** `run_analysis.py --portfolio-amount 0` skipped STEP 3.4 (`target_amount > 0` guard), causing `UnboundLocalError: total_available` and emergency fallback (Excel all HOLD, terminal-only LVM rotation).
+
+**Fixes:**
+- `analyze_top200_stocks_enhanced.py` — Initialize `total_available`, regime vars, and `regime_adjustment` before STEP 3.4; run LVM rotation + proceeds math whenever `keep_stock` exists (not only when new capital > 0). Regime cash reserve still applies only when `target_amount > 0`. RSI P5.5 uses `portfolio_value_for_rsi_sizing` (~1% of holdings).
+- `src/lvm_action_plan.py` — `portfolio_value_for_rsi_sizing()` helper.
+- `scripts/update_analysis_canvas.py` — RSI budget from holdings / MY VALUE ₹.
+
+**Tests:** `tests/test_lvm_action_plan.py` (16 passed).
+
+---
+
+## 2026-06-04 — Terminal + dashboard gap fixes (LVM rotation, tax, P&L)
+
+**Context:** Degraded allocation runs still showed `| nan` in sell breakdown, TAX-LOSS HARVEST all zeros, and dashboard omitted tax/risk panels.
+
+**Fixes:**
+- `src/lvm_action_plan.py` — `sanitize_reason_fragment`, `lvm_rotation_reason`, `apply_lvm_rotation_display_fields`, `compute_tax_harvest_totals` (BOOK ₹ fallback to MY VALUE ₹), `fallback_holding_row_extras`.
+- `analyze_top200_stocks_enhanced.py` — emergency fallback enriches via backfill + LVM rotation + booking/tax; Excel BOOK% for `SELL (LVM ROTATION)`; P5 shortfall warning; tax block uses shared helpers.
+- `scripts/update_analysis_canvas.py` — fund slots + rotation aligned with `resolve_lvm_universe`; tax harvest parity.
+- `src/analysis_dashboard.py` + `frontend/dashboard/app.js` — expose tax/risk in HTML; P&L shows 0% when valid.
+
+**Tests:** `tests/test_lvm_action_plan.py` (15 passed).
+
+---
+
+## 2026-06-04 — Fix Allocation P&L Gaps
+
+**Context:** Terminal action plan showed `ALLOCATION DEGRADED: Full allocation failed - using minimal data` and all P&L values as `+0.0%` or `nan P&L=+0.0%`. The emergency fallback path was missing `avg_cost` and `current_profit_pct` fields, and LVM rotation print loop was coercing NaN to 0.
+
+**Fixes:**
+- **Emergency fallback** (`analyze_top200_stocks_enhanced.py` ~11866): Added `avg_cost` and `current_profit_pct` computation from holdings `Avg. cost` and live price.
+- **LVM rotation print** (~16986): Uses `format_allocation_pnl()` instead of coercing NaN to 0.
+- **`format_allocation_pnl()`** (`src/lvm_action_plan.py`): Now distinguishes missing data (P&L ~0 AND avg_cost missing) from actual breakeven. Returns blank for missing data, `+0.0%` only for genuine breakeven.
+- **`format_holdings_action_lines()`** (`src/action_plan_legend.py`): Same logic for PRIORITY 6 HOLD display.
+- **Logging**: Added diagnostic for fallback P&L coverage to help identify missing cost basis.
+
+**Tests:** `tests/test_lvm_action_plan.py` (11 passed), `tests/test_regression_fixes.py` (135 passed).
+
+**Expected result:** Terminal no longer shows misleading `+0.0%` for positions with unknown cost basis; shows actual P&L from broker holdings data or blank if unavailable.
+
+---
+
+## 2026-06-04 — QLVM TradingView indicator (Pine Script v6)
+
+**Context:** User requested a TradingView overlay for Quality-LVM entry/exit (price-only; fundamentals still via analyzer/Screener).
+
+**Deliverable:** [`scripts/qlvm_indicator.pine`](../scripts/qlvm_indicator.pine) — 6m ann vol cap, 12m return, SMA50, BUY on first eligible bar, EXIT on -10% stop / below SMA50 / negative 12m, info table + alerts.
+
+**Install:** TradingView → Pine Editor → New → paste file → Add to chart (NSE symbol, daily recommended).
+
+---
+
+## 2026-06-04 — LVM data integrity guard
+
+**Context:** Two runs with identical prices produced different fund-12 lists because Complete Data lost `price_change_*` / `legacy_sma_50` (R-12 constant-column drop + cache backfill gap). LVM ranker silently used all-zero momentum.
+
+**Fixes:**
+- R-12 never drops LVM momentum/SMA/score columns from Complete Data.
+- `_backfill_cache_portfolio_fields` patches `price_change_1m/3m/6m/1y` and `legacy_sma_50` from 1Y OHLCV.
+- `is_lvm_momentum_degraded()` + `_return_12m_col` warning; `resolve_lvm_universe` returns empty fund + message when degraded.
+- Terminal P5 and dashboard skip LVM buys with explicit “data degraded” copy.
+
+**Tests:** `tests/test_lvm_action_plan.py` (`TestLvmMomentumIntegrity`).
+
+---
+
+## 2026-06-03 — LVM action-plan audit (screen 20 / fund 12)
+
+**Context:** Terminal Priority 5 said “all at target weight” while ~₹7.4L sell proceeds sat idle; sell breakdown showed `nan P&L=0.0%`; fund vs screen messaging drifted.
+
+**Fixes:**
+- `LVM_FUND_N=12` vs `LVM_TOP_N=20` — rotation uses screen 20; equal-weight funding + Priority 5 use fund 12 only.
+- `src/lvm_action_plan.py` — shared `compute_lvm_p5_actions`, `resolve_lvm_universe`, `format_allocation_pnl` (terminal + dashboard parity).
+- Terminal P5 reads prices from Complete Data when symbols missing from allocation sheet; lists BUY NEW for all fund slots.
+- `classify_sell_category` + `apply_lvm_rotation` set `LVM_ROTATION` / `SELL WHY` correctly.
+- Dashboard/terminal copy: “Fund Top 12 (screen Top 20)”.
+
+**Tests:** `tests/test_lvm_action_plan.py`, dashboard + picking_metrics LVM cases.
+
+---
+
+## 2026-06-03 — Quality + LVM live promotion (strict B → C)
+
+**Context:** User approved Option B (2020+ strict Screener-only compare) then full switch if validated.
+
+**B results (2020-01 → 2026-06, `--pit-only`):** Quality ₹29.0L vs baseline ₹20.8L; CAGR 18.1% vs 12.2% (+6pp); both beat Nifty ~10.8%.
+
+**C shipped:** `ORACLE_PICK_METRIC` / `PICKING_RANK_DRIVER` = `quality_lvm` in `config.json`; `LVM_QUALITY_REQUIRE_REAL_PIT=true`; wired via `compute_active_lvm_score()` across analyzer, picking, oracle, turbo, VMQ.
+
+**Rollback:** set `ORACLE_PICK_METRIC` and `PICKING_RANK_DRIVER` back to `lowvol_mom` in `config.json`.
+
+---
+
+## 2026-06-03 — Quality + LVM backtest (vs current LowVol→Mom)
+
+**Context:** User approved plan to compare current LVM pipeline against Quality+LowVol→Mom using PIT Screener fundamentals (`data/screener_fundamentals.pkl`).
+
+**Changes:**
+- `src/quality_lowvol_momentum.py` — low-vol pool → quality gate (ROE, D/E, value-trap) → momentum Top-N; `quality_lvm_score` / `quality_lvm_eligible`.
+- `backtest/lvm_snapshot_builder.py` — `score_mode` (`lvm` | `quality_lvm`), separate snapshot cache keys, PIT columns on snapshots.
+- `backtest/runner.py` — `quality-lvm` and `compare-lvm` CLI commands; shared `_run_lvm_variant`.
+- `config.py` — `LVM_QUALITY_*` thresholds.
+
+**Run:** `python3 -m backtest.runner compare-lvm --months 120 --capital 1000000 --stop-pct 10`
+
+**Files:** `src/quality_lowvol_momentum.py`, `backtest/lvm_snapshot_builder.py`, `backtest/runner.py`, `config.py`, `backtest/tests/test_quality_lvm_backtest.py`, `backtest/README.md`
+
+---
+
+## 2026-06-03 — Dashboard viz, canvas sync, multi-browser reload
+
+**Context:** User confirmed follow-up on decorative viz bars, Cursor canvas/HTML drift, and Chrome-only browser helper.
+
+**Changes:**
+- Overview viz: labeled sell/net/buy cash-flow bars + holdings-by-sector bars from `sectorChart` (removed decorative peak bar / bubbles).
+- `apply_dashboard_policy()` + `stamp_dashboard_build_version()` shared by HTML and canvas; `build_analysis_dashboard(sync_canvas=True)` refreshes Cursor canvas; canvas hides QMST trust strip when LVM active; header shows `buildVersion`.
+- `open_or_reload_dashboard()` reloads Chrome or Safari on macOS, else incognito/default browser.
+- `sectorChart` + `buildVersion` included in slim HTML payload.
+
+**Files:** `src/analysis_dashboard.py`, `src/dashboard_browser.py`, `frontend/dashboard/*`, `scripts/update_analysis_canvas.py`, `scripts/build_analysis_dashboard.py`, `AGENTS.md`, tests
+
+---
+
+## 2026-06-03 — Dashboard polish: GTT stop column, server runbook, dead CSS
+
+**Context:** User asked to close all remaining dashboard gaps after side-panel/reload fixes (stale `:9876` server, mobile queue CSS, version skew).
+
+**Changes:**
+- Holdings **Stop** column shows **GTT ₹… (-10%)** plus book stop sub-line when LVM (`gttStop` in payload from `_build_holdings_enriched` / LVM buys).
+- Report name in header: click-to-copy path (no broken `file://` link).
+- Removed dead schedule/queue CSS; help text uses Hold/Review/Alert.
+- `portfolio_guide.html` → `http://127.0.0.1:9876/`; **AGENTS.md** localhost runbook; CI runs `test_dashboard_browser.py`.
+- Browser-open hint when foreign checkout owns port 9876.
+
+**Files:** `scripts/update_analysis_canvas.py`, `src/analysis_dashboard.py`, `frontend/dashboard/*`, `portfolio_guide.html`, `AGENTS.md`, `.github/workflows/dashboard.yml`, `tests/test_analysis_dashboard.py`
+
+**Tests:** `python3 tests/test_analysis_dashboard.py`, `python3 tests/test_dashboard_browser.py`
+
+---
+
+## 2026-06-02 — LowVol→Mom strategy integration + RSI Pullback scanner
+
+**Context:** Extensive strategy research session (20+ strategies backtested across 4 time
+periods, 197 Nifty 200 stocks, Jul 2023 – May 2026). LowVol→Mom was the only strategy
+to beat Nifty in all 4 tested periods. Five-agent council reviewed and approved with
+conditions (shadow-first, tighter stop, sector caps). RSI Pullback to 40 separately
+confirmed as statistically significant (443 trades, 60% WR, p=0.00002).
+
+**Changes:**
+
+- New `src/lowvol_momentum.py` — two-pass cross-sectional ranker: 40 lowest-vol →
+  top 10 by 12m return, with SMA50 filter and sector cap (max 3/sector).
+- New `src/rsi_pullback_scanner.py` — standalone weekly watchlist generator for
+  RSI 35-45 pullback entries in uptrending stocks.
+- `src/flow_quality_oracle.py` — `add_oracle_pick_columns` and `enrich_oracle_columns`
+  now branch on `ORACLE_PICK_METRIC='lowvol_mom'` to use LowVol→Mom scoring.
+- `src/picking_metrics.py` — `add_picking_rank_column`, `resolve_picking_rank_value`,
+  and `resolve_holdings_rank_score` now support `lowvol_mom` driver.
+- `config.py` — New LVM_* keys (pool size, top N, vol/mom lookback, SMA50 filter,
+  sector cap, stop %). Defaults: `ORACLE_PICK_METRIC='lowvol_mom'`,
+  `PICKING_RANK_DRIVER='lowvol_mom'`.
+- `config.json` — `PICKING_RANK_DRIVER` updated from `flow_quality` to `lowvol_mom`.
+- `active_oracle='lowvol_mom'` flows automatically to recommendation_history via
+  existing orchestrator wiring (line ~10921-10924).
+
+**Rollback:** Set `ORACLE_PICK_METRIC='fq_score'` and `PICKING_RANK_DRIVER='flow_quality'`
+in `config.json` to revert to original QMST behavior. Both paths coexist in code.
+
+**Tests:** 12/12 new tests pass (`tests/test_lowvol_momentum.py`). Regression: 235/236
+v2 suite (1 pre-existing walkforward failure), 134/135 regression (1 pre-existing
+holdings_rank method check). No new failures.
+
+**Files:** `src/lowvol_momentum.py` (new), `src/rsi_pullback_scanner.py` (new),
+`src/flow_quality_oracle.py`, `src/picking_metrics.py`, `config.py`, `config.json`,
+`tests/test_lowvol_momentum.py` (new)
+
+**Research artifacts:** `scripts/prebreakout_vcp_backtest.py`,
+`scripts/composite_breakout_scanner.py`, `scripts/validate_prebreakout_recent.py`,
+`data/prebreakout_backtest_results.csv`, `data/composite_backtest_results.csv`
+
+---
+
+## 2026-06-01 — Dashboard slim + medium density + CI (G-P3-3/4)
+
+**Context:** User asked to fix remaining deferred gaps and shrink the “big” dashboard.
+
+**Change:** `slim_dashboard_payload()` drops hidden sections, trims row/guide fields, compact JSON (130→70 KB). Medium UI density (13px base, tighter cards/panels). CI workflow `.github/workflows/dashboard.yml`. Canvas: `dashboardPolicy` embedded, dual strategy block removed to match HTML brief.
+
+**Files:** `src/analysis_dashboard.py`, `frontend/dashboard/*`, `.github/workflows/dashboard.yml`, `scripts/update_analysis_canvas.py`, `tests/test_analysis_dashboard.py`
+
+## 2026-06-01 — Dashboard council gap fixes (P0–P3)
+
+**Context:** Five-agent council audit of `qmst-dashboard` after user trimmed meta sections and requested inline code decoding.
+
+**Fixes:** Holdings P&L from allocation sheet (`pnlPct`/`pnlPctAlloc`); swap counted as sell+buy in metrics; swap row shows `HEXT → AIAENG`; terminal priority badges (P1/P2/P4…); VMQ one-liner on sell section; Risk column (stop/sleeve/book%); mobile execution queue bottom sheet + Queue button; report path link; removed radar tier strip + decorative viz bars; `dashboardPolicy.skipSections` single source of truth; `tests/test_analysis_dashboard.py`.
+
+**Files:** `frontend/dashboard/app.js`, `template.html`, `tape-dashboard.css`, `src/action_plan_legend.py`, `src/analysis_dashboard.py`, `scripts/update_analysis_canvas.py`, `tests/test_analysis_dashboard.py`, `tests/test_action_plan_legend.py`
+
+## 2026-06-01 — Dashboard v12: Neon glass layout (reference UI)
+
+**Context:** User shared reference dashboard (dark glass, lime accent, left rail, gradient metric cards, right schedule timeline) and wanted QMST to match that feel while keeping section guides.
+
+**Change:** Three-column shell — icon rail | main (viz card, 4 gradient metrics, mini pills, guided sections) | execution schedule panel with FAB. Lime `#c8ff00` accent, Plus Jakarta Sans, bubble/bar cash-flow viz. Schedule click scrolls to section. Guides unchanged in `SECTION_RICH`.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js`
+
+## 2026-06-01 — Dashboard v11: Guided sections layout + rich per-section guides
+
+**Context:** User rejected Command Desk v10; requested full layout redesign and embedded guide content (column reference, VMQ/Path2/Radar/SELL WHY, P1–P8, dual strategy) in each respective section.
+
+**Change:** Section-first scroll layout with sticky jump nav. Each terminal section = guide panel (What + reference tables + “Your run:” symbols) + stock table. Rich guides sourced from new `SECTION_RICH` + `enrich_section_guide()` in `action_plan_legend.py`. DM Sans/Serif Display dark theme.
+
+**Files:** `src/action_plan_legend.py`, `src/dashboard_action_document.py`, `frontend/dashboard/*`, tests
+
+## 2026-06-01 — Dashboard v10: Command Desk layout (complete redesign)
+
+**Context:** User rejected Obsidian v9 layout; requested complete layout redesign, dark theme retained.
+
+**Change:** New information architecture — no sidebar, no timeline, no stacked section cards. **Master-detail split**: trade queue (left) + detail panel (right). Compact sticky header with stat pills. Lane filters (All/Sell/Buy/Watch). Holdings & universe as clean tables. Reference accordion for totals/dual/guide at bottom.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js` (rewritten render pipeline)
+
+## 2026-06-01 — Dashboard v9: Obsidian complete dark redesign
+
+**Context:** User requested complete redesign with dark theme (@ui-designer direction).
+
+**Change:** Full shell rebuild — sticky glass top bar, Outfit + Instrument Serif + JetBrains Mono, obsidian palette (teal accent, rose/emerald lanes), ambient gradients + grid overlay, hero bento panel, section cards with colored left rail (replaces timeline). Preserves v8 UX: quick-start, step cards, simple view, help modal, keyboard shortcuts, mobile drawer.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js`
+
+## 2026-06-01 — Dashboard v8: user-friendly UX layer
+
+**Context:** User wanted further polish with emphasis on ease of use for non-expert readers.
+
+**Change:** Quick-start 3-step onboarding (dismissible), plain-English weekly summary, Step 1/2/3 jump cards, help modal with glossary, Simple view (hides raw REASON), collapsible sections, copy symbol, holdings search, mobile slide-out nav, scroll progress + back-to-top, keyboard shortcuts (1/2/3, /, ?), friendlier labels throughout.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js`
+
+## 2026-06-01 — Dashboard v7: Tape Command Center (premium redesign)
+
+**Context:** User approved v6 structure but wanted significantly better polish and feel.
+
+**Change:** Rebased on canonical **Tape & Ledger** tokens (Fraunces, Newsreader, copper palette, grain overlay). Added execution hero strip, cash-flow waterfall bar, sidebar mini-stats + section search, regime chip, stock tickets with notional column, numbered timeline priorities, nav count badges.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js`
+
+## 2026-06-01 — Dashboard v6: QMST Brief (expert split-panel redesign)
+
+**Context:** User rejected light Market Dispatch layout; requested full expert FE redesign of layout and feel.
+
+**Change:** Split-panel app shell — sticky sidebar (run card + execution nav + action filter), main column with KPI strip + vertical timeline sections. Indigo/rose/emerald token system, Plus Jakarta Sans + Source Serif 4, collapsible per-section guides, S1/S2/S3 scenario grid, avatar stock rows, scroll-spy navigation.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js`
+
+## 2026-06-01 — Dashboard v5: Market Dispatch light editorial layout
+
+**Context:** User requested another style and layout change.
+
+**Change:** Light paper theme (Instrument Serif + DM Sans), full-width header + 5-metric strip, horizontal pill stepper (replaces sidebar), single-column white section cards, two-column stock rows (ticker | explanation). No dark/glass aesthetic.
+
+**Files:** `frontend/dashboard/template.html`, `tape-dashboard.css`, `app.js`
+
+## 2026-06-01 — Dashboard v4: Obsidian Signal creative restyle
+
+**Context:** User asked for creative enhancement without frontend-design skill constraints.
+
+**Change:** New visual system — Syne/Outfit/JetBrains Mono, cyan/violet/coral glass UI, animated ambient mesh, timeline rail, hero cash-flow bars, card-based stocks, scenario color lines. Same `actionDocument` data, new `frontend/dashboard/tape-dashboard.css` + `app.js` + `template.html`.
+
+**Files:** `frontend/dashboard/*`, `frontend/qmst-dashboard.html` (generated)
+
+## 2026-06-01 — Dashboard v3: terminal-mirror document + inline guides
+
+**Context:** User wanted layout matching terminal action plan — each category section includes its own guide (What, Typical REASON, column hints), not a separate Guide tab.
+
+**Change:** `src/dashboard_action_document.py` builds ordered `actionDocument.sections` (VMQ → Path2 → Radar → SELL breakdown → P1–P8 → final numbers → dual). Sticky TOC sidebar; guide box under every section header; entry scenarios on SWAP/NEW; plain + raw REASON per stock. UI: two-column document layout.
+
+**Files:** `src/dashboard_action_document.py`, `frontend/dashboard/*`, `scripts/update_analysis_canvas.py`, `tests/test_dashboard_action_document.py`
+
+**Tests:** `python3 tests/test_dashboard_action_document.py`
+
+## 2026-06-01 — Dashboard v2: Guide tab + plain-English REASON decoder
+
+**Context:** User unhappy with dashboard look/feel and missing glossary for ACTION/REASON/SELL WHY terms.
+
+**Change:** Split `frontend/dashboard/` (template, tape-dashboard.css, app.js). Guide tab (default) with full category glossary, column guide, SELL WHY codes, REASON decoder. Action/holdings use card layout with plain English + raw REASON. Hero queue + sell category breakdown on overview. Payload adds `actionPlanGuide`, `sellCategoryBreakdown`, `reasonPlain` per row.
+
+**Files:** `src/action_plan_legend.py`, `scripts/update_analysis_canvas.py`, `frontend/dashboard/*`, `src/analysis_dashboard.py`, `tests/test_action_plan_legend.py`
+
+**Tests:** `python3 tests/test_action_plan_legend.py`
+
+## 2026-05-31 — QMST Tape & Ledger HTML dashboard (replaces legacy purple UI)
+
+**Context:** User requested a new repo analysis dashboard; old `Portfolio_Allocation_Dashboard.html` (purple Chart.js inline generator) and static `portfolio_guide.html` superseded.
+
+**Change:** `frontend/dashboard/template.html` + `src/analysis_dashboard.py` + `scripts/build_analysis_dashboard.py`. Payload shared with Cursor canvas via `build_dashboard_payload()` in `update_analysis_canvas.py`. Analyzer auto-opens `frontend/qmst-dashboard.html` after each run. `portfolio_guide.html` → redirect stub.
+
+**Files:** `frontend/qmst-dashboard.html` (generated), `frontend/dashboard/template.html`, `src/analysis_dashboard.py`, `scripts/build_analysis_dashboard.py`, `scripts/update_analysis_canvas.py`, `analyze_top200_stocks_enhanced.py`, `portfolio_guide.html`
+
+**Tests:** `python3 scripts/build_analysis_dashboard.py --report reports/Enhanced_Stock_Report_*.xlsx`
+
+## 2026-05-31 — Action plan HOLD reasons + empty-section footer
+
+**Context:** User asked why HOLD stocks and empty priority sections were not explained in the terminal action plan (only counts / omitted).
+
+**Change:** PRIORITY 6 now lists each HOLD/KEEP symbol with ACTION, REASON, P&L, and value via `format_holdings_action_lines`. Removed duplicate PRIORITY 7 WATCHLIST block (already in 5.5). Footer lists priorities not triggered this run.
+
+**Files:** `src/action_plan_legend.py`, `analyze_top200_stocks_enhanced.py`, `tests/test_action_plan_legend.py`
+
+**Tests:** `python3 tests/test_action_plan_legend.py`
+
+## 2026-05-31 — Action plan entry scenarios (S1/S2/S3) for NEW/swap targets
+
+**Context:** User flagged gap between rank-based PRIORITY 5 market buy and tactical Monday playbook (pullback/half-size/breakdown).
+
+**Change:** `src/new_entry_scenarios.py` builds S1 hold / S2 pullback / S3 break levels from price, support, RSI, 5d move; wired into action plan PRIORITY 1 (swap) and PRIORITY 5 (NEW). Swap text no longer says "Immediately buy".
+
+**Files:** `src/new_entry_scenarios.py`, `analyze_top200_stocks_enhanced.py`, `tests/test_new_entry_scenarios.py`
+
+**Tests:** `python3 -m pytest tests/test_new_entry_scenarios.py -v`
+
+## 2026-05-31 — Strategy deep-dive (34 variants, IC + 3/6/12m backtest)
+
+**Context:** User asked for better strategies than fq_score / fq_lambda_2.
+
+**Scripts:** `strategy_deepdive_screen.py` → `data/strategy_deepdive_screen.json`; extended `factor_enhancement_backtest.py` variants; `data/strategy_deepdive_summary.md`.
+
+**Findings:** Tested lambda grid 0.3–2.5, composites (qglp, turbo, MTF confirm, regime-lam, score_v2). **No pick rank beats `fq_lambda_2` on 6m+12m excess.** `flow_lam_0_8` best pooled IC but weak 12m backtest. `score_v2` high CS-IC but fails 12m. Second-tier 12m-only: `flow_lam_1_25`, `fq_adapt_score`. Production default unchanged: `fq_score`.
+
+## 2026-05-31 — Factor enhancement screen + backtest (pre-implementation)
+
+**Context:** User requested test-before-implement for VP/flow-like pick enhancements.
+
+**Delivered:**
+- `scripts/factor_enhancement_screen.py` → `data/factor_enhancement_screen.json` (IC, quintile, CS-IC)
+- `scripts/factor_enhancement_backtest.py` → `data/factor_enhancement_backtest.json` (6m QMST rank variants)
+
+**IC screen (4469 rows, return_30d):** No factor beat `fq_score` on IC+spread+CS-IC together; `fq_lambda_2` MARGINAL on pooled IC.
+
+**6m QMST backtest (Path2, weekly):** `fq_score` excess +16.35pp; `fq_lambda_2` +18.52pp; `hybrid_multi_timeframe` +19.19pp; `mtf_minus_mom` +13.77pp (REJECT).
+
+**3m / 6m / 12m confirmation** (`factor_enhancement_backtest.py --durations 3m 6m 12m`):
+
+| Variant | 3m excess | 6m excess | 12m excess | Cross-window |
+|---------|-----------|-----------|------------|--------------|
+| fq_score | 19.37 | 16.35 | 8.17 | BASELINE |
+| fq_lambda_2 | 19.37 | 18.52 | 13.06 | **CONFIRM_IMPLEMENT** (2/3 windows) |
+| hybrid_multi_timeframe | 18.24 | 19.19 | 3.99 | DO_NOT_IMPLEMENT (12m fails) |
+| mtf_minus_mom | 18.91 | 13.77 | 7.14 | DO_NOT_IMPLEMENT |
+
+**Decision:** Keep `fq_score` as live default; only `fq_lambda_2` (VS−2×MT) passes multi-window backtest — eligible for **shadow A/B** after council. Do not promote MTF-alone. Intraday VP/sweeps out of scope.
+
+## 2026-05-31 — Prune agent skills to absolute minimum
+
+**Context:** User requested keep only essential skills; remove philosophy desks, duplicate trading packs, and `.agents` bloat.
+
+**Kept (17 `.cursor/skills` + 2 `.agents/skills`):**
+- Core: `stock-analysis-system`, `post-analysis-audit`, `turbo-mtf-weekly-trader`, `five-agent-council`, `frontend-design`
+- India desks (5): orchestrator, fundamental, technical, macro, portfolio, regulatory
+- Optional methodology (gitignored): `backtesting-frameworks`, `python-testing-patterns`, `xlsx-official`, `debugging-strategies`, `walk-forward-validation`, `alpha-evaluate`
+- `.agents`: `debugging-and-error-recovery`, `find-skills`
+
+**Removed:** 17 `investor-*` skills, 9 duplicate external packs, `intraday-top-movers`, derivatives/ipo desks, 18 `.agents` workflow skills (pdf, docx, ci-cd, TDD dupes, etc.)
+
+**Files:** `.cursor/skills/*`, `.agents/skills/*`, `.cursor/skills-external/*`, `.gitignore`, `external-skills-README.md`
+
 ## 2026-05-31 — run_analysis.py live default for --kite-auto
 
 **Context:** `python3 scripts/run_analysis.py --kite-auto` silently defaulted to `--dry-run --fast`, so recommendation_history never updated on weekly Kite workflow.

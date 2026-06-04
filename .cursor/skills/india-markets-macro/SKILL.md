@@ -67,3 +67,24 @@ description: >-
 - Stock picks → Fundamental / Portfolio
 - Technical entry → Technical
 - Config/regime code changes → `five-agent-council`
+
+## Five-Agent Council
+
+**Research-only desk.** Regime **interpretation** stays here; regime **code** goes to council.
+
+| Escalate when | Council agents most involved |
+|---------------|------------------------------|
+| Regime detector thresholds or BULL/BEAR/SIDEWAYS logic | QUANT, ARCH |
+| Per-regime v2 weight files or promotion | QUANT, AUDIT |
+| crisis_detector enable/default or cross-asset inputs | QUANT, RISK, SKEPTIC |
+
+```markdown
+## Council Escalation (from Macro desk)
+**Goal:** [e.g. "Add BEAR override for sector exposure caps"]
+**India context:** Nifty 500 regime | investor-facing: YES/NO
+**Evidence:** [last_known_regime.json, Sector Analysis sheet]
+**Proposed change:** [module/config keys]
+**Council trigger:** COUNCIL <goal>
+```
+
+Bridge: `.cursor/skills/five-agent-council/references/product-teams-bridge.md`

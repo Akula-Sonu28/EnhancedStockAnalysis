@@ -45,6 +45,14 @@ python3 -m backtest.runner path1 --engine v2 --capital 100000 --top-n 10
 # Run tests
 python3 -m pytest backtest/tests/ -v
 
+# LowVol→Mom (Nifty 200, monthly, production ranker)
+python3 -m backtest.runner lvm --months 24 --capital 1000000 --monthly-injection 100000
+python3 -m backtest.runner lvm --months 12 --compare-stops --monthly-injection 100000
+
+# Quality + LowVol→Mom (PIT Screener fundamentals) and head-to-head vs baseline
+python3 -m backtest.runner quality-lvm --months 24 --capital 1000000 --stop-pct 10
+python3 -m backtest.runner compare-lvm --months 120 --capital 1000000 --stop-pct 10
+
 # Cooldown policy grid (Path 1, compares off / prod_3d|5d|7d / profit-bypass variants)
 python3 scripts/backtest_cooldown_comparison.py --rebalance weekly --top-n 10
 

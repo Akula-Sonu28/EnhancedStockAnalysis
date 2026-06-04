@@ -74,6 +74,10 @@ class EngineConfig:
     # Required for meaningful recent-buy cooldown simulation on weekly/biweekly cadence.
     daily_exit_checks: bool = True
     momentum_exhaustion_enabled: bool = True
+    # LVM mode: inject cash each rebalance (after the first), full book rebalance to Top-N
+    monthly_cash_injection_inr: float = 0.0
+    lvm_full_rebalance: bool = False
+    lvm_eligible_column: str = 'lowvol_mom_eligible'
 
 
 # ----- Run output -----------------------------------------------------------
@@ -305,6 +309,8 @@ class BacktestEngine:
         equity_curve: dict[date, float] = {}
         rebalance_log: list[dict] = []
         last_regime = 'SIDEWAYS'
+        first_rebal_date = min(rebal_dates) if rebal_dates else None
+        total_injected = 0.0
 
         for d in all_days:
             snap = snap_map.get(d)
@@ -324,13 +330,46 @@ class BacktestEngine:
             # --- ENTRY on rebalance dates (snapshot required) -------------
             new_buys: list[tuple[str, str, float, float]] = []
             if snap is not None and is_rebal:
+                if (self.cfg.monthly_cash_injection_inr > 0
+                        and first_rebal_date is not None and d > first_rebal_date):
+                    portfolio.cash += self.cfg.monthly_cash_injection_inr
+                    total_injected += self.cfg.monthly_cash_injection_inr
+
                 candidates = snap.df.copy()
                 rank_col = self.cfg.rank_column
                 if rank_col not in candidates.columns:
                     rank_col = 'score_engine'
+                elig_col = self.cfg.lvm_eligible_column
+                if elig_col in candidates.columns:
+                    candidates = candidates[
+                        candidates[elig_col].fillna(False).astype(bool)
+                    ]
                 candidates = candidates.sort_values(rank_col, ascending=False)
                 held = set(portfolio.positions.keys())
                 slots = self.cfg.target_positions - portfolio.open_position_count()
+
+                if self.cfg.lvm_full_rebalance and not candidates.empty:
+                    target_syms = set(
+                        candidates.head(self.cfg.target_positions)['symbol'].astype(str).tolist()
+                    )
+                    for sym in list(portfolio.positions.keys()):
+                        if sym in target_syms:
+                            continue
+                        pos = portfolio.positions.get(sym)
+                        if pos is None or pos.qty <= 0:
+                            continue
+                        try:
+                            fill = executor.submit(
+                                symbol=sym, side='SELL', qty=pos.qty,
+                                decision_date=d,
+                                fill_date=self._estimate_fill_date(sym, d),
+                                reason='LVM_ROTATION: dropped from Top-N',
+                            )
+                            portfolio.apply_sell_fill(fill, reason='LVM_ROTATION')
+                            held.discard(sym)
+                        except ExecutionError as e:
+                            logging.warning(f'[engine] LVM rotation sell failed {sym}: {e}')
+                    slots = self.cfg.target_positions - portfolio.open_position_count()
 
                 # ROTATION first: try to swap weak holdings with stronger candidates
                 if self.cfg.allow_rotation and slots <= 0:
@@ -457,6 +496,10 @@ class BacktestEngine:
         summary['open_positions'] = len(final_positions)
         summary['cooldown_suppressions'] = self.cooldown_suppressions
         summary['cooldown_policy'] = self.cfg.cooldown_policy.name
+        summary['capital_injected_inr'] = round(total_injected, 2)
+        summary['total_deployed_inr'] = round(
+            self.cfg.initial_capital + total_injected, 2,
+        )
 
         return BacktestResult(
             run_id='', engine_label=self.engine_label,

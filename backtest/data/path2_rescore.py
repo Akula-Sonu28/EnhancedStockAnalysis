@@ -111,12 +111,14 @@ class Path2Rescorer:
     def __init__(self, universe: Optional[list[str]] = None,
                  prices: Optional[PriceCache] = None,
                  weights: Optional[dict] = None,
-                 nifty_symbol: str = '^NSEI'):
+                 nifty_symbol: str = '^NSEI',
+                 use_pit_fundamentals: bool = False):
         self.universe = universe or _load_universe()
         self.prices = prices or PriceCache(refresh_days=1)
         self.weights = weights if weights is not None else _load_v2_weights()
         self.nifty_symbol = nifty_symbol
         self.engine = HybridOptimizedScoringEngine()
+        self.use_pit_fundamentals = use_pit_fundamentals
 
     def _component_scores(self, stock_data: dict) -> dict:
         """Compute all 8 v2 components (OHLCV + fundamentals where available)."""
@@ -148,7 +150,8 @@ class Path2Rescorer:
             df = self.prices.get(sym, d - timedelta(days=400), d + timedelta(days=2))
             if df.empty or len(df) < 60:
                 continue
-            sd = build_stock_data(sym, df, nifty_close, d)
+            sd = build_stock_data(sym, df, nifty_close, d,
+                                  use_pit_fundamentals=self.use_pit_fundamentals)
             if sd is None:
                 continue
             comps = self._component_scores(sd)

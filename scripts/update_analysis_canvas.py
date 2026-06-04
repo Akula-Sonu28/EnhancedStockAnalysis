@@ -192,6 +192,26 @@ def _build_action_plan_sections(df: pd.DataFrame) -> List[dict]:
     if s:
         sections.append(s)
 
+    try:
+        from config import get_config as _ap_cfg
+        from src.lowvol_momentum import lvm_top_label as _lvm_rot_label
+        _rot_lbl = _lvm_rot_label(_ap_cfg())
+    except Exception:
+        _rot_lbl = 'LVM Top 20'
+    lvm_rots = df[df[act].str.contains('LVM ROTATION', na=False)].sort_values(val, ascending=False)
+    lvm_rot_rows, lvm_rot_total = [], 0.0
+    for _, r in lvm_rots.iterrows():
+        lvm_rot_rows.append(_enrich_priority_row(
+            r, sym, f"Sell ALL {int(r[qty])} shares (not in {_rot_lbl})", _fmt_inr(r[val]),
+        ))
+        lvm_rot_total += r[val]
+    s = _priority_section(
+        'lvmrot', 'Priority 2.1: SELL (LVM rotation)', lvm_rot_rows,
+        'LVM rotation proceeds', lvm_rot_total, 'danger',
+    )
+    if s:
+        sections.append(s)
+
     considers = df[df[act].str.contains('CONSIDER', na=False)].sort_values(val, ascending=False)
     consider_rows, consider_total = [], 0.0
     for _, r in considers.iterrows():
@@ -255,7 +275,11 @@ def _build_action_plan_sections(df: pd.DataFrame) -> List[dict]:
     if s:
         sections.append(s)
 
-    new_buys = df[(df[val] == 0) & (df[inv] > 0)].sort_values(inv, ascending=False)
+    new_buys = df[
+        (df[inv] > 0) &
+        (df[val] == 0) &
+        df[act].str.contains('NEW POSITION', na=False)
+    ].sort_values(inv, ascending=False)
     buy_rows, buy_total = [], 0.0
     for _, r in new_buys.iterrows():
         buy_rows.append(_enrich_priority_row(
@@ -297,6 +321,7 @@ def _build_action_plan_sections(df: pd.DataFrame) -> List[dict]:
     return sections, {
         'swapTotal': swap_total,
         'sellTotal': sell_total,
+        'lvmRotTotal': lvm_rot_total,
         'exitTotal': exit_total,
         'bookTotal': book_total,
         'buyTotal': buy_total,
@@ -306,9 +331,56 @@ def _build_action_plan_sections(df: pd.DataFrame) -> List[dict]:
     }
 
 
-def _build_final_numbers(totals: dict, portfolio_amount: float) -> dict:
-    sell_proceeds = totals['swapTotal'] + totals['sellTotal'] + totals['exitTotal'] + totals['bookTotal']
-    buy_orders = totals['buyTotal'] + totals['increaseTotal']
+def _allocation_action_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop Excel spacer/footer rows from action-plan aggregates."""
+    if df is None or df.empty:
+        return df
+    work = df.copy()
+    if 'symbol' not in work.columns:
+        return work
+    sym = work['symbol']
+    sym_ok = sym.notna()
+    sym_s = sym.astype(str).str.strip()
+    sym_ok = sym_ok & ~sym_s.str.lower().isin(('', 'nan', 'none'))
+    sym_ok = sym_ok & (sym_s.str.len() <= 32)
+    has_econ = pd.Series(False, index=work.index)
+    if 'MY VALUE ₹' in work.columns:
+        has_econ = has_econ | (pd.to_numeric(work['MY VALUE ₹'], errors='coerce').fillna(0) > 0)
+    if 'INVEST ₹' in work.columns:
+        has_econ = has_econ | (pd.to_numeric(work['INVEST ₹'], errors='coerce').fillna(0) > 0)
+    if 'ACTION' in work.columns:
+        act = work['ACTION'].astype(str).str.strip()
+        has_econ = has_econ | (act.ne('') & act.str.lower().ne('nan'))
+    return work.loc[sym_ok & has_econ]
+
+
+def _build_final_numbers(
+    totals: dict,
+    portfolio_amount: float,
+    lvm_buy_total: float | None = None,
+    lvm_active: bool = False,
+) -> dict:
+    if lvm_active:
+        sell_proceeds = (
+            float(totals.get('sellTotal', 0) or 0)
+            + float(totals.get('exitTotal', 0) or 0)
+            + float(totals.get('lvmRotTotal', 0) or 0)
+        )
+        buy_orders = float(lvm_buy_total or 0)
+        basis_note = (
+            'LVM Priority 5: sells = SELL + EXIT + LVM rotation; '
+            'buys = funded rebalance only (not screen NEW POSITION rows)'
+        )
+    else:
+        sell_proceeds = (
+            totals['swapTotal'] + totals['sellTotal'] + totals['exitTotal']
+            + totals['bookTotal'] + float(totals.get('lvmRotTotal', 0) or 0)
+        )
+        if lvm_buy_total is not None and lvm_buy_total > 0:
+            buy_orders = float(lvm_buy_total)
+        else:
+            buy_orders = totals['buyTotal'] + totals['increaseTotal']
+        basis_note = 'QMST: all sell categories + book proceeds vs buy/increase totals'
     consider_proceeds = float(totals.get('considerTotal', 0) or 0)
     skip_proceeds = float(totals.get('skipTotal', 0) or 0)
     net_min = buy_orders - sell_proceeds
@@ -324,6 +396,7 @@ def _build_final_numbers(totals: dict, portfolio_amount: float) -> dict:
         'optionalTrimProceeds': int(consider_proceeds),
         'skipProceeds': int(skip_proceeds),
         'userInput': int(user_input),
+        'basisNote': basis_note,
     }
     trim_names = []
     if consider_proceeds > 0:
@@ -362,24 +435,20 @@ def _build_final_numbers(totals: dict, portfolio_amount: float) -> dict:
 def _build_tax_harvest(df: pd.DataFrame) -> Optional[dict]:
     if 'ACTION' not in df.columns or 'P&L %' not in df.columns:
         return None
-    mask = df['ACTION'].astype(str).str.contains('SELL', case=False, na=False)
-    sells = df.loc[mask]
+    from src.lvm_action_plan import actionable_sell_mask, compute_tax_harvest_totals
+    sells = df.loc[actionable_sell_mask(df['ACTION'])].copy()
     if sells.empty:
         return None
-    bk = pd.to_numeric(sells.get('BOOK ₹'), errors='coerce').fillna(0)
-    pnl_pct = pd.to_numeric(sells.get('P&L %'), errors='coerce').fillna(0)
-    unit = pnl_pct / (100.0 if pnl_pct.abs().max() > 1 else 1.0)
-    cost = bk / (1.0 + unit).replace(0, 1.0)
-    pnl_inr = bk - cost
-    losses = float(pnl_inr[pnl_inr < 0].sum())
-    gains = float(pnl_inr[pnl_inr > 0].sum())
-    tax = float(pd.to_numeric(sells.get('TAX ₹'), errors='coerce').fillna(0).sum())
+    totals = compute_tax_harvest_totals(sells)
+    if not totals:
+        return None
+    losses = totals['losses']
     return {
         'losses': int(abs(losses)),
-        'gains': int(gains),
-        'netPnl': int(gains + losses),
-        'taxPayable': int(tax),
-        'note': 'Losses can offset other STCG/LTCG (8-year carry-forward)' if losses else '',
+        'gains': int(totals['gains']),
+        'netPnl': int(totals['net_pnl']),
+        'taxPayable': int(totals['tax']),
+        'note': 'Losses can offset other STCG/LTCG (8-year carry-forward)' if losses < 0 else '',
     }
 
 
@@ -418,13 +487,54 @@ def _build_risk_profile(df: pd.DataFrame) -> Optional[dict]:
     }
 
 
-def _build_risk_warnings(df: pd.DataFrame, regime: str) -> List[str]:
+def _build_risk_warnings(
+    df: pd.DataFrame,
+    regime: str,
+    *,
+    sector_concentration: List[dict] | None = None,
+    partial_execution: dict | None = None,
+    tax_harvest: dict | None = None,
+    lvm_data_degraded: bool = False,
+) -> List[str]:
     warnings: List[str] = []
+    if lvm_data_degraded:
+        warnings.append('LVM momentum data incomplete — do not trade LVM picks from this report')
     regime_u = str(regime or '').upper()
     if regime_u in ('BEAR', 'BEARISH'):
         warnings.append('BEAR MARKET — all new positions carry elevated risk')
-    buys = df[(df['MY VALUE ₹'] == 0) & (df['INVEST ₹'] > 0)] if 'INVEST ₹' in df.columns else pd.DataFrame()
-    inc = df[df['ACTION'].astype(str).str.contains('INCREASE', na=False)] if 'ACTION' in df.columns else pd.DataFrame()
+    for sec in sector_concentration or []:
+        if sec.get('overCap'):
+            warnings.append(
+                f"Sector cap: {sec.get('sector')} has {sec.get('count')} names (limit exceeded)"
+            )
+    if partial_execution:
+        conc = float(partial_execution.get('concPct', 0) or 0)
+        if conc >= 40:
+            warnings.append(
+                f"Concentration: {partial_execution.get('topSector')} "
+                f"is {conc:.0f}% of holdings — {partial_execution.get('recommendation', '')}"
+            )
+        if partial_execution.get('worsens'):
+            warnings.append(
+                f"Partial execution risk: {partial_execution.get('ifPartialOnly', '')}"
+            )
+    if tax_harvest:
+        tax_pay = float(tax_harvest.get('taxPayable', 0) or 0)
+        losses = float(tax_harvest.get('losses', 0) or 0)
+        if tax_pay > losses and tax_pay > 0:
+            warnings.append(
+                f"Tax on sells (est. ₹{tax_pay:,.0f}) exceeds harvestable losses "
+                f"(₹{losses:,.0f}) on actionable SELL rows"
+            )
+    if 'ACTION' in df.columns and 'MY VALUE ₹' in df.columns:
+        rot_n = int(
+            df['ACTION'].astype(str).str.contains('LVM ROTATION', na=False).sum()
+        )
+        if rot_n >= 4:
+            warnings.append(f'LVM rotation cluster: {rot_n} full exits this month')
+    work = _allocation_action_rows(df)
+    buys = work[(work['MY VALUE ₹'] == 0) & (work['INVEST ₹'] > 0)] if 'INVEST ₹' in work.columns else pd.DataFrame()
+    inc = work[work['ACTION'].astype(str).str.contains('INCREASE', na=False)] if 'ACTION' in work.columns else pd.DataFrame()
     combined = pd.concat([buys, inc], ignore_index=True) if len(buys) + len(inc) else pd.DataFrame()
     for _, r in combined.iterrows():
         sym = str(r.get('symbol', ''))
@@ -511,14 +621,24 @@ def _s(r: pd.Series, col: str, maxlen: int = 0) -> str:
 
 
 def _enrich_priority_row(r: pd.Series, sym: str, detail: str, amount: str) -> dict:
+    from src.action_plan_legend import decode_reason_plain, decode_sell_why_plain
+
     book = _f(r, 'BOOK %')
     book_pct = round(book * 100, 0) if 0 < book <= 1 else round(book, 0)
-    return {
+    action = _s(r, 'ACTION')
+    sell_why = _s(r, 'SELL WHY', 24) or _s(r, 'sell_category', 24)
+    reason_plain = decode_reason_plain(
+        _s(r, 'REASON', 200), action=action, sell_why=sell_why,
+    )
+    row = {
         'stock': _s(r, sym),
+        'company': _s(r, 'company_name', 40),
         'detail': detail,
         'amount': amount,
         'when': _s(r, 'WHEN', 24),
         'reason': _s(r, 'REASON', 160),
+        'reasonPlain': reason_plain,
+        'sellWhy': sell_why,
         'sector': _s(r, 'sector', 28),
         'score': round(_f(r, 'SCORE'), 1),
         'adjScore': round(_f(r, 'ADJ SCORE'), 1),
@@ -536,16 +656,23 @@ def _enrich_priority_row(r: pd.Series, sym: str, detail: str, amount: str) -> di
         'type': _s(r, 'TYPE', 16),
         'sleeve': _s(r, 'SLEEVE', 16),
     }
+    if 'SELL' in action.upper() and sell_why:
+        row['sellWhyPlain'] = decode_sell_why_plain(sell_why) or reason_plain
+    return row
 
 
 def _build_allocation_master(df: pd.DataFrame) -> List[dict]:
+    from src.action_plan_legend import decode_reason_plain
+
     rows = []
     for _, r in df.iterrows():
         book = _f(r, 'BOOK %')
+        action = _s(r, 'ACTION')
+        sell_why = _s(r, 'SELL WHY', 24) or _s(r, 'sell_category', 24)
         rows.append({
             'stock': _s(r, 'symbol'),
             'company': _s(r, 'company_name', 40),
-            'action': _s(r, 'ACTION'),
+            'action': action,
             'when': _s(r, 'WHEN'),
             'score': round(_f(r, 'SCORE'), 1),
             'adjScore': round(_f(r, 'ADJ SCORE'), 1),
@@ -569,6 +696,10 @@ def _build_allocation_master(df: pd.DataFrame) -> List[dict]:
             'risk': _s(r, 'RISK CAT'),
             'owned': _s(r, 'OWNED?'),
             'reason': _s(r, 'REASON', 200),
+            'reasonPlain': decode_reason_plain(
+                _s(r, 'REASON', 300), action=action, sell_why=sell_why,
+            ),
+            'sellWhy': sell_why,
             'detail': _s(r, 'DETAIL', 120),
             'quality': round(_f(r, 'QUALITY'), 1),
             'momentum': round(_f(r, 'MOMENTUM'), 1),
@@ -601,7 +732,39 @@ def _build_allocation_master(df: pd.DataFrame) -> List[dict]:
     return rows
 
 
-def _build_holdings_enriched(df: pd.DataFrame, holdings: List[dict]) -> List[dict]:
+def _is_lvm_pick_mode(cfg=None) -> bool:
+    try:
+        from config import get_config
+        cfg = cfg or get_config()
+        metric = str(getattr(cfg, 'ORACLE_PICK_METRIC', '')).lower()
+        return metric in ('lowvol_mom', 'low_vol_momentum', 'quality_lvm')
+    except Exception:
+        return False
+
+
+def _lvm_gtt_stop(price: float, cfg=None) -> tuple:
+    """Return (gtt_stop_price, abs_stop_pct) for LVM GTT display."""
+    if price <= 0:
+        return 0.0, 10.0
+    try:
+        from config import get_config
+        cfg = cfg or get_config()
+        pct = float(getattr(cfg, 'LVM_STOP_PCT', -10.0))
+    except Exception:
+        pct = -10.0
+    return round(price * (1 + pct / 100), 2), abs(pct)
+
+
+def _build_holdings_enriched(df: pd.DataFrame, holdings: List[dict], cfg=None) -> List[dict]:
+    from src.action_scenarios import scenario_payload_for_section
+
+    try:
+        from config import get_config
+        cfg = cfg or get_config()
+    except ImportError:
+        cfg = None
+
+    lvm_mode = _is_lvm_pick_mode(cfg)
     by_sym = {str(r.get('symbol', '')): r for _, r in df.iterrows()} if 'symbol' in df.columns else {}
     out = []
     for h in holdings:
@@ -609,17 +772,63 @@ def _build_holdings_enriched(df: pd.DataFrame, holdings: List[dict]) -> List[dic
         r = by_sym.get(sym)
         row = dict(h)
         if r is not None:
+            pnl_pct = round(_f(r, 'P&L %'), 1)
+            reason = _s(r, 'REASON', 100)
+            action = _s(r, 'ACTION')
+            sell_why = _s(r, 'SELL WHY', 24) or _s(r, 'sell_category', 24)
+            try:
+                from src.action_plan_legend import decode_reason_plain, format_holdings_action_lines
+                reason_plain = decode_reason_plain(
+                    reason,
+                    action=action,
+                    sell_why=sell_why,
+                )
+            except ImportError:
+                reason_plain = ''
+                format_holdings_action_lines = None  # type: ignore
             row.update({
-                'action': _s(r, 'ACTION'),
+                'action': action,
+                'company': _s(r, 'company_name', 40),
                 'when': _s(r, 'WHEN'),
                 'score': round(_f(r, 'SCORE'), 1),
                 'v2Score': round(_f(r, 'V2 RAW'), 1),
-                'pnlPctAlloc': round(_f(r, 'P&L %'), 1),
+                'pnlPct': pnl_pct,
+                'pnlPctAlloc': pnl_pct,
                 'sector': _s(r, 'sector'),
                 'stopLoss': round(_f(r, 'STOP LOSS'), 2),
                 'ml': _s(r, 'ML'),
-                'reason': _s(r, 'REASON', 100),
+                'price': round(_f(r, 'PRICE'), 2),
+                'reason': reason,
+                'reasonPlain': reason_plain or '',
             })
+
+            act_upper = str(action).upper()
+            if ('HOLD' in act_upper or 'KEEP' in act_upper) and 'SELL' not in act_upper:
+                alloc_row = r.to_dict() if hasattr(r, 'to_dict') else dict(r)
+                alloc_row.setdefault('symbol', sym)
+                payload = scenario_payload_for_section(
+                    alloc_row, 'hold', cfg, allocation_df=df,
+                )
+                if payload.get('monitorScenarios'):
+                    row['monitorScenarios'] = payload['monitorScenarios']
+                if format_holdings_action_lines:
+                    summary = format_holdings_action_lines(
+                        pd.DataFrame([{
+                            'symbol': sym,
+                            'ACTION': action or 'HOLD',
+                            'REASON': reason,
+                            'P&L %': pnl_pct,
+                            'MY VALUE ₹': h.get('value', 0),
+                        }]),
+                    )
+                    if summary:
+                        row['summaryLine'] = summary[0].strip()
+                if lvm_mode:
+                    px = float(row.get('price') or _f(r, 'PRICE') or 0)
+                    if px > 0:
+                        gtt, gtt_pct = _lvm_gtt_stop(px, cfg)
+                        row['gttStop'] = gtt
+                        row['gttStopPct'] = gtt_pct
         out.append(row)
     return out
 
@@ -946,8 +1155,698 @@ def _hold_note(df: pd.DataFrame, holdings: List[dict]) -> str:
 def _action_summary(df: pd.DataFrame) -> List[dict]:
     if 'ACTION' not in df.columns:
         return []
-    counts = df['ACTION'].astype(str).value_counts()
-    return [{'action': str(a), 'count': int(c)} for a, c in counts.items()]
+    work = _allocation_action_rows(df)
+    counts = work['ACTION'].astype(str).str.strip().value_counts()
+    out = []
+    for a, c in counts.items():
+        label = str(a).strip()
+        if not label or label.lower() == 'nan':
+            continue
+        out.append({'action': label, 'count': int(c)})
+    return out
+
+
+def _build_sell_category_breakdown(df: pd.DataFrame) -> List[dict]:
+    """SELL rows grouped by SELL WHY / sell_category."""
+    from src.action_plan_legend import decode_reason_plain
+
+    try:
+        from src.picking_metrics import SELL_CATEGORY_LABELS, populate_sell_categories
+        work = populate_sell_categories(df.copy())
+    except ImportError:
+        return []
+    if 'ACTION' not in work.columns:
+        return []
+    from src.lvm_action_plan import actionable_sell_mask
+    sells = work.loc[actionable_sell_mask(work['ACTION'])]
+    if sells.empty:
+        return []
+    cat_col = 'SELL WHY' if 'SELL WHY' in sells.columns else 'sell_category'
+    if cat_col not in sells.columns:
+        return []
+    out = []
+    for cat in sorted(sells[cat_col].dropna().unique()):
+        cat_s = str(cat)
+        rows = sells[sells[cat_col] == cat]
+        stocks = []
+        for _, r in rows.iterrows():
+            stocks.append({
+                'stock': _s(r, 'symbol'),
+                'reason': _s(r, 'REASON', 120),
+                'reasonPlain': decode_reason_plain(_s(r, 'REASON', 200)),
+                'pnlPct': round(_f(r, 'P&L %'), 1),
+                'value': int(_f(r, 'MY VALUE ₹')),
+            })
+        out.append({
+            'code': cat_s,
+            'label': SELL_CATEGORY_LABELS.get(cat_s, cat_s),
+            'count': len(stocks),
+            'stocks': stocks,
+        })
+    return out
+
+
+def _load_lvm_top10(report_path: Path, cfg=None) -> List[dict]:
+    """Load LVM family Top-N picks from Excel (sheet name follows LVM_TOP_N)."""
+    picks: List[dict] = []
+    if not report_path.exists():
+        return picks
+    try:
+        from src.lowvol_momentum import (
+            active_lvm_score_col,
+            is_quality_lvm_strategy,
+            lvm_sheet_name,
+            lvm_top_n,
+        )
+        _sheet = lvm_sheet_name(cfg) if cfg else 'LowVol-Mom Top 20'
+        _scol = active_lvm_score_col(cfg) if cfg else 'lowvol_mom_score'
+        _lvm_df = None
+        _try_sheets = [_sheet]
+        if cfg:
+            _base = 'Quality-LVM' if is_quality_lvm_strategy(cfg) else 'LowVol-Mom'
+            _try_sheets.extend(f'{_base} Top {n}' for n in (10, 15, 20))
+        for _sh in dict.fromkeys(_try_sheets):
+            try:
+                _lvm_df = pd.read_excel(report_path, sheet_name=_sh, header=1)
+                break
+            except Exception:
+                continue
+        if _lvm_df is None:
+            raise FileNotFoundError(f'No LVM sheet in {report_path}')
+        for _, r in _lvm_df.iterrows():
+            sym = str(r.get('symbol', '')).strip()
+            if not sym:
+                continue
+            _score = r.get(_scol, r.get('quality_lvm_score', r.get('lowvol_mom_score', 0)))
+            picks.append({
+                'stock': sym,
+                'company': str(r.get('company_name', '')),
+                'sector': str(r.get('sector', '')),
+                'price': float(r.get('current_price', 0)) if pd.notna(r.get('current_price')) else 0,
+                'return12m': float(r.get('price_change_1y', 0)) if pd.notna(r.get('price_change_1y')) else 0,
+                'volatility': float(
+                    r.get('volatility_6m', r.get('volatility', 0))
+                ) if pd.notna(r.get('volatility_6m', r.get('volatility'))) else 0,
+                'lvmScore': float(_score) if pd.notna(_score) else 0,
+            })
+        _want = lvm_top_n(cfg) if cfg else 20
+        if cfg is not None and len(picks) < _want:
+            picks = []
+            raise FileNotFoundError('stale LVM sheet — recompute from Complete Data')
+    except Exception:
+        if cfg is not None:
+            try:
+                from datetime import date as _lvm_d
+                from src.lowvol_momentum import (
+                    active_lvm_eligible_col,
+                    active_lvm_score_col,
+                    compute_active_lvm_score,
+                )
+                _cd = pd.read_excel(report_path, sheet_name='Complete Data')
+                _cd = compute_active_lvm_score(_cd, cfg, as_of=_lvm_d.today())
+                _ecol = active_lvm_eligible_col(cfg)
+                _scol = active_lvm_score_col(cfg)
+                _elig = _cd[_cd[_ecol].fillna(False).astype(bool)]
+                for _, r in _elig.iterrows():
+                    sym = str(r.get('symbol', '')).strip()
+                    if not sym:
+                        continue
+                    picks.append({
+                        'stock': sym,
+                        'company': str(r.get('company_name', '')),
+                        'sector': str(r.get('sector', '')),
+                        'price': float(r.get('current_price', 0)) if pd.notna(r.get('current_price')) else 0,
+                        'return12m': float(r.get('price_change_1y', 0)) if pd.notna(r.get('price_change_1y')) else 0,
+                        'volatility': float(
+                            r.get('volatility_6m', r.get('volatility', 0))
+                        ) if pd.notna(r.get('volatility_6m', r.get('volatility'))) else 0,
+                        'lvmScore': float(r.get(_scol, 0)) if pd.notna(r.get(_scol)) else 0,
+                    })
+            except Exception:
+                pass
+    if picks:
+        try:
+            from src.lowvol_momentum import (
+                active_lvm_eligible_col,
+                active_lvm_score_col,
+                compute_active_lvm_score,
+            )
+            import numpy as _np
+            from collections import Counter as _Counter
+
+            _cd = pd.read_excel(report_path, sheet_name='Complete Data')
+            _scol_x = active_lvm_score_col(cfg)
+            from datetime import date as _stab_date
+            _np.random.seed(42)
+            _n_trials = 50
+            counts: _Counter = _Counter()
+            for _ in range(_n_trials):
+                p = _cd.copy()
+                noise = _np.random.uniform(0.98, 1.02, len(p))
+                p['current_price'] = pd.to_numeric(p['current_price'], errors='coerce') * noise
+                _ecol_s = active_lvm_eligible_col(cfg)
+                trial = compute_active_lvm_score(p, cfg, as_of=_stab_date.today())
+                for s in trial.loc[trial[_ecol_s].fillna(False).astype(bool), 'symbol']:
+                    counts[s] += 1
+
+            for pick in picks:
+                sym = pick['stock']
+                stab = counts.get(sym, 0)
+                if stab >= _n_trials:
+                    tier = 'ROCK SOLID'
+                elif stab >= _n_trials * 0.9:
+                    tier = 'VERY STABLE'
+                elif stab >= _n_trials * 0.7:
+                    tier = 'STABLE'
+                elif stab >= _n_trials * 0.4:
+                    tier = 'BORDERLINE'
+                else:
+                    tier = 'FRAGILE'
+                pick['stability'] = stab
+                pick['stabilityMax'] = _n_trials
+                pick['tier'] = tier
+
+            all_candidates = sorted(counts.keys(), key=lambda s: -counts[s])
+            lvm_syms = {p['stock'] for p in picks}
+            extras = []
+            _max_extras = 0 if cfg and int(getattr(cfg, 'LVM_TOP_N', 20)) >= 20 else 5
+            for sym in all_candidates:
+                if sym in lvm_syms or len(extras) >= _max_extras:
+                    continue
+                stab = counts[sym]
+                if stab < 5:
+                    continue
+                row = _cd[_cd['symbol'] == sym]
+                if row.empty:
+                    continue
+                r = row.iloc[0]
+                s_tier = 'STABLE' if stab >= _n_trials * 0.7 else ('BORDERLINE' if stab >= _n_trials * 0.4 else 'FRAGILE')
+                extras.append({
+                    'stock': sym,
+                    'company': str(r.get('company_name', '')),
+                    'sector': str(r.get('sector', '')),
+                    'price': float(r.get('current_price', 0)) if pd.notna(r.get('current_price')) else 0,
+                    'return12m': float(r.get('price_change_1y', 0)) if pd.notna(r.get('price_change_1y')) else 0,
+                    'volatility': float(r.get('volatility_6m', r.get('volatility', 0)) or 0),
+                    'lvmScore': float(r.get(_scol_x, r.get('lowvol_mom_score', 0)))
+                    if pd.notna(r.get(_scol_x)) else 0,
+                    'stability': stab,
+                    'stabilityMax': _n_trials,
+                    'tier': s_tier,
+                    'isAlternate': True,
+                })
+            picks.extend(extras)
+        except Exception:
+            pass
+
+    try:
+        from src.lvm_action_plan import resolve_lvm_universe
+        from datetime import date as _fund_date
+        try:
+            _fund_cd = pd.read_excel(report_path, sheet_name='Complete Data')
+        except Exception:
+            _fund_cd = pd.DataFrame()
+        _screen_syms, _fund_syms, _, _fund_deg = resolve_lvm_universe(
+            _fund_cd, cfg, as_of=_fund_date.today(),
+        )
+        if _fund_syms and not _fund_deg:
+            _fund_set = {s.upper() for s in _fund_syms}
+        else:
+            from src.lowvol_momentum import lvm_fund_n
+            _primary = [p for p in picks if not p.get('isAlternate')]
+            _ranked = sorted(_primary, key=lambda x: -float(x.get('lvmScore', 0) or 0))
+            _fund_set = {p['stock'] for p in _ranked[:lvm_fund_n(cfg)]}
+        for p in picks:
+            if p.get('isAlternate'):
+                continue
+            p['fundSlot'] = str(p.get('stock', '')).upper() in _fund_set
+    except Exception:
+        pass
+
+    return picks
+
+
+def _patch_lvm_action_document(
+    action_document: dict,
+    df: pd.DataFrame,
+    lvm_top10: List[dict],
+    totals: dict,
+    portfolio_amount: float,
+    complete_df: pd.DataFrame | None = None,
+) -> dict:
+    """Build LVM PRIORITY 5 section with INCREASE / BUY NEW / AT WEIGHT logic."""
+    if not lvm_top10:
+        return action_document, 0.0
+
+    try:
+        from src.lowvol_momentum import is_lvm_momentum_degraded
+        from src.lvm_action_plan import LVM_DEGRADED_MSG
+        _deg_df = complete_df if complete_df is not None and not complete_df.empty else df
+        if is_lvm_momentum_degraded(_deg_df):
+            degraded_sec = {
+                'id': 'buynew',
+                'kind': 'priority',
+                'headline': 'Priority 5: LVM REBALANCE — SKIPPED (data incomplete)',
+                'note': LVM_DEGRADED_MSG,
+                'tone': 'warning',
+                'totalLabel': 'Action',
+                'totalValue': 'Do not trade LVM picks from this report',
+                'items': [],
+                'guide': {'title': 'LVM data incomplete', 'what': LVM_DEGRADED_MSG},
+            }
+            sections = [s for s in (action_document.get('sections') or []) if s.get('id') != 'buynew']
+            insert_at = len(sections)
+            for i, sec in enumerate(sections):
+                if sec.get('id') in ('lvmrot', 'sell', 'exit'):
+                    insert_at = i + 1
+            sections.insert(insert_at, degraded_sec)
+            action_document['sections'] = sections
+            action_document['lvmDataDegraded'] = True
+            return action_document, 0.0
+    except Exception:
+        pass
+
+    try:
+        from config import get_config
+        from src.lowvol_momentum import lvm_fund_label, lvm_fund_n, lvm_top_label, lvm_top_n
+        cfg = get_config()
+        _lvm_label = lvm_top_label(cfg)
+        _lvm_fund_label = lvm_fund_label(cfg)
+        _lvm_screen_n = lvm_top_n(cfg)
+        _lvm_fund_n = lvm_fund_n(cfg)
+    except ImportError:
+        cfg = None
+        _lvm_label = 'LVM Top 20'
+        _lvm_fund_label = 'LVM Fund Top 12'
+        _lvm_screen_n = 20
+        _lvm_fund_n = 12
+
+    primary = [p for p in lvm_top10 if not p.get('isAlternate')]
+    if any(p.get('fundSlot') for p in primary):
+        funded_picks = [p for p in primary if p.get('fundSlot')]
+    else:
+        funded_picks = sorted(
+            primary, key=lambda x: -float(x.get('lvmScore', 0) or 0),
+        )[:_lvm_fund_n]
+
+    val_col = 'MY VALUE ₹'
+    act_col = 'ACTION'
+    lvm_syms = {str(p.get('stock', '')).upper() for p in funded_picks}
+
+    from src.lvm_action_plan import compute_lvm_p5_actions, lvm_p5_capital_and_buys
+
+    sell_proceeds, _, total_available = lvm_p5_capital_and_buys(
+        totals,
+        portfolio_amount,
+        lvm_syms,
+        df,
+        complete_df,
+        val_col=val_col,
+        price_by_sym=None,
+    )
+
+    _price_map = {
+        str(p.get('stock', '')).upper(): float(p.get('price', 0) or 0)
+        for p in funded_picks
+        if p.get('price')
+    }
+    p5_actions, target_per, held_value, _held_syms, new_syms = compute_lvm_p5_actions(
+        lvm_syms,
+        total_available,
+        df,
+        None,
+        min_invest=5000.0,
+        val_col=val_col,
+        price_by_sym=_price_map,
+    )
+    pick_by_sym = {str(p.get('stock', '')).upper(): p for p in funded_picks}
+
+    buy_items: List[dict] = []
+    buy_total = 0.0
+    at_weight_syms: List[str] = []
+
+    for act in p5_actions:
+        sym = act['sym']
+        act_label = act['action']
+        if act_label == 'AT WEIGHT':
+            at_weight_syms.append(sym)
+            continue
+        if act_label not in ('BUY NEW', 'INCREASE'):
+            continue
+        pick = pick_by_sym.get(sym, {})
+        price = float(act.get('price') or pick.get('price', 0) or 0)
+        cur_val = float(act.get('cur_val', 0) or 0)
+        qty = int(act.get('shares', 0) or 0)
+        inv = float(act.get('invest', 0) or 0)
+        buy_amt = target_per if act_label == 'BUY NEW' else max(0.0, target_per - cur_val)
+        buy_total += inv
+        entry_lo = price * 0.97 if price else 0
+        entry_hi = price * 1.01 if price else 0
+        gtt_stop, gtt_pct = _lvm_gtt_stop(price, cfg) if price else (0.0, 10.0)
+        buy_items.append({
+            'stock': sym,
+            'company': str(pick.get('company', ''))[:40],
+            'sector': str(pick.get('sector', '')),
+            'detail': (
+                f'{act_label}: {qty} shares @ ₹{price:,.2f}'
+                if qty else f'{act_label} ~₹{buy_amt:,.0f}'
+            ),
+            'amount': _fmt_inr(inv) if inv else f'~{_fmt_inr(buy_amt)} target',
+            'price': round(price, 2),
+            'qty': qty,
+            'heldValue': round(cur_val, 0),
+            'targetValue': round(target_per, 0),
+            'stopLoss': round(price * 0.90, 2) if price else 0,
+            'gttStop': gtt_stop,
+            'gttStopPct': gtt_pct,
+            'reason': f'{_lvm_fund_label} — entry band ₹{entry_lo:,.0f}–₹{entry_hi:,.0f}, stop -10%',
+            'reasonPlain': f'{act_label}. Limit buy in entry band; GTT stop at -10%.',
+            'action': act_label,
+            'lvmScore': round(float(pick.get('lvmScore', 0) or 0), 0),
+        })
+
+    try:
+        from src.dashboard_action_document import _guide_block
+        guide = _guide_block('P5')
+    except Exception:
+        guide = {'title': 'Priority 5: LVM Rebalance', 'what': 'LVM rebalance', 'typicalReason': '', 'columns': []}
+
+    if buy_items:
+        headline = f'Priority 5: LVM REBALANCE — {_lvm_fund_label} (screen {_lvm_label})'
+        note = (
+            f'Monthly book: fund top {_lvm_fund_n} of {_lvm_screen_n} screen names (equal weight). '
+            f'Capital: sells ₹{sell_proceeds:,.0f} + cash ₹{portfolio_amount:,.0f} = ₹{total_available:,.0f}. '
+            f'Held funded LVM: ₹{held_value:,.0f}. Target: ₹{target_per:,.0f}/stock.'
+        )
+        if at_weight_syms:
+            note += f' Already at weight: {", ".join(at_weight_syms)}.'
+    else:
+        headline = f'Priority 5: {_lvm_fund_label} — ALL AT TARGET WEIGHT'
+        if new_syms:
+            note = (
+                f'Held {len(_held_syms)} funded names at ~₹{target_per:,.0f} each. '
+                f'Still need {len(new_syms)} new funded names: {", ".join(sorted(new_syms))}. '
+                f'Excess cash: ₹{total_available:,.0f}.'
+            )
+        else:
+            note = (
+                f'All {len(at_weight_syms)} funded LVM picks already held at ~₹{target_per:,.0f} each. '
+                f'No new buys needed. Excess cash: ₹{total_available:,.0f}.'
+            )
+
+    buy_sec = {
+        'id': 'buynew',
+        'kind': 'priority',
+        'headline': headline,
+        'note': note,
+        'tone': 'success' if buy_items else 'neutral',
+        'totalLabel': 'Rebalance total' if buy_items else 'Excess cash',
+        'totalValue': _fmt_inr(buy_total) if buy_items else _fmt_inr(total_available),
+        'items': buy_items,
+        'guide': guide,
+    }
+
+    sections = [s for s in (action_document.get('sections') or []) if s.get('id') != 'buynew']
+    insert_at = len(sections)
+    for i, sec in enumerate(sections):
+        if sec.get('id') in ('lvmrot', 'sell', 'exit'):
+            insert_at = i + 1
+    sections.insert(insert_at, buy_sec)
+    action_document['sections'] = sections
+    action_document['lvmDataDegraded'] = False
+    return action_document, buy_total
+
+
+def build_dashboard_payload(
+    report_file: str,
+    allocation_df: pd.DataFrame,
+    portfolio_amount: float = 0,
+    regime: str = 'Sideways',
+    repo_root: Path | None = None,
+) -> dict:
+    """Structured dashboard data shared by HTML dashboard and Cursor canvas."""
+    root = repo_root or REPO_ROOT
+    df = _prep_numeric(_normalize_allocation_df(allocation_df.copy()))
+    df = _allocation_action_rows(df)
+    run_date = datetime.now().strftime('%d %b %Y')
+    report_name = Path(report_file).name
+
+    report_path = Path(report_file)
+    if not report_path.is_absolute():
+        report_path = root / report_path
+
+    complete_df: pd.DataFrame | None = None
+    try:
+        complete_df = pd.read_excel(report_path, sheet_name='Complete Data')
+    except Exception:
+        complete_df = None
+
+    _lvm_active = False
+    _lvm_cfg = None
+    try:
+        from config import get_config as _gc_lvm
+        _lvm_cfg = _gc_lvm()
+        from src.lowvol_momentum import is_lvm_strategy
+        _lvm_active = is_lvm_strategy(_lvm_cfg)
+    except Exception:
+        pass
+
+    lvm_top10 = _load_lvm_top10(report_path, _lvm_cfg) if _lvm_active else []
+
+    if lvm_top10 and not df.empty and 'P&L %' in df.columns:
+        _val_col = 'MY VALUE ₹'
+        for pick in lvm_top10:
+            sym = pick.get('stock', '')
+            row = df[df['symbol'].astype(str).str.upper() == sym.upper()]
+            if not row.empty:
+                r = row.iloc[0]
+                pnl = r.get('P&L %')
+                val = r.get(_val_col, 0)
+                pick['holdingPnl'] = round(float(pnl), 2) if pd.notna(pnl) else None
+                pick['holdingValue'] = round(float(val), 0) if pd.notna(val) and float(val) > 0 else None
+
+    if _lvm_active and lvm_top10:
+        from src.lowvol_momentum import lvm_top_label as _lvm_lbl_fn
+        from src.lvm_action_plan import apply_lvm_rotation_display_fields, resolve_lvm_universe
+        from datetime import date as _rot_date
+        _lvm_lbl = _lvm_lbl_fn(_lvm_cfg) if _lvm_cfg else 'LVM Top 20'
+        try:
+            _rot_cd = pd.read_excel(report_path, sheet_name='Complete Data')
+        except Exception:
+            _rot_cd = df
+        _lvm_screen_syms, _, _, _lvm_rot_deg = resolve_lvm_universe(
+            _rot_cd, _lvm_cfg, as_of=_rot_date.today(),
+        )
+        _val_col = 'MY VALUE ₹'
+        _act_col = 'ACTION'
+        if _val_col in df.columns and _act_col in df.columns and _lvm_screen_syms and not _lvm_rot_deg:
+            for idx, row in df.iterrows():
+                sym = str(row.get('symbol', '')).upper()
+                act = str(row.get(_act_col, '')).upper()
+                has_val = float(row.get(_val_col, 0) or 0) > 0
+                is_hold = 'HOLD' in act or 'KEEP' in act or 'INCREASE' in act
+                if has_val and is_hold and sym not in _lvm_screen_syms:
+                    apply_lvm_rotation_display_fields(df, idx, row, _lvm_lbl, value_col=_val_col)
+
+    sections, totals = _build_action_plan_sections(df)
+    final_numbers = _build_final_numbers(totals, portfolio_amount, lvm_active=_lvm_active)
+    holdings = _load_holdings(root)
+    holdings_enriched = _build_holdings_enriched(df, holdings)
+    dual = _build_dual_strategy(df)
+    trust = _load_trust_metrics(root, report_path)
+    hold_note = _hold_note(df, holdings)
+    extras = _load_report_extras(report_path)
+    ps = extras.get('portfolioSummary') or {}
+    mtf_book = _build_mtf_for_book(df, report_path)
+
+    try:
+        from src.action_plan_legend import build_dashboard_glossary
+        from src.dashboard_action_document import build_action_document
+        action_guide = build_dashboard_glossary()
+    except ImportError:
+        action_guide = {}
+        build_action_document = None
+
+    sell_breakdown = _build_sell_category_breakdown(df)
+
+    action_document = {'sections': [], 'glossary': action_guide}
+    if build_action_document is not None:
+        action_document = build_action_document(
+            df, report_path, sections, sell_breakdown,
+            final_numbers, _build_tax_harvest(df), _build_risk_profile(df),
+            dual, hold_note,
+        )
+
+    lvm_data_degraded = False
+    if _lvm_active and lvm_top10:
+        _lvm_picks_only = [p for p in lvm_top10 if not p.get('isAlternate')]
+        action_document, lvm_buy_total = _patch_lvm_action_document(
+            action_document,
+            df,
+            _lvm_picks_only,
+            totals,
+            portfolio_amount,
+            complete_df=complete_df,
+        )
+        lvm_data_degraded = bool(action_document.get('lvmDataDegraded'))
+        final_numbers = _build_final_numbers(
+            totals,
+            portfolio_amount,
+            lvm_buy_total=lvm_buy_total,
+            lvm_active=True,
+        )
+        for sec in action_document.get('sections') or []:
+            if sec.get('id') == 'final_numbers':
+                sec['finalNumbers'] = final_numbers
+                if tax_h := _build_tax_harvest(df):
+                    sec['taxHarvest'] = tax_h
+                if risk_p := _build_risk_profile(df):
+                    sec['riskProfile'] = risk_p
+                break
+
+    # RSI Pullback candidates (scan Complete Data — allocation sheet lacks RSI/SMA cols)
+    rsi_pullback = []
+    try:
+        if _lvm_active:
+            from src.rsi_pullback_scanner import scan_rsi_pullback
+            _rsi_df = None
+            try:
+                _rsi_df = pd.read_excel(report_path, sheet_name='Complete Data')
+            except Exception:
+                pass
+            if _rsi_df is not None and not _rsi_df.empty:
+                rsi_pullback_df = scan_rsi_pullback(_rsi_df, _lvm_cfg)
+                _rsi_sym_to_company = {}
+                if 'company_name' in _rsi_df.columns:
+                    for _, _cr in _rsi_df[['symbol', 'company_name']].dropna().iterrows():
+                        _rsi_sym_to_company[str(_cr['symbol']).upper()] = str(_cr['company_name'])
+                for _, r in rsi_pullback_df.head(5).iterrows():
+                    _rsym = str(r.get('symbol', ''))
+                    rsi_pullback.append({
+                        'stock': _rsym,
+                        'company': _rsi_sym_to_company.get(_rsym.upper(), ''),
+                        'price': float(r.get('current_price', 0)),
+                        'rsi': float(r.get('rsi', 0)),
+                        'distTo40': float(r.get('distance_to_40', 0)),
+                        'aboveSma50Pct': float(r.get('above_sma50_pct', 0)),
+                    })
+            if rsi_pullback:
+                rsi_items = []
+                from src.lvm_action_plan import portfolio_value_for_rsi_sizing
+                _pv_rsi = sum(h.get('value', 0) for h in holdings) if holdings else 0
+                if _pv_rsi <= 0 and 'MY VALUE ₹' in df.columns:
+                    _pv_rsi = float(df.loc[df['MY VALUE ₹'] > 0, 'MY VALUE ₹'].sum())
+                _rsi_budget = portfolio_value_for_rsi_sizing(
+                    df,
+                    fallback_inr=float(_pv_rsi or 1_150_000),
+                )
+                from datetime import datetime as _dt_rsi, timedelta as _td_rsi
+                _today = _dt_rsi.now()
+                _wd = _today.weekday()
+                _entry_offset = 1 if _wd < 4 else (7 - _wd)
+                _entry_date = _today + _td_rsi(days=_entry_offset)
+                _exit_date = _entry_date + _td_rsi(days=7)
+                while _exit_date.weekday() >= 5:
+                    _exit_date += _td_rsi(days=1)
+                _entry_str = _entry_date.strftime('%a %d %b')
+                _exit_str = _exit_date.strftime('%a %d %b')
+                for p in rsi_pullback:
+                    px = float(p.get('price', 0))
+                    stop = round(px * 0.97, 1)
+                    entry_lo = round(px * 0.99, 1)
+                    entry_hi = round(px * 1.005, 1)
+                    qty = int(_rsi_budget / px) if px > 0 else 0
+                    invest = round(qty * px, 0)
+                    max_loss = round(qty * (px - stop), 0)
+                    rsi_items.append({
+                        'stock': p['stock'],
+                        'company': p.get('company', ''),
+                        'detail': f"RSI {p['rsi']:.1f} | +{p['aboveSma50Pct']:.1f}% above SMA50",
+                        'amount': _fmt_inr(invest),
+                        'price': round(px, 2),
+                        'qty': qty,
+                        'invest': invest,
+                        'maxLoss': max_loss,
+                        'rsi': round(p['rsi'], 1),
+                        'distTo40': round(p['distTo40'], 1),
+                        'aboveSma50Pct': round(p['aboveSma50Pct'], 1),
+                        'stopLoss': stop,
+                        'action': 'RSI PULLBACK',
+                        'when': f'Buy {_entry_str} at open',
+                        'exitWhen': f'Exit {_exit_str} or stop ₹{stop:,.1f} (-3%)',
+                        'reason': f'RSI {p["rsi"]:.1f} | {qty} shares @ ₹{px:,.0f} = ₹{invest:,.0f} | Stop ₹{stop:,.0f} (loss ₹{max_loss:,.0f})',
+                        'reasonPlain': f'Buy {qty} shares {_entry_str}. Exit {_exit_str} or stop ₹{stop:,.0f}.',
+                    })
+                rsi_sec = {
+                    'id': 'rsipullback',
+                    'kind': 'priority',
+                    'headline': f'Priority 5.5: RSI PULLBACK — Weekly Trades ({len(rsi_items)})',
+                    'note': 'Buy closest to RSI 40, hold 5 days, -3% stop. 60% WR proven (443 trades).',
+                    'tone': 'info',
+                    'totalLabel': 'RSI candidates',
+                    'totalValue': str(len(rsi_items)),
+                    'items': rsi_items,
+                }
+                ad_sections = action_document.get('sections') or []
+                insert_after = len(ad_sections)
+                for i, sec in enumerate(ad_sections):
+                    if sec.get('id') == 'buynew':
+                        insert_after = i + 1
+                        break
+                ad_sections.insert(insert_after, rsi_sec)
+                action_document['sections'] = ad_sections
+    except Exception:
+        pass
+
+    tax_harvest = _build_tax_harvest(df)
+    risk_profile = _build_risk_profile(df)
+    sector_concentration = _build_sector_concentration(df)
+    partial_execution = _build_partial_execution(df)
+
+    return {
+        'runDate': run_date,
+        'report': report_name,
+        'regime': str(regime) or ps.get('marketRegime', 'Sideways'),
+        'activeStrategy': 'LowVol→Mom' if _lvm_active else 'QMST',
+        'positions': len(holdings) or int((df['MY VALUE ₹'] > 0).sum()) if 'MY VALUE ₹' in df.columns else 0,
+        'portfolioValue': sum(h['value'] for h in holdings) or int(df.loc[df['MY VALUE ₹'] > 0, 'MY VALUE ₹'].sum()) if 'MY VALUE ₹' in df.columns else 0,
+        'trust': trust,
+        'holdNote': hold_note,
+        'sections': action_document.get('sections', sections),
+        'finalNumbers': final_numbers,
+        'taxHarvest': tax_harvest,
+        'riskProfile': risk_profile,
+        'riskWarnings': _build_risk_warnings(
+            df,
+            regime,
+            sector_concentration=sector_concentration,
+            partial_execution=partial_execution,
+            tax_harvest=tax_harvest,
+            lvm_data_degraded=lvm_data_degraded,
+        ),
+        'sectorConcentration': sector_concentration,
+        'partialExecution': partial_execution,
+        'holdings': holdings_enriched,
+        'sectorChart': _build_sector_chart(holdings_enriched),
+        'allocationMaster': _build_allocation_master(df),
+        'dualStrategy': dual if not _lvm_active else {},
+        'actionSummary': _action_summary(df),
+        'portfolioSummary': ps,
+        'topPicks': extras.get('topPicks', []),
+        'tradingLevels': extras.get('tradingLevels', []),
+        'undervalued': extras.get('undervalued', []),
+        'sectorAnalysis': extras.get('sectorAnalysis', []),
+        'weeklyChanges': extras.get('weeklyChanges', []),
+        'mtfBook': mtf_book,
+        'actionPlanGuide': action_guide,
+        'sellCategoryBreakdown': sell_breakdown,
+        'actionDocument': action_document,
+        'lvmTop10': lvm_top10,
+        'lvmScreenN': int(getattr(_lvm_cfg, 'LVM_TOP_N', 20)) if _lvm_cfg else 20,
+        'lvmFundN': int(getattr(_lvm_cfg, 'LVM_FUND_N', 12)) if _lvm_cfg else 12,
+        'lvmDataDegraded': bool(action_document.get('lvmDataDegraded')),
+        'rsiPullback': rsi_pullback,
+    }
 
 
 def generate_canvas_tsx(
@@ -958,54 +1857,17 @@ def generate_canvas_tsx(
     repo_root: Path | None = None,
 ) -> str:
     root = repo_root or REPO_ROOT
-    df = _prep_numeric(_normalize_allocation_df(allocation_df.copy()))
-    run_date = datetime.now().strftime('%d %b %Y')
-    report_name = Path(report_file).name
+    payload = build_dashboard_payload(
+        report_file, allocation_df,
+        portfolio_amount=portfolio_amount, regime=regime, repo_root=root,
+    )
+    from src.analysis_dashboard import apply_dashboard_policy, stamp_dashboard_build_version
 
     report_path = Path(report_file)
     if not report_path.is_absolute():
         report_path = root / report_path
-
-    sections, totals = _build_action_plan_sections(df)
-    final_numbers = _build_final_numbers(totals, portfolio_amount)
-    holdings = _load_holdings(root)
-    holdings_enriched = _build_holdings_enriched(df, holdings)
-    dual = _build_dual_strategy(df)
-    trust = _load_trust_metrics(root, report_path)
-    hold_note = _hold_note(df, holdings)
-    extras = _load_report_extras(report_path)
-    ps = extras.get('portfolioSummary') or {}
-    mtf_book = _build_mtf_for_book(df, report_path)
-
-    payload = {
-        'runDate': run_date,
-        'report': report_name,
-        'regime': str(regime) or ps.get('marketRegime', 'Sideways'),
-        'positions': len(holdings) or int((df['MY VALUE ₹'] > 0).sum()) if 'MY VALUE ₹' in df.columns else 0,
-        'portfolioValue': sum(h['value'] for h in holdings) or int(df.loc[df['MY VALUE ₹'] > 0, 'MY VALUE ₹'].sum()) if 'MY VALUE ₹' in df.columns else 0,
-        'trust': trust,
-        'holdNote': hold_note,
-        'sections': sections,
-        'finalNumbers': final_numbers,
-        'taxHarvest': _build_tax_harvest(df),
-        'riskProfile': _build_risk_profile(df),
-        'riskWarnings': _build_risk_warnings(df, regime),
-        'sectorConcentration': _build_sector_concentration(df),
-        'partialExecution': _build_partial_execution(df),
-        'holdings': holdings_enriched,
-        'sectorChart': _build_sector_chart(holdings_enriched),
-        'allocationMaster': _build_allocation_master(df),
-        'dualStrategy': dual,
-        'actionSummary': _action_summary(df),
-        'portfolioSummary': ps,
-        'topPicks': extras.get('topPicks', []),
-        'tradingLevels': extras.get('tradingLevels', []),
-        'undervalued': extras.get('undervalued', []),
-        'sectorAnalysis': extras.get('sectorAnalysis', []),
-        'weeklyChanges': extras.get('weeklyChanges', []),
-        'mtfBook': mtf_book,
-    }
-
+    apply_dashboard_policy(payload)
+    stamp_dashboard_build_version(payload, report_path)
     data_js = _tsx_data(payload)
 
     return f'''import {{
@@ -1094,9 +1956,10 @@ export default function StockAnalysisDashboard() {{
   return (
     <Stack gap={{28}}>
       <Stack gap={{6}}>
-        <H1>Full analysis dashboard</H1>
+        <H1>{{DATA.activeStrategy || 'QMST'}} analysis dashboard</H1>
         <Text tone="secondary" size="small">
-          {{DATA.report}} · {{DATA.runDate}} · Regime: {{DATA.regime}} · Turbo MTF weekly
+          {{DATA.report}} · {{DATA.runDate}} · Regime: {{DATA.regime}}
+          {{DATA.buildVersion ? ' · ' + DATA.buildVersion : ''}}
         </Text>
       </Stack>
 
@@ -1107,21 +1970,23 @@ export default function StockAnalysisDashboard() {{
         <Stat value={{fmtLakh(fn.sellProceeds)}} label="Total sells" tone="danger" />
       </Grid>
 
-      <Card>
-        <CardHeader title="Trust strip — should I follow this run?" />
-        <CardBody>
-          <Grid columns={{4}} gap={{12}}>
-            <Stat value={{`${{DATA.trust.winRate30d}}%`}} label="Rec win rate (30d)" tone="warning" />
-            <Stat value={{`+${{DATA.trust.topBeatBottomPct}}%`}} label="OOS top-bottom spread" tone="success" />
-            <Stat value={{DATA.trust.promotion}} label="v2 promotion state" tone="info" />
-            <Stat value={{DATA.trust.trustLabel}} label="Overall" />
-          </Grid>
-          <Text size="small" tone="secondary">
-            {{DATA.trust.recCount30d}} recommendations tracked · expectancy {{DATA.trust.expectancy30d}}% (30d)
-          </Text>
-          {{DATA.trust.wfReason ? <Text size="small" tone="secondary">{{DATA.trust.wfReason}}</Text> : null}}
-        </CardBody>
-      </Card>
+      {{DATA.activeStrategy !== 'LowVol→Mom' && DATA.trust && DATA.trust.trustLabel ? (
+        <Card>
+          <CardHeader title="Trust strip — should I follow this run?" />
+          <CardBody>
+            <Grid columns={{4}} gap={{12}}>
+              <Stat value={{`${{DATA.trust.winRate30d}}%`}} label="Rec win rate (30d)" tone="warning" />
+              <Stat value={{`+${{DATA.trust.topBeatBottomPct}}%`}} label="OOS top-bottom spread" tone="success" />
+              <Stat value={{DATA.trust.promotion}} label="v2 promotion state" tone="info" />
+              <Stat value={{DATA.trust.trustLabel}} label="Overall" />
+            </Grid>
+            <Text size="small" tone="secondary">
+              {{DATA.trust.recCount30d}} recommendations tracked · expectancy {{DATA.trust.expectancy30d}}% (30d)
+            </Text>
+            {{DATA.trust.wfReason ? <Text size="small" tone="secondary">{{DATA.trust.wfReason}}</Text> : null}}
+          </CardBody>
+        </Card>
+      ) : null}}
 
       {{DATA.weeklyChanges.length > 0 ? (
         <>
@@ -1367,16 +2232,6 @@ export default function StockAnalysisDashboard() {{
           ])}}
         />
       </CollapsibleSection>
-
-      <Divider />
-      <H2>Dual strategy — all stocks</H2>
-      <Table
-        headers={{['Stock', 'Plan', 'Turbo', 'Sig', 'Monthly', 'Sig', 'Consensus', 'Owned']}}
-        rows={{DATA.dualStrategy.map((r) => [
-          r.stock, r.primary, r.turbo.toFixed(1), r.turboSig, r.monthly.toFixed(1), r.monthlySig, r.agree, r.owned,
-        ])}}
-        rowTone={{DATA.dualStrategy.map((r) => r.agree.includes('SPLIT') ? 'warning' : r.agree.includes('SELL') ? 'danger' : r.agree.includes('BUY') ? 'success' : undefined)}}
-      />
 
       <Divider />
       <H2>Current holdings only ({{owned.length}})</H2>

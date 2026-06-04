@@ -33,11 +33,11 @@ entry = turbo; exit = VMQ. SCORE is audit-only when
 `ORACLE_STACK_ALIGN=true`. Master backlog:
 [docs/QMST-MASTER-PLAN.md](docs/QMST-MASTER-PLAN.md).
 
-`.cursor/skills/frontend-design/SKILL.md` governs HTML/UI work:
-distinctive production-grade interfaces (no generic AI aesthetics).
-Before restyling `Portfolio_Allocation_Dashboard.html` or
-`portfolio_guide.html`, open `frontend/design-playbook.html` and
-reuse its **Tape & Ledger** tokens (`--tape-*` CSS variables).
+`.agents/skills/ui-designer/SKILL.md` governs HTML/UI/UX work
+(install: `npx skills add daniel-dan-conrad/ui-designer-skill --skill ui-designer`).
+For QMST dashboard surfaces (`frontend/qmst-dashboard.html`,
+`frontend/dashboard/template.html`), still reuse **Tape & Ledger**
+tokens from `frontend/design-playbook.html` (`--tape-*` CSS variables).
 Presentation only — data contracts remain in `stock-analysis-system`.
 
 `.cursor/skills/post-analysis-audit/SKILL.md` — after each
@@ -48,7 +48,16 @@ to run `scripts/post_analysis_audit.py` and get a PASS/WARN/FAIL report
 `.cursor/skills/five-agent-council/SKILL.md` — five-expert council
 (Architect, Quant, Risk, Contract Auditor, Devil's Advocate) for
 multi-round debate and peer acknowledgment before system changes. Trigger
-with **`COUNCIL`**, **`DEBATE`**, or **`PEER REVIEW`**.
+with **`COUNCIL`**, **`DEBATE`**, or **`PEER REVIEW`**. Loads context via
+`product-teams-bridge.md`. **`BUILD`** / **`SHIP`** →
+`software-product-orchestrator`. **`product-teams-orchestrator`** — master
+router when user wants full team or intent is ambiguous.
+
+`.cursor/skills/pinescript-agents/SKILL.md` — Pine Script v6 / TradingView
+bundle (seven sub-skills under one folder: developer, debugger, backtester,
+optimizer, visualizer, publisher, manager). Primary repo artifact:
+`scripts/qlvm_indicator.pine`. Trigger with **`PINE`** or `@pinescript-agents`.
+Install upstream: `npx skills add https://github.com/traderspost/pinescript-agents`.
 
 ## Behavioural rules
 
@@ -66,6 +75,18 @@ with **`COUNCIL`**, **`DEBATE`**, or **`PEER REVIEW`**.
   surfaces.
 - Action enum, Excel sheet names, and recommendation history columns
   are contracts (Suite 1 enforces).
+
+## QMST HTML dashboard (localhost)
+
+- **URL:** `http://127.0.0.1:9876/` — served by `scripts/serve_dashboard.py` (reads
+  `frontend/qmst-dashboard.html` on each request; auto-reload when `buildVersion` changes).
+- **Do not** bookmark `file://…/qmst-dashboard.html` — no live reload and easy to open a stale copy.
+- **Start / rebuild:** `python3 scripts/serve_dashboard.py --rebuild --portfolio-amount 100000 --open`
+- **Wrong repo on port 9876:** `kill $(lsof -ti :9876)` then restart `serve_dashboard.py` from this checkout.
+- **Build only:** `python3 scripts/build_analysis_dashboard.py --report reports/Enhanced_Stock_Report_*.xlsx --open`
+- Analyzer run rebuilds HTML and calls `open_analysis_dashboard()`; if port 9876 is owned by another checkout, fix the server first (error printed in log).
+- **Cursor canvas:** `build_analysis_dashboard` syncs `stock-analysis-dashboard.canvas.tsx` from the same payload as HTML (disable with `--no-sync-canvas`). Analyzer may refresh canvas again with in-memory allocation.
+- **Browser reload:** macOS reloads an existing Chrome or Safari tab on `:9876`; otherwise opens Chrome incognito or the system default browser.
 
 ## Testing protocol
 

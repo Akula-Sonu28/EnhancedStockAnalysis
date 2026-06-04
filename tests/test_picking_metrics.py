@@ -168,6 +168,12 @@ class TestPickingMetrics(unittest.TestCase):
         self.assertEqual(cat, 'VMQ_HARD_STOP')
         self.assertIn('VMQ hard stop', SELL_CATEGORY_LABELS[cat])
 
+    def test_classify_sell_category_lvm_rotation(self):
+        self.assertEqual(
+            classify_sell_category({'action_recommendation': 'SELL (LVM ROTATION)'}),
+            'LVM_ROTATION',
+        )
+
     def test_classify_sell_category_swap(self):
         self.assertEqual(
             classify_sell_category({'action_recommendation': 'SWAP -> AIAENG'}),

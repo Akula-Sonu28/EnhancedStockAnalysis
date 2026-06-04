@@ -1866,7 +1866,7 @@ class Suite16_ContractGapsClosure(unittest.TestCase):
             wf = json.load(fp)
         verdict = (wf.get('verdict') or {}).get('verdict')
         ic = (wf.get('primary_80_20', {}).get('v2', {}) or {}).get('ic_30d')
-        self.assertIn(verdict, ('PROMOTE', 'HOLD_SHADOW', 'HOLD_LIVE'),
+        self.assertIn(verdict, ('PROMOTE', 'HOLD_SHADOW', 'HOLD_LIVE', 'ESCALATE_TIER_C'),
                       f'walk-forward verdict unexpected: {verdict}')
         self.assertIsNotNone(ic, 'walk-forward primary v2 IC missing')
 
@@ -2217,9 +2217,36 @@ class Suite16_ContractGapsClosure(unittest.TestCase):
         row['portfolio_price_fields_valid'] = True
         row['enhanced_price_change_5d'] = 3.2
         row['enhanced_price_change_1d'] = 0.5
+        for k in EnhancedTop200StockAnalyzer._LVM_REQUIRED_CACHE_KEYS:
+            row[k] = 1.0
         self.assertFalse(
             EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
             'Valid flag must suppress repeat backfill on warm cache',
+        )
+
+    def test_cache_backfill_catches_missing_lvm_fields(self):
+        """Cache missing LVM-critical fields (price_change_1y etc.) must trigger backfill."""
+        from analyze_top200_stocks_enhanced import EnhancedTop200StockAnalyzer
+        row = {
+            'symbol': 'TEST',
+            'portfolio_price_fields_valid': True,
+            'enhanced_price_change_5d': 3.2,
+            'enhanced_price_change_1d': 0.5,
+        }
+        self.assertTrue(
+            EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
+            'Missing price_change_1y must trigger backfill for LVM stability',
+        )
+        for k in EnhancedTop200StockAnalyzer._LVM_REQUIRED_CACHE_KEYS:
+            row[k] = 5.0
+        self.assertFalse(
+            EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
+            'All LVM fields present must suppress backfill',
+        )
+        row['price_change_1y'] = None
+        self.assertTrue(
+            EnhancedTop200StockAnalyzer._cache_portfolio_fields_need_backfill(row),
+            'None value for price_change_1y must trigger backfill',
         )
 
     def test_walkforward_age_telemetry(self):

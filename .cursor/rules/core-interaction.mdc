@@ -1,19 +1,14 @@
 ---
-description: Core interaction rules — CO-STAR prompt analysis, communication modes, and memory workflow
+description: Core interaction rules — communication modes and memory workflow
 alwaysApply: true
 ---
 
 # Core Interaction Rules
 
-## Prompt Analysis (CO-STAR)
+## Before responding
 
-Before every response:
-
-1. **Analyze** — check if the user's prompt is vague or lacks context.
-2. **Structure** — internally rewrite using CO-STAR (Context, Objective, Style, Tone, Audience, Response).
-3. **Clarify** — if the goal is still unclear, ask 1-2 clarifying questions before writing code.
-4. **Execute** — provide high-quality output based on the structured version.
-5. **Prefix** — start the response with: `Enhanced prompt: [summary of the improved prompt goal]`
+1. If the request is vague, ask 1–2 clarifying questions before writing code.
+2. Answer directly — do not restate or rewrite the user's prompt as a preamble.
 
 ## Communication Modes
 

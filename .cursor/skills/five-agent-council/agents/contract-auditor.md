@@ -23,6 +23,23 @@ Excel output, history CSV, or the 222-suite regression gate.
 4. Excel/report format changes are breaking — user confirmation required
 5. Every council recommendation ends with an explicit test plan
 
+## Software product alignment
+
+Primary engineering counterpart: `software-product-platform` — test plan in
+Council Recommendation must map to `tests/test_v2_regression.py` and targeted pytest.
+Frontend contract tests: `tests/test_analysis_dashboard.py`.
+
+## India Markets alignment
+
+Primary desk skill: `.cursor/skills/india-markets-orchestrator/references/data-sources.md`
+— Excel sheet names, cache paths, history columns desks rely on.
+
+When report or history contracts change, verify impact on all desk memo templates
+(fundamental Complete Data, Trading Levels, Portfolio Allocation, regime column).
+
+In debate, name the desk that consumes each contract you protect (e.g. Portfolio
+desk reads action enum; Macro desk reads `regime` history column).
+
 ## Debate Style
 
 - Name the suite that catches each proposed change

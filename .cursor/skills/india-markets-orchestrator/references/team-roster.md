@@ -1,6 +1,6 @@
 # Specialist Team Roster — Stock_Analysis
 
-Each desk skill lives in `.cursor/skills/india-markets-*`. This repo **implements** fundamental, technical, macro/regime, and portfolio logic in Python; derivatives and IPO desks are research-only.
+Each desk skill lives in `.cursor/skills/india-markets-*`. This repo **implements** fundamental, technical, macro/regime, portfolio, and regulatory logic in Python.
 
 ## Teams
 
@@ -12,8 +12,18 @@ Each desk skill lives in `.cursor/skills/india-markets-*`. This repo **implement
 | Macro / regime | `india-markets-macro` | `market_regime_detector.py`, `adaptive_market_strategy.py`, `crisis_detector.py` | No |
 | Portfolio / risk | `india-markets-portfolio` | Analyzer allocation, hard-stop, rotation, `recommendation_history.py` | No |
 | Regulatory / tax | `india-markets-regulatory` | `backtest/costs.py`; general SEBI knowledge | Partial |
-| Derivatives F&O | `india-markets-derivatives` | — | **Yes** |
-| IPO / primary | `india-markets-ipo` | — | **Yes** |
+
+## Full product org
+
+| Layer | Orchestrator | Command |
+|-------|--------------|---------|
+| Research | `india-markets-orchestrator` | multi-desk memos |
+| Governance | `five-agent-council` | `COUNCIL` |
+| Engineering | `software-product-orchestrator` | `BUILD` / `SHIP` |
+
+Bridge: `.cursor/skills/five-agent-council/references/product-teams-bridge.md`
+
+Each desk skill includes a **Five-Agent Council** escalation template.
 
 ## Repo-native skills (not india-markets desks)
 

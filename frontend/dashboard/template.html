@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>QMST · Weekly Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!--INLINE_CSS-->
+</head>
+<body class="app">
+<div class="shell">
+  <nav class="rail" aria-label="Main navigation">
+    <div class="rail-logo">Q</div>
+    <button type="button" class="rail-btn active" data-view="plan" title="Action plan">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 5 5-9"/></svg>
+    </button>
+    <button type="button" class="rail-btn" data-view="holdings" title="Holdings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    </button>
+    <button type="button" class="rail-btn" id="toggle-simple" aria-pressed="true" title="Simple view — hide raw REASON codes" aria-label="Toggle simple view">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+    <div class="rail-spacer"></div>
+    <button type="button" class="rail-btn" id="help-open-rail" title="Help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 1 1 5 0c0 2-2.5 2-2.5 4"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg>
+    </button>
+    <div class="rail-avatar" aria-hidden="true">Q</div>
+  </nav>
+
+  <div class="workspace">
+    <main class="main-col">
+      <header class="page-head">
+        <div>
+          <h1>Weekly Brief</h1>
+          <p class="eyebrow" id="run-meta"></p>
+        </div>
+        <div class="head-actions">
+          <span class="pill-select" id="regime-chip"></span>
+        </div>
+      </header>
+
+      <p class="hero-summary" id="plain-summary"></p>
+
+      <div class="viz-card" id="viz-card"></div>
+      <div class="metric-row" id="metric-row"></div>
+      <div class="mini-row" id="mini-row"></div>
+
+      <div id="view-plan" class="pane active">
+        <div class="sections-scroll" id="sections-root"></div>
+      </div>
+      <div id="view-holdings" class="pane">
+        <div class="pane-bar">
+          <input type="search" id="holdings-search" class="glass-input" placeholder="Search holdings…">
+        </div>
+        <div id="holdings-content"></div>
+      </div>
+    </main>
+
+    <button type="button" class="fab" id="fab-help" title="Help" style="position:fixed;bottom:16px;right:16px;z-index:30">?</button>
+  </div>
+</div>
+
+<div class="help-overlay" id="help-panel" hidden role="dialog" aria-modal="true">
+  <div class="help-sheet">
+    <div class="help-top"><h2>Guide</h2><button type="button" class="ghost-btn" id="help-close">Close</button></div>
+    <div id="help-body"></div>
+  </div>
+</div>
+
+<!--DASHBOARD_DATA-->
+<!--INLINE_JS-->
+</body>
+</html>

@@ -7,6 +7,7 @@ exit timing.  Used by v2 calibration, promotion check, and allocation sort.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, Optional, Tuple, List
 
@@ -139,6 +140,15 @@ def resolve_picking_rank_value(row: Dict[str, Any], cfg=None) -> float:
     driver = str(_cfg(cfg, 'PICKING_RANK_DRIVER', 'auto')).lower()
     entry = str(_cfg(cfg, 'ENTRY_DRIVER', 'turbo_mtf')).lower()
 
+    if driver in ('lowvol_mom', 'low_vol_momentum', 'quality_lvm'):
+        for k in ('quality_lvm_score', 'lowvol_mom_score', 'picking_rank'):
+            v = row.get(k)
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    pass
+
     if driver in ('turbo', 'turbo_mtf') or (
         driver == 'auto' and entry in ('turbo_mtf', 'turbo')
     ):
@@ -178,6 +188,20 @@ def add_picking_rank_column(df: pd.DataFrame, cfg=None) -> pd.DataFrame:
     entry = str(_cfg(cfg, 'ENTRY_DRIVER', 'turbo_mtf')).lower()
 
     rank = pd.Series(np.nan, index=out.index, dtype=float)
+
+    if driver in ('lowvol_mom', 'low_vol_momentum', 'quality_lvm'):
+        try:
+            from src.lowvol_momentum import (
+                active_lvm_score_col,
+                compute_active_lvm_score,
+            )
+            scol = active_lvm_score_col(cfg)
+            if scol not in out.columns:
+                out = compute_active_lvm_score(out, cfg)
+            if scol in out.columns:
+                rank = pd.to_numeric(out[scol], errors='coerce')
+        except Exception as e:
+            logging.warning(f"LVM family scoring failed in picking_rank: {e}")
 
     if driver in ('flow_quality', 'fq', 'oracle_pick'):
         try:
@@ -265,7 +289,7 @@ def format_holdings_reason(
 def resolve_holdings_rank_score(row: Dict[str, Any], cfg=None) -> float:
     """Rank score for holdings 30/50/20 rule and sector overweight trim."""
     if oracle_stack_align_enabled(cfg):
-        for k in ('picking_rank', 'fq_score', 'turbo_score'):
+        for k in ('picking_rank', 'lowvol_mom_score', 'fq_score', 'turbo_score'):
             v = row.get(k)
             if v is not None and not (isinstance(v, float) and np.isnan(v)):
                 try:
@@ -411,6 +435,8 @@ def classify_sell_category(row: Dict[str, Any]) -> str:
     Priority-ordered: VMQ > unified hard-stop > rank/rebalance > other.
     """
     act = str(row.get('action_recommendation', row.get('ACTION', ''))).upper()
+    if 'LVM ROTATION' in act:
+        return 'LVM_ROTATION'
     if 'SWAP' in act:
         return 'SWAP_ROTATION'
     if 'CONSIDER' in act and 'SELL' in act:
@@ -471,6 +497,7 @@ SELL_CATEGORY_LABELS = {
     'RANK_DISABLED_HOLD': 'Rank sell disabled (oracle stack — should HOLD)',
     'OTHER_SELL': 'Other sell signal',
     'NOT_SELL': 'Not a sell action',
+    'LVM_ROTATION': 'LVM rotation (not in active Top-N roster — rotate out)',
 }
 
 
@@ -543,10 +570,18 @@ def backfill_allocation_from_results(
                 if pd.isna(_vc) or float(_vc) <= 0:
                     out.at[idx, 'volatility'] = float(_v6)
 
-        for _pc in ('picking_rank', 'fq_score', 'turbo_score'):
+        for _pc in ('picking_rank', 'fq_score', 'turbo_score', 'lowvol_mom_score', 'quality_lvm_score'):
             if _pc in out.columns and pd.isna(pd.to_numeric(out.at[idx, _pc], errors='coerce')):
                 if _pc in src.index and pd.notna(pd.to_numeric(src.get(_pc), errors='coerce')):
                     out.at[idx, _pc] = src.get(_pc)
+
+        for _ecol in ('lowvol_mom_eligible', 'quality_lvm_eligible'):
+            if _ecol not in out.columns:
+                out[_ecol] = False
+            if _ecol in src.index:
+                _lvm_val = src.get(_ecol)
+                if _lvm_val is not None and not (isinstance(_lvm_val, float) and np.isnan(_lvm_val)):
+                    out.at[idx, _ecol] = bool(_lvm_val)
 
         for _hyb in HYBRID_COLS:
             if _hyb not in out.columns:

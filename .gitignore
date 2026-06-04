@@ -73,6 +73,7 @@ data/*.lock
 
 # Generated HTML dashboards
 Portfolio_Allocation_Dashboard.html
+frontend/qmst-dashboard.html
 
 # Runtime config state
 config.json
@@ -117,24 +118,14 @@ Holding/
 .cursor/hooks/
 skills-lock.json
 
-# Installed optional Cursor skills (keep repo-specific skills tracked)
-.cursor/skills/ab-test-setup/
-.cursor/skills/alpha-backtest/
+# Optional methodology copies (not committed; see external-skills-README.md)
 .cursor/skills/alpha-evaluate/
-.cursor/skills/alpha-monitor/
 .cursor/skills/backtesting-frameworks/
-.cursor/skills/data-scientist/
 .cursor/skills/debugging-strategies/
 .cursor/skills/frontend-design/
-.cursor/skills/portfolio-analytics/
-.cursor/skills/position-sizing/
 .cursor/skills/python-testing-patterns/
-.cursor/skills/regime-detection/
-.cursor/skills/risk-management/
-.cursor/skills/trade-journal/
 .cursor/skills/walk-forward-validation/
 .cursor/skills/xlsx-official/
-.cursor/skills/external-skills-README.md
 
 # Virtual environments  
 venv/

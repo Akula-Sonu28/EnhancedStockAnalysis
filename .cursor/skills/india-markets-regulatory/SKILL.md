@@ -50,4 +50,25 @@ description: >-
 ## Hand off
 
 - Surveillance stock quality → Fundamental
-- F&O rules → `india-markets-derivatives` (research-only)
+- Portfolio impact of cost/tax assumptions → Portfolio
+
+## Five-Agent Council
+
+**Research-only for live tax law.** Escalate when **code** (`costs.py`, `universe_filter`) must change.
+
+| Escalate when | Council agents most involved |
+|---------------|------------------------------|
+| backtest/costs.py STT/stamp/GST/LTCG parameters | RISK, QUANT, AUDIT |
+| universe_filter surveillance/ETF/ADV rules | RISK (binding), ARCH |
+| New compliance gate on action surfaces | RISK, AUDIT, ARCH |
+
+```markdown
+## Council Escalation (from Regulatory desk)
+**Goal:** [e.g. "Update LTCG assumption in backtest/costs.py"]
+**India context:** Zerodha delivery model | investor-facing: NO (backtest) / YES (universe)
+**Evidence:** [costs.py params, filter rule, SEBI/Finance Act note]
+**Proposed change:** [file — not live tax advice]
+**Council trigger:** COUNCIL <goal>
+```
+
+Bridge: `.cursor/skills/five-agent-council/references/product-teams-bridge.md`

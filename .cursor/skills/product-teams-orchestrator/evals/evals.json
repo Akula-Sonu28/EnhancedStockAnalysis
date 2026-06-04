@@ -1,0 +1,49 @@
+{
+  "skill_name": "product-teams-orchestrator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "call everyone — we need to add BEAR-regime hard-stop tiers to the live analyzer, ship it, and explain impact on my portfolio",
+      "expected_output": "Classifies as all-layer; india-markets portfolio+macro context; COUNCIL with Problem Brief; after gate BUILD via backend; mentions regression tests; no direct scoring patch from research desk.",
+      "expectations": [
+        "Mentions COUNCIL before BUILD",
+        "Routes india-markets portfolio or macro desks",
+        "Routes software-product-backend or BUILD",
+        "Mentions test_v2_regression or regression gate",
+        "Classifies as all-layer or three-layer workflow"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "BUILD add a filter chip to the QMST dashboard action plan — same data, just UI",
+      "expected_output": "Routes to software-product-orchestrator only; Frontend+ui-designer; no COUNCIL; serve_dashboard smoke test.",
+      "expectations": [
+        "Council required NO or skip COUNCIL",
+        "Routes to software-product-frontend",
+        "Mentions serve_dashboard smoke test"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "full view on TCS from latest run",
+      "expected_output": "Routes to india-markets-orchestrator only; reads latest report/cache; multi-desk synthesis; disclaimer; no COUNCIL unless user asks to change code.",
+      "expectations": [
+        "Routes to india-markets-orchestrator",
+        "Invokes four desks or multi-desk synthesis",
+        "No COUNCIL implementation path",
+        "Includes disclaimer"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "COUNCIL DEBATE ONLY should quality_lvm weights go live in v2?",
+      "expected_output": "five-agent-council rounds 1-3; loads QUANT+stock-analysis-system; no BUILD implement unless user confirms after.",
+      "expectations": [
+        "DEBATE ONLY stops before Round 4",
+        "Routes to five-agent-council",
+        "Explicit no BUILD or no implement in this session",
+        "product-teams-orchestrator classify step"
+      ]
+    }
+  ]
+}

@@ -419,6 +419,11 @@ def apply_vmq_to_allocation_df(
 
     def _apply_turbo_entry_block(idx, row_dict, block_prefix: str, stat_key: str) -> bool:
         """Run turbo entry gate; mutate row to blocked state. Returns True if blocked."""
+        from src.lowvol_momentum import active_lvm_eligible_col, is_lvm_strategy
+        if (bool(_cfg(cfg, 'LVM_BYPASS_TURBO_GATE', True))
+                and is_lvm_strategy(cfg)
+                and row_dict.get(active_lvm_eligible_col(cfg), False)):
+            return False
         driver = str(_cfg(cfg, 'ENTRY_DRIVER', 'turbo_mtf')).lower()
         if driver in ('turbo_mtf', 'turbo'):
             from src.turbo_entry import evaluate_turbo_entry_gate

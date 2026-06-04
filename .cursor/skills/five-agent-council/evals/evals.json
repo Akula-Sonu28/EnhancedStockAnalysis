@@ -1,0 +1,20 @@
+{
+  "skill_name": "five-agent-council",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "COUNCIL should we promote quality_lvm weights to live v2?",
+      "expected_output": "Problem Brief; Round 1 five parallel positions; QUANT+AUDIT focus; breaking-change YES; no implement without gate+user confirm."
+    },
+    {
+      "id": 2,
+      "prompt": "COUNCIL DEBATE ONLY add v3 PAPER_TRADING_MODE toggle default false",
+      "expected_output": "Rounds 1-3 only; ARCH+RISK on toggles; Council Recommendation; stops before BUILD."
+    },
+    {
+      "id": 3,
+      "prompt": "fix typo in dashboard CSS",
+      "expected_output": "Skill should NOT trigger council; route to BUILD/Frontend instead."
+    }
+  ]
+}

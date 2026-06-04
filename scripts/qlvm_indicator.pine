@@ -1,0 +1,131 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0.
+// Quality-LVM (QLVM) — price-only overlay for TradingView
+// Mirrors Stock_Analysis: low-vol filter + 12m momentum + SMA50 gate + -10% stop
+// Cross-sectional rank (screen 20 / fund 12) and fundamentals: use Python analyzer + Screener
+
+//@version=6
+indicator("QLVM — Quality Low-V Momentum", overlay=true, max_labels_count=500, max_lines_count=500)
+
+// ─── Inputs (aligned with config.py defaults) ───────────────────────────────
+grpVol   = "Low volatility"
+volLen   = input.int(126, "Vol lookback (6m daily bars)", minval=20, group=grpVol)
+volMax   = input.float(30.0, "Max annualized vol %", minval=5.0, step=0.5, group=grpVol,
+     tooltip="Approximate cutoff; fund-12 names often 17–29%. Lower = stricter.")
+
+grpMom   = "Momentum"
+momLen   = input.int(252, "12m return lookback", minval=60, group=grpMom)
+minMom   = input.float(0.0, "Min 12m return %", step=0.5, group=grpMom)
+
+grpSma   = "Trend"
+smaLen   = input.int(50, "SMA length", minval=10, group=grpSma)
+reqSma50 = input.bool(true, "Require price > SMA50", group=grpSma)
+
+grpRisk  = "Exit"
+stopPct  = input.float(10.0, "Stop-loss % from entry", minval=1.0, step=0.5, group=grpRisk)
+exitSma  = input.bool(true, "Exit on close below SMA50", group=grpRisk)
+exitMom  = input.bool(true, "Exit when 12m return < 0", group=grpRisk)
+
+grpVis   = "Display"
+showSma  = input.bool(true, "Plot SMA50", group=grpVis)
+showBand = input.bool(true, "Plot entry band (97–101%)", group=grpVis)
+showTbl  = input.bool(true, "Info table", group=grpVis)
+
+// ─── Core series ───────────────────────────────────────────────────────────
+sma50 = ta.sma(close, smaLen)
+dailyRet = (close - close[1]) / close[1]
+annVol = ta.stdev(dailyRet, volLen) * math.sqrt(252) * 100.0
+ret12m = close[momLen] > 0 ? (close / close[momLen] - 1.0) * 100.0 : na
+
+lowVol   = annVol <= volMax
+aboveSma = close > sma50
+posMom   = not na(ret12m) and ret12m > minMom
+eligible = lowVol and (not reqSma50 or aboveSma) and posMom
+
+// ─── Entry tracking ──────────────────────────────────────────────────────────
+var float entryPrice = na
+var float stopPrice  = na
+var bool  inPosition = false
+
+buySignal = eligible and not eligible[1] and barstate.isconfirmed
+
+if buySignal and not inPosition
+    entryPrice := close
+    stopPrice  := close * (1.0 - stopPct / 100.0)
+    inPosition := true
+
+stopHit   = inPosition and low <= stopPrice
+smaExit   = inPosition and exitSma and close < sma50
+momExit   = inPosition and exitMom and not na(ret12m) and ret12m < 0
+exitSignal = (stopHit or smaExit or momExit) and barstate.isconfirmed
+
+if exitSignal
+    inPosition := false
+    entryPrice := na
+    stopPrice  := na
+
+entryLo = not na(entryPrice) ? entryPrice * 0.97 : na
+entryHi = not na(entryPrice) ? entryPrice * 1.01 : na
+
+// ─── Plots ───────────────────────────────────────────────────────────────────
+plot(showSma ? sma50 : na, "SMA50", color=color.new(color.orange, 0), linewidth=2)
+plot(showBand and inPosition ? stopPrice : na, "Stop -10%", color=color.new(color.red, 0),
+     style=plot.style_linebr, linewidth=2)
+plot(showBand and inPosition ? entryLo : na, "Entry band low 97%", color=color.new(color.teal, 50),
+     style=plot.style_linebr)
+plot(showBand and inPosition ? entryHi : na, "Entry band high 101%", color=color.new(color.teal, 50),
+     style=plot.style_linebr)
+
+bgcolor(eligible and not inPosition ? color.new(color.green, 92) : na, title="QLVM eligible zone")
+bgcolor(inPosition ? color.new(color.green, 96) : na, title="In QLVM position")
+bgcolor(stopHit ? color.new(color.red, 85) : na, title="Stop zone")
+
+plotshape(buySignal, title="QLVM BUY", style=shape.triangleup, location=location.belowbar,
+     color=color.new(color.lime, 0), size=size.small, text="QLVM\nBUY")
+plotshape(exitSignal, title="QLVM EXIT", style=shape.triangledown, location=location.abovebar,
+     color=color.new(color.red, 0), size=size.small, text="EXIT")
+
+exitReason = stopHit ? "STOP" : smaExit ? "SMA50" : momExit ? "MOM-" : ""
+if exitSignal and exitReason != ""
+    label.new(bar_index, high, exitReason, style=label.style_label_down,
+         color=color.red, textcolor=color.white, size=size.tiny)
+
+// ─── Alerts ──────────────────────────────────────────────────────────────────
+alertcondition(buySignal, "QLVM Buy", "QLVM: entry conditions met (low vol + SMA50 + 12m momentum)")
+alertcondition(exitSignal, "QLVM Exit", "QLVM: exit (stop / SMA50 / negative 12m)")
+
+// ─── Info table ──────────────────────────────────────────────────────────────
+if showTbl and barstate.islast
+    var table t = table.new(position.top_right, 2, 10, bgcolor=color.new(color.black, 15),
+         border_width=1)
+    table.cell(t, 0, 0, "QLVM", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 0, "Value", text_color=color.white, text_size=size.small)
+
+    table.cell(t, 0, 1, "Ann vol %", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 1, str.tostring(annVol, "#.#"), text_color=lowVol ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(t, 0, 2, "12m ret %", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 2, na(ret12m) ? "—" : str.tostring(ret12m, "#.#"),
+         text_color=posMom ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(t, 0, 3, "> SMA50", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 3, aboveSma ? "Yes" : "No", text_color=aboveSma ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(t, 0, 4, "Eligible", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 4, eligible ? "YES" : "No", text_color=eligible ? color.lime : color.gray, text_size=size.tiny)
+
+    table.cell(t, 0, 5, "In trade", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 5, inPosition ? "Yes" : "No", text_color=inPosition ? color.lime : color.gray, text_size=size.tiny)
+
+    table.cell(t, 0, 6, "Entry", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 6, na(entryPrice) ? "—" : str.tostring(entryPrice, "#.##"), text_color=color.white, text_size=size.tiny)
+
+    table.cell(t, 0, 7, "Stop", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 7, na(stopPrice) ? "—" : str.tostring(stopPrice, "#.##"), text_color=color.red, text_size=size.tiny)
+
+    pnlPct = inPosition and not na(entryPrice) ? (close / entryPrice - 1.0) * 100.0 : na
+    table.cell(t, 0, 8, "P&L %", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 8, na(pnlPct) ? "—" : str.tostring(pnlPct, "#.##") + "%",
+         text_color=na(pnlPct) ? color.gray : pnlPct >= 0 ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(t, 0, 9, "Note", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 9, "Rank via analyzer", text_color=color.gray, text_size=size.tiny)
